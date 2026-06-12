@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Taxidermy Services</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f4f0; color: #1a1a1a; }
+
+  header { background: #1a1a1a; color: #fff; padding: 2rem 1.5rem; }
+  header h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.01em; }
+  header p { margin-top: 0.5rem; font-size: 15px; color: #aaa; max-width: 600px; line-height: 1.6; }
+
+  main { max-width: 960px; margin: 2.5rem auto; padding: 0 1.25rem 4rem; }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    margin: 2.5rem 0 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .animal-card {
+    background: #fff;
+    border: 1px solid #e0ddd8;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.15s, border-color 0.15s;
+    cursor: default;
+  }
+  .animal-card:hover {
+    border-color: #bbb;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .animal-card img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    background: #eee;
+  }
+  .animal-card .label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1a1a1a;
+    padding: 8px 10px;
+    line-height: 1.35;
+  }
+
+  footer {
+    text-align: center;
+    padding: 2rem;
+    font-size: 13px;
+    color: #999;
+    border-top: 1px solid #ddd;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Taxidermy Services</h1>
+  <p>We offer full-mount, shoulder-mount, and European skull taxidermy for over 60 species. Each mount is handcrafted to preserve your trophy for generations.</p>
+</header>
+
+<main>
+
+  <div class="section-title">Deer &amp; Elk</div>
+  <div class="grid" id="deer"></div>
+
+  <div class="section-title">Antelope &amp; African Game</div>
+  <div class="grid" id="antelope"></div>
+
+  <div class="section-title">Sheep</div>
+  <div class="grid" id="sheep"></div>
+
+  <div class="section-title">Goats</div>
+  <div class="grid" id="goats"></div>
+
+  <div class="section-title">Hogs, Exotics &amp; Other</div>
+  <div class="grid" id="hogs"></div>
+
+</main>
+
+<footer>
+  &copy; 2026 Your Taxidermy Studio &mdash; Contact us to discuss your mount
+</footer>
+
+<script>
+const base = "https://www.oxhuntingranch.com/wp-content/uploads/2015/07/";
+
+const deer = [
+  ["Axis Deer", "axis-deer.jpg"],
+  ["Barasingha", "barasingha-deer.jpg"],
+  ["Eld's Deer", "elds-deer.jpg"],
+  ["Elk", "elk.jpg"],
+  ["Fallow Deer", "fallow-deer.jpg"],
+  ["Hog Deer", "hog-deer.jpg"],
+  ["Manchurian Sika", "manchurian-sika-deer.jpg"],
+  ["Muntjac Deer", "muntjac.jpg"],
+  ["Pere David's Deer", "pere-david.jpg"],
+  ["Red Stag", "red-stag.jpg"],
+  ["Sika Deer", "sika-deer.jpg"],
+  ["White Elk", "white-elk.jpg"],
+  ["White Stag", "white-stag.jpg"],
+  ["Whitetail Deer", "whitetail-deer.jpg"],
+];
+
+const antelope = [
+  ["Addax", "addax.jpg"],
+  ["Arabian Oryx", "arabian-oryx.jpg"],
+  ["Blackbuck", "blackbuck.jpg"],
+  ["Black Wildebeest", "black-wildebeest.jpg"],
+  ["Blesbok", "blesbok.jpg"],
+  ["Blue Wildebeest", "wildebeest.jpg"],
+  ["Bongo", "bongo.jpg"],
+  ["Dama Gazelle", "dama-gazelle.jpg"],
+  ["Eland", "eland.jpg"],
+  ["Gemsbok", "gemsbok.jpg"],
+  ["Grant's Gazelle", "grants-gazelle.jpg"],
+  ["Impala", "impala.jpg"],
+  ["Kudu", "kudu.jpg"],
+  ["Nile Lechwe", "nile-lechwe.jpg"],
+  ["Nilgai", "nilgai.jpg"],
+  ["Nyala", "nyala.jpg"],
+  ["Red Lechwe", "red-lechwe.jpg"],
+  ["Roan", "roan.jpg"],
+  ["Sable", "sable.jpg"],
+  ["Scimitar Horned Oryx", "scimitar-horned-oryx.jpg"],
+  ["Sitatunga", "sitatunga.jpg"],
+  ["Springbok", "springbok.jpg"],
+  ["Thomson's Gazelle", "thomsons-gazelle.jpg"],
+  ["Waterbuck", "waterbuck.jpg"],
+];
+
+const sheep = [
+  ["Aoudad", "aoudad-sheep.jpg"],
+  ["Black Hawaiian Sheep", "black-hawaiian.jpg"],
+  ["Blue Sheep", "blue-sheep.jpg"],
+  ["Corsican Sheep", "corsican-sheep.jpg"],
+  ["Four Horned Jacob Sheep", "four-horned-jacob-sheep.jpg"],
+  ["Himalayan Tahr", "himalayan-tahr.jpg"],
+  ["Mouflon Sheep", "mouflon-sheep.jpg"],
+  ["Painted Desert Sheep", "painted-desert-sheep.jpg"],
+  ["Red Sheep", "red-sheep.jpg"],
+  ["Texas Dall Sheep", "texas-dall.jpg"],
+  ["Transcaspian Urial", "transcaspian-urial.jpg"],
+];
+
+const goats = [
+  ["Catalina Goat", "catalina-goat.jpg"],
+  ["Ibex", "ibex.jpg"],
+  ["Markhor", "markhor.jpg"],
+];
+
+const hogs = [
+  ["Hog", "hog.jpg"],
+  ["Javelina", "javelina.jpg"],
+  ["Kangaroo", "kangaroo.jpg"],
+  ["Zebra", "zebra.jpg"],
+];
+
+function renderGrid(id, animals) {
+  const grid = document.getElementById(id);
+  animals.forEach(([name, img]) => {
+    const card = document.createElement("div");
+    card.className = "animal-card";
+    card.innerHTML = `<img src="${base}${img}" alt="${name}" loading="lazy" /><div class="label">${name}</div>`;
+    grid.appendChild(card);
+  });
+}
+
+renderGrid("deer", deer);
+renderGrid("antelope", antelope);
+renderGrid("sheep", sheep);
+renderGrid("goats", goats);
+renderGrid("hogs", hogs);
+</script>
+
+</body>
+</html>
