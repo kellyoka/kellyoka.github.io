@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animal Detail — Taxidermy Services</title>
+    <script src="js/conroe.js"></script>
+    <script src="js/jquery-3.4.1.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            background: #f5f4f0;
+            color: #1a1a1a;
+        }
+
+        header {
+            background: #1a1a1a;
+            color: #fff;
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+            header a {
+                color: #aaa;
+                text-decoration: none;
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            }
+
+                header a:hover {
+                    color: #fff;
+                }
+
+                header a::before {
+                    content: "←";
+                }
+
+            header h1 {
+                font-size: 1.2rem;
+                font-weight: 600;
+                color: #fff;
+            }
+
+        .hero {
+            width: 100%;
+            max-height: 380px;
+            object-fit: cover;
+            display: block;
+            background: #ddd;
+        }
+
+        main {
+            max-width: 680px;
+            margin: 2.5rem auto;
+            padding: 0 1.25rem 4rem;
+        }
+
+        .animal-name {
+            font-size: 2rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            margin-bottom: 0.25rem;
+        }
+
+        .animal-sub {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 2rem;
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #888;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .price-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 15px;
+            margin-bottom: 2.5rem;
+        }
+
+        .price-table th {
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: #888;
+            padding: 0 0 0.5rem;
+            border-bottom: 1px solid #e0ddd8;
+        }
+
+        .price-table th:last-child {
+            text-align: right;
+        }
+
+        .price-table td {
+            padding: 0.9rem 0;
+            border-bottom: 1px solid #f0ede8;
+        }
+
+        .price-table td:last-child {
+            text-align: right;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .price-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .note {
+            font-size: 13px;
+            color: #999;
+            line-height: 1.7;
+            margin-bottom: 2.5rem;
+        }
+
+        .cta-box {
+            background: #1a1a1a;
+            color: #fff;
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .cta-box h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+
+        .cta-box p {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 1.25rem;
+            line-height: 1.6;
+        }
+
+        .cta-box a {
+            display: inline-block;
+            background: #fff;
+            color: #1a1a1a;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 0.6rem 1.25rem;
+            border-radius: 6px;
+            text-decoration: none;
+        }
+
+                .cta-box a:hover {
+                    background: #eee;
+                }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            font-size: 13px;
+            color: #999;
+            border-top: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+  <a href="taxidermy_services.html">Back to all animals</a>
+</header>
+
+<img class="hero" id="hero-img" src="" alt="" />
+
+<main>
+  <div class="animal-name" id="animal-name">Loading...</div>
+  <div class="animal-sub">Taxidermy Pricing</div>
+
+  <div class="section-label">Mount Options &amp; Pricing</div>
+  <table class="price-table">
+    <thead>
+      <tr><th>Mount Type</th><th>Starting Price</th></tr>
+    </thead>
+    <tbody id="price-rows"></tbody>
+  </table>
+
+  <p class="note">Prices are starting estimates. Final cost depends on the size, condition, and pose of your trophy, as well as finishing options like custom bases or habitat scenes. Contact us for an exact quote.</p>
+
+  <div class="cta-box">
+    <h2>Ready to preserve your trophy?</h2>
+    <p>Get in touch and we'll walk you through the process, timeline, and what to do with your animal in the field to ensure the best result.</p>
+    <a href="mailto:info@yourstudio.com">Request a Quote</a>
+  </div>
+</main>
+
+<footer>
+  &copy; 2026 Your Taxidermy Studio &mdash; Contact us to discuss your mount
+</footer>
+
+<script>
+const imgBase = "https://www.oxhuntingranch.com/wp-content/uploads/2015/07/";
+
+// Default pricing — edit to match your real rates
+const defaultPricing = [
+  ["Shoulder Mount",       "$350"],
+  ["Full Body Mount",      "$750"],
+  ["European Skull Mount", "$150"],
+  ["Pedestal Mount",       "$950"],
+];
+
+// Per-animal overrides (optional)
+const pricingOverrides = {
+  // "Elk": [["Shoulder Mount","$600"],["Full Body Mount","$1,400"],["European Skull Mount","$200"]],
+};
+
+const params = new URLSearchParams(window.location.search);
+const name = params.get("animal") || "Unknown Animal";
+const img = params.get("img") || "";
+
+// Set page title and content
+document.title = `${name} — Taxidermy Services`;
+document.getElementById("animal-name").textContent = name;
+
+const heroImg = document.getElementById("hero-img");
+heroImg.src = imgBase + img;
+heroImg.alt = name;
+
+const rows = pricingOverrides[name] || defaultPricing;
+document.getElementById("price-rows").innerHTML = rows
+  .map(([type, price]) => `<tr><td>${type}</td><td>${price}</td></tr>`)
+  .join("");
+</script>
+
+</body>
+</html>
