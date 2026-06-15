@@ -4,53 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Animal Detail — Taxidermy Services</title>
+    <link rel="stylesheet" href="css/taxidermy.css" />
     <script src="js/conroe.js"></script>
     <script src="js/jquery-3.4.1.min.js"></script>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: system-ui, sans-serif;
-            background: #f5f4f0;
-            color: #1a1a1a;
-        }
-
-        header {
-            background: #1a1a1a;
-            color: #fff;
-            padding: 1.25rem 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-            header a {
-                color: #aaa;
-                text-decoration: none;
-                font-size: 14px;
-                display: flex;
-                align-items: center;
-                gap: 0.4rem;
-            }
-
-                header a:hover {
-                    color: #fff;
-                }
-
-                header a::before {
-                    content: "←";
-                }
-
-            header h1 {
-                font-size: 1.2rem;
-                font-weight: 600;
-                color: #fff;
-            }
-
         .hero {
             width: 100%;
             max-height: 380px;
@@ -78,17 +35,6 @@
             margin-bottom: 2rem;
         }
 
-        .section-label {
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: #888;
-            margin-bottom: 0.75rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #ddd;
-        }
-
         .price-table {
             width: 100%;
             border-collapse: collapse;
@@ -96,35 +42,35 @@
             margin-bottom: 2.5rem;
         }
 
-        .price-table th {
-            text-align: left;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.07em;
-            color: #888;
-            padding: 0 0 0.5rem;
-            border-bottom: 1px solid #e0ddd8;
-        }
+            .price-table th {
+                text-align: left;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: #888;
+                padding: 0 0 0.5rem;
+                border-bottom: 1px solid #e0ddd8;
+            }
 
-        .price-table th:last-child {
-            text-align: right;
-        }
+                .price-table th:last-child {
+                    text-align: right;
+                }
 
-        .price-table td {
-            padding: 0.9rem 0;
-            border-bottom: 1px solid #f0ede8;
-        }
+            .price-table td {
+                padding: 0.9rem 0;
+                border-bottom: 1px solid #f0ede8;
+            }
 
-        .price-table td:last-child {
-            text-align: right;
-            font-weight: 600;
-            color: #1a1a1a;
-        }
+                .price-table td:last-child {
+                    text-align: right;
+                    font-weight: 600;
+                    color: #1a1a1a;
+                }
 
-        .price-table tr:last-child td {
-            border-bottom: none;
-        }
+            .price-table tr:last-child td {
+                border-bottom: none;
+            }
 
         .note {
             font-size: 13px;
@@ -140,41 +86,33 @@
             padding: 1.5rem;
         }
 
-        .cta-box h2 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 0.35rem;
-        }
+            .cta-box h2 {
+                font-size: 1.1rem;
+                font-weight: 600;
+                margin-bottom: 0.35rem;
+            }
 
-        .cta-box p {
-            font-size: 14px;
-            color: #aaa;
-            margin-bottom: 1.25rem;
-            line-height: 1.6;
-        }
+            .cta-box p {
+                font-size: 14px;
+                color: #aaa;
+                margin-bottom: 1.25rem;
+                line-height: 1.6;
+            }
 
-        .cta-box a {
-            display: inline-block;
-            background: #fff;
-            color: #1a1a1a;
-            font-size: 14px;
-            font-weight: 600;
-            padding: 0.6rem 1.25rem;
-            border-radius: 6px;
-            text-decoration: none;
-        }
+            .cta-box a {
+                display: inline-block;
+                background: #fff;
+                color: #1a1a1a;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 0.6rem 1.25rem;
+                border-radius: 6px;
+                text-decoration: none;
+            }
 
                 .cta-box a:hover {
                     background: #eee;
                 }
-
-        footer {
-            text-align: center;
-            padding: 2rem;
-            font-size: 13px;
-            color: #999;
-            border-top: 1px solid #ddd;
-        }
     </style>
 </head>
 <body>

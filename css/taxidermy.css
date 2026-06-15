@@ -1,0 +1,93 @@
+/* taxidermy.css — shared styles */
+
+/* ── Reset ── */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* ── Base ── */
+body {
+    font-family: system-ui, sans-serif;
+    background: #f5f4f0;
+    color: #1a1a1a;
+}
+
+/* ── Header ── */
+header {
+    background: #1a1a1a;
+    color: #fff;
+    padding: 2rem 1.5rem;
+}
+
+header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+header p {
+    margin-top: 0.5rem;
+    font-size: 15px;
+    color: #aaa;
+    max-width: 600px;
+    line-height: 1.6;
+}
+
+/* Back-link variant used on animal.html */
+header.detail {
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+header.detail a {
+    color: #aaa;
+    text-decoration: none;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+header.detail a::before {
+    content: "←";
+}
+
+header.detail a:hover {
+    color: #fff;
+}
+
+header.detail h1 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+/* ── Section label (used in both pages) ── */
+.section-label,
+.section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.section-title {
+    margin-top: 2.5rem;
+}
+
+/* ── Footer ── */
+footer {
+    text-align: center;
+    padding: 2rem;
+    font-size: 13px;
+    color: #999;
+    border-top: 1px solid #ddd;
+}
