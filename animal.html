@@ -118,7 +118,7 @@
 <body>
 
 <header>
-  <a href="taxidermy_services.html">Back to all animals</a>
+  <a href="taxidermy_services.html">< Back to all animals</a>
 </header>
 
 <img class="hero" id="hero-img" src="" alt="" />
@@ -149,7 +149,6 @@
 </footer>
 
 <script>
-const imgBase = "https://www.oxhuntingranch.com/wp-content/uploads/2015/07/";
 
 // Default pricing — edit to match your real rates
 const defaultPricing = [
@@ -173,7 +172,7 @@ document.title = `${name} — Taxidermy Services`;
 document.getElementById("animal-name").textContent = name;
 
 const heroImg = document.getElementById("hero-img");
-heroImg.src = imgBase + img;
+heroImg.src = base + img;
 heroImg.alt = name;
 
 const rows = pricingOverrides[name] || defaultPricing;

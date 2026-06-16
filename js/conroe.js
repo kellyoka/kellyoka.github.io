@@ -25,6 +25,30 @@ const deer = [
   ["Whitetail Deer", "whitetail-deer.jpg"]
 ];
 
+const deerImage = [
+    ['Left Turn Upright Offset', 'leftUpright.jpg'],
+    ['Right Turn Upright Offset', 'rightUpright.jpg'],
+    ['Left Turn Square Shoulder', 'leftSquare.jpg'],
+    ['Right Turn Square Shoulder', 'rightSquare.jpg'],
+    ['Strait Upright', 'straightUpright.jpg'],
+    ['Left Turn Semi-Upright', 'leftSemiUpright.jpg'],
+    ['Left Turn Semi-Sneak Offset Shoulder', 'leftSemi.jpg'],
+    ['Right Turn Semi-Sneak Offset Shoulder', 'rightSemi.jpg'],
+    ['Left Turn Semi-Sneak Square Shoulder', 'leftSemiSquare.jpg'],
+    ['Right Turn Semi-Sneak Square Shoulder', 'rightSemiSquare.jpg'],
+    ['Left Turn Full-Sneak Offset Shoulder', 'leftFull.jpg'],
+    ['Right Turn Full-Sneak Offset Shoulder', 'rightFull.jpg'],
+    ['Left Turn Semi Upright Wall Pedestal', 'leftWall.jpg'],
+    ['Right Turn Semi Upright Wall Pedestal', 'rightWall.jpg'],
+    ['Left Turn Pedestal Mount', 'leftPedestal.jpg'],
+    ['Right Turn Pedestal Mount', 'rightPedestal.jpg']        
+]
+
+
+
+
+
+
 const antelope = [
   ["Addax", "addax.jpg"],
   ["Arabian Oryx", "arabian-oryx.jpg"],
@@ -78,6 +102,11 @@ const hogs = [
   ["Kangaroo", "kangaroo.jpg"],
   ["Zebra", "zebra.jpg"]
 ];
+
+
+
+
+
 
 const lookup = { deer, antelope, sheep, goats, hogs };
 

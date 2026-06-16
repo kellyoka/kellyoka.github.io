@@ -12,7 +12,11 @@ body {
     font-family: system-ui, sans-serif;
     background: #f5f4f0;
     color: #1a1a1a;
+    max-width: 1200px;
+    margin: 0px auto;
 }
+a { text-decoration: none; }
+a:visited { color: white; }
 
 /* ── Header ── */
 header {
