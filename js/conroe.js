@@ -25,28 +25,6 @@ const deer = [
   ["Whitetail Deer", "whitetail-deer.jpg"]
 ];
 
-const deerImage = [
-    ['Left Turn Upright Offset', 'leftUpright.jpg'],
-    ['Right Turn Upright Offset', 'rightUpright.jpg'],
-    ['Left Turn Square Shoulder', 'leftSquare.jpg'],
-    ['Right Turn Square Shoulder', 'rightSquare.jpg'],
-    ['Strait Upright', 'straightUpright.jpg'],
-    ['Left Turn Semi-Upright', 'leftSemiUpright.jpg'],
-    ['Left Turn Semi-Sneak Offset Shoulder', 'leftSemi.jpg'],
-    ['Right Turn Semi-Sneak Offset Shoulder', 'rightSemi.jpg'],
-    ['Left Turn Semi-Sneak Square Shoulder', 'leftSemiSquare.jpg'],
-    ['Right Turn Semi-Sneak Square Shoulder', 'rightSemiSquare.jpg'],
-    ['Left Turn Full-Sneak Offset Shoulder', 'leftFull.jpg'],
-    ['Right Turn Full-Sneak Offset Shoulder', 'rightFull.jpg'],
-    ['Left Turn Semi Upright Wall Pedestal', 'leftWall.jpg'],
-    ['Right Turn Semi Upright Wall Pedestal', 'rightWall.jpg'],
-    ['Left Turn Pedestal Mount', 'leftPedestal.jpg'],
-    ['Right Turn Pedestal Mount', 'rightPedestal.jpg']        
-]
-
-
-
-
 
 
 const antelope = [
@@ -104,10 +82,6 @@ const hogs = [
 ];
 
 
-
-
-
-
 const lookup = { deer, antelope, sheep, goats, hogs };
 
 function makeGrids() {
@@ -134,4 +108,119 @@ function renderGrid(id, animals) {
         <img src="${base}${img}" alt="${name}" loading="lazy" />
         <div class="label">${name}</div>
       </div>`).join('');
+}
+
+
+// ── Display Options ──────────────────────────────────────────
+// Values: 0 = don't show, 1 = show, 2 = show as recommended
+//
+// Index:  0              1              2            3         4       5        6
+//         SHOW_LIFE_SIZE SHOW_PEDESTAL  SHOW_SKULLS  SHOW_WALL SHOW_SH SHOW_FL  SHOW_PLAQUE
+//
+// Index:  7               8                 9         10           11           12
+//         SHOW_SKULL_HOOK SHOW_WIRE_HANGER  SHOW_SKIN SHOW_REC_RUG SHOW_PILLOW  SHOW_TAIL
+
+const PROPS = {
+    SHOW_LIFE_SIZE:    0,
+    SHOW_PEDESTAL:     1,
+    SHOW_SKULLS:       2,
+    SHOW_WALL:         3,
+    SHOW_SHOULDER:     4,
+    SHOW_FLOOR:        5,
+    SHOW_PLAQUE:       6,
+    SHOW_SKULL_HOOK:   7,
+    SHOW_WIRE_HANGER:  8,
+    SHOW_SKIN:         9,
+    SHOW_REC_RUG:      10,
+    SHOW_PILLOW:       11,
+    SHOW_TAIL:         12,
+};
+
+// [life, ped, skull, wall, shldr, floor, plack, sklHk, wire, skin, rug, pill, tail]
+const animalOptions = {
+
+    // ── DEER & ELK ──────────────────────────────────────────
+    //                              life  ped  skul  wall  shldr floor plack sklHk wire  skin  rug   pill  tail
+    "Axis Deer":                   [ 1,   1,   1,    2,    1,    1,    1,    1,    1,    1,    1,    1,    1  ],
+    "Barasingha":                  [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Eld's Deer":                  [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Elk":                         [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Fallow Deer":                 [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Hog Deer":                    [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Manchurian Sika":             [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Muntjac Deer":                [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Pere David's Deer":           [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Red Stag":                    [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Sika Deer":                   [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "White Elk":                   [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "White Stag":                  [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Whitetail Deer":              [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+
+    // ── ANTELOPE & AFRICAN GAME ──────────────────────────────
+    //                              life  ped  skul  wall  shldr floor plack sklHk wire  skin  rug   pill  tail
+    "Addax":                       [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Arabian Oryx":                [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Blackbuck":                   [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Black Wildebeest":            [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Blesbok":                     [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Blue Wildebeest":             [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Bongo":                       [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Dama Gazelle":                [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Eland":                       [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Gemsbok":                     [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Grant's Gazelle":             [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Impala":                      [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Kudu":                        [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Nile Lechwe":                 [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Nilgai":                      [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Nyala":                       [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Red Lechwe":                  [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Roan":                        [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Sable":                       [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Scimitar Horned Oryx":        [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Sitatunga":                   [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Springbok":                   [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Thomson's Gazelle":           [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Waterbuck":                   [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+
+    // ── SHEEP ────────────────────────────────────────────────
+    //                              life  ped  skul  wall  shldr floor plack sklHk wire  skin  rug   pill  tail
+    "Aoudad":                      [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Black Hawaiian Sheep":        [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Blue Sheep":                  [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Corsican Sheep":              [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Four Horned Jacob Sheep":     [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Himalayan Tahr":              [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Mouflon Sheep":               [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Painted Desert Sheep":        [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Red Sheep":                   [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Texas Dall Sheep":            [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Transcaspian Urial":          [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+
+    // ── GOATS ────────────────────────────────────────────────
+    //                              life  ped  skul  wall  shldr floor plack sklHk wire  skin  rug   pill  tail
+    "Catalina Goat":               [ 1,   1,   1,    2,    1,    0,    1,    1,    1,    1,    0,    0,    1  ],
+    "Ibex":                        [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+    "Markhor":                     [ 1,   2,   1,    1,    2,    0,    1,    1,    0,    1,    0,    0,    1  ],
+
+    // ── HOGS, EXOTICS & OTHER ────────────────────────────────
+    //                              life  ped  skul  wall  shldr floor plack sklHk wire  skin  rug   pill  tail
+    "Hog":                         [ 1,   1,   1,    1,    1,    2,    1,    0,    0,    1,    2,    1,    1  ],
+    "Javelina":                    [ 1,   1,   1,    1,    1,    2,    1,    0,    0,    1,    2,    1,    1  ],
+    "Kangaroo":                    [ 0,   0,   1,    0,    0,    2,    0,    0,    0,    2,    1,    1,    1  ],
+    "Zebra":                       [ 0,   0,   1,    0,    0,    2,    0,    0,    0,    2,    2,    1,    1  ],
+};
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function getOptions(animalName) {
+    return animalOptions[animalName] || null;
+}
+
+function getOptionProfile(animalName) {
+    const row = getOptions(animalName);
+    if (!row) return null;
+    return Object.fromEntries(
+        Object.entries(PROPS).map(([key, i]) => [key, row[i]])
+    );
 }

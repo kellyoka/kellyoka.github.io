@@ -70,6 +70,41 @@ header.detail h1 {
     color: #fff;
 }
 
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.animal-card {
+    background: #fff;
+    border: 1px solid #e0ddd8;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.15s, border-color 0.15s;
+    cursor: pointer;
+}
+.animal-card:hover {
+    border-color: #bbb;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.animal-card img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    background: #eee;
+}
+.animal-card .label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1a1a1a;
+    padding: 8px 10px;
+    line-height: 1.35;
+}
+
+
 /* ── Section label (used in both pages) ── */
 .section-label,
 .section-title {

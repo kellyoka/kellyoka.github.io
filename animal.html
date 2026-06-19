@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Animal Detail — Taxidermy Services</title>
     <link rel="stylesheet" href="css/taxidermy.css" />
-    <script src="js/conroe.js"></script>
     <script src="js/jquery-3.4.1.min.js"></script>
+    <script src="js/conroe.js"></script>
     <style>
         .hero {
             width: 100%;
@@ -41,36 +41,27 @@
             font-size: 15px;
             margin-bottom: 2.5rem;
         }
-
-            .price-table th {
-                text-align: left;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.07em;
-                color: #888;
-                padding: 0 0 0.5rem;
-                border-bottom: 1px solid #e0ddd8;
-            }
-
-                .price-table th:last-child {
-                    text-align: right;
-                }
-
-            .price-table td {
-                padding: 0.9rem 0;
-                border-bottom: 1px solid #f0ede8;
-            }
-
-                .price-table td:last-child {
-                    text-align: right;
-                    font-weight: 600;
-                    color: #1a1a1a;
-                }
-
-            .price-table tr:last-child td {
-                border-bottom: none;
-            }
+        .price-table th {
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: #888;
+            padding: 0 0 0.5rem;
+            border-bottom: 1px solid #e0ddd8;
+        }
+        .price-table th:last-child { text-align: right; }
+        .price-table td {
+            padding: 0.9rem 0;
+            border-bottom: 1px solid #f0ede8;
+        }
+        .price-table td:last-child {
+            text-align: right;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+        .price-table tr:last-child td { border-bottom: none; }
 
         .note {
             font-size: 13px;
@@ -85,100 +76,401 @@
             border-radius: 12px;
             padding: 1.5rem;
         }
+        .cta-box h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.35rem; }
+        .cta-box p { font-size: 14px; color: #aaa; margin-bottom: 1.25rem; line-height: 1.6; }
+        .cta-box a {
+            display: inline-block;
+            background: #fff;
+            color: #1a1a1a;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 0.6rem 1.25rem;
+            border-radius: 6px;
+            text-decoration: none;
+        }
+        .cta-box a:hover { background: #eee; }
 
-            .cta-box h2 {
-                font-size: 1.1rem;
-                font-weight: 600;
-                margin-bottom: 0.35rem;
-            }
+        /* ── Mount Selector ── */
+        .mount-section { margin-top: 2.5rem; }
 
-            .cta-box p {
-                font-size: 14px;
-                color: #aaa;
-                margin-bottom: 1.25rem;
-                line-height: 1.6;
-            }
+        .grid.centered {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            padding: 20px 0;
+        }
+        .grid.centered .animal-card {
+            width: 160px;
+            flex-shrink: 0;
+            cursor: pointer;
+            position: relative;
+        }
+        .animal-card.selected {
+            border: 2px solid #1a1a1a;
+        }
 
-            .cta-box a {
-                display: inline-block;
-                background: #fff;
-                color: #1a1a1a;
-                font-size: 14px;
-                font-weight: 600;
-                padding: 0.6rem 1.25rem;
-                border-radius: 6px;
-                text-decoration: none;
-            }
+        /* Recommended badge */
+        .rec-badge {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 3px 7px;
+            border-radius: 4px;
+            z-index: 1;
+        }
 
-                .cta-box a:hover {
-                    background: #eee;
-                }
+        /* breadcrumb */
+        .breadcrumb {
+            font-size: 13px;
+            color: #aaa;
+            margin-bottom: 0.75rem;
+            min-height: 1.5em;
+        }
+        .breadcrumb span { color: #1a1a1a; font-weight: 500; }
+        .breadcrumb .sep { margin: 0 6px; color: #ccc; }
+
+        /* back button */
+        .back-btn {
+            font-size: 13px;
+            color: #888;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 1rem;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .back-btn:hover { color: #1a1a1a; }
+
+        .level-note {
+            font-size: 13px;
+            color: #666;
+            text-align: center;
+            margin-top: 0.5rem;
+            min-height: 1.4em;
+            font-style: italic;
+        }
+
+        /* Life size text entry */
+        .lifesize-box {
+            background: #fff;
+            border: 1px solid #e0ddd8;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+        }
+        .lifesize-box label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #888;
+            margin-bottom: 0.5rem;
+        }
+        .lifesize-box textarea {
+            width: 100%;
+            min-height: 100px;
+            border: 1px solid #e0ddd8;
+            border-radius: 6px;
+            padding: 0.75rem;
+            font-size: 14px;
+            font-family: inherit;
+            color: #1a1a1a;
+            resize: vertical;
+            outline: none;
+        }
+        .lifesize-box textarea:focus {
+            border-color: #1a1a1a;
+        }
+        .lifesize-box .submit-btn {
+            margin-top: 0.75rem;
+            display: inline-block;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 0.6rem 1.25rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+        }
+        .lifesize-box .submit-btn:hover { background: #333; }
     </style>
 </head>
 <body>
 
 <header>
-  <a href="taxidermy_services.html">< Back to all animals</a>
+    <a href="taxidermy_services.html">&#8592; Back to all animals</a>
 </header>
 
 <img class="hero" id="hero-img" src="" alt="" />
 
 <main>
-  <div class="animal-name" id="animal-name">Loading...</div>
-  <div class="animal-sub">Taxidermy Pricing</div>
+    <div class="animal-name" id="animal-name">Loading...</div>
+    <div class="animal-sub">Taxidermy Choices</div>
 
-  <div class="section-label">Mount Options &amp; Pricing</div>
-  <table class="price-table">
-    <thead>
-      <tr><th>Mount Type</th><th>Starting Price</th></tr>
-    </thead>
-    <tbody id="price-rows"></tbody>
-  </table>
+    <!-- ── Mount Selector ── -->
+    <div class="mount-section">
+        <div class="section-label">Choose Your Mount Style</div>
+        <div class="breadcrumb" id="breadcrumb"></div>
 
-  <p class="note">Prices are starting estimates. Final cost depends on the size, condition, and pose of your trophy, as well as finishing options like custom bases or habitat scenes. Contact us for an exact quote.</p>
+        <!-- Level 1: Life Size / Pedestal & Shoulder / Skulls & Skins -->
+        <div id="level1">
+            <div class="grid centered">
+                <div class="animal-card" id="card-lifesize" onclick="selectTop('lifesize')">
+                    <img src="" id="img-lifesize" alt="Life Size" loading="lazy" />
+                    <div class="label">Life Size</div>
+                </div>
+                <div class="animal-card" id="card-pedestal" onclick="selectTop('pedestal')">
+                    <img src="" id="img-pedestal" alt="Pedestal &amp; Shoulder" loading="lazy" />
+                    <div class="label">Pedestal &amp; Shoulder</div>
+                </div>
+                <div class="animal-card" id="card-skulls" onclick="selectTop('skulls')">
+                    <img src="" id="img-skulls" alt="Skulls &amp; Skins" loading="lazy" />
+                    <div class="label">Skulls &amp; Skins</div>
+                </div>
+            </div>
+            <div class="level-note" id="level1-note"></div>
+        </div>
 
-  <div class="cta-box">
-    <h2>Ready to preserve your trophy?</h2>
-    <p>Get in touch and we'll walk you through the process, timeline, and what to do with your animal in the field to ensure the best result.</p>
-    <a href="mailto:info@yourstudio.com">Request a Quote</a>
-  </div>
+        <!-- Level 2a: Life Size — text entry -->
+        <div id="level2-lifesize" style="display:none;">
+            <button class="back-btn" onclick="goBack()">&#8592; Back</button>
+            <div class="lifesize-box">
+                <label>Describe your life size mount requirements</label>
+                <textarea id="lifesize-text" placeholder="Describe the pose, habitat scene, size of animal, any special requests..."></textarea>
+                <button class="submit-btn" onclick="submitLifesize()">Send Request</button>
+            </div>
+            <div class="level-note" id="level2-lifesize-note"></div>
+        </div>
+
+        <!-- Level 2b: Pedestal & Shoulder — wall / shoulder / floor -->
+        <div id="level2-pedestal" style="display:none;">
+            <button class="back-btn" onclick="goBack()">&#8592; Back</button>
+            <div class="grid centered" id="pedestal-grid"></div>
+            <div class="level-note" id="level2-pedestal-note"></div>
+        </div>
+
+        <!-- Level 2c: Skulls & Skins — three independent sub-groups -->
+        <div id="level2-skulls" style="display:none;">
+            <button class="back-btn" onclick="goBack()">&#8592; Back</button>
+
+            <div class="section-label" style="margin-top:1rem;">Hanging Method</div>
+            <div class="grid centered" id="skulls-hanging-grid"></div>
+            <div class="level-note" id="skulls-hanging-note"></div>
+
+            <div class="section-label" style="margin-top:1.5rem;">Rug &amp; Floor Options</div>
+            <div class="grid centered" id="skulls-rug-grid"></div>
+            <div class="level-note" id="skulls-rug-note"></div>
+
+            <div class="section-label" style="margin-top:1.5rem;">Tail</div>
+            <div class="grid centered" id="skulls-tail-grid"></div>
+            <div class="level-note" id="skulls-tail-note"></div>
+        </div>
+    </div>
+
 </main>
 
 <footer>
-  &copy; 2026 Your Taxidermy Studio &mdash; Contact us to discuss your mount
+    &copy; 2026 Your Taxidermy Studio &mdash; Contact us to discuss your mount
 </footer>
 
 <script>
+// ── URL params ───────────────────────────────────────────────
+const params     = new URLSearchParams(window.location.search);
+const animalName = decodeURIComponent(params.get('animal') || 'Unknown Animal');
+const img        = decodeURIComponent(params.get('img') || '');
 
-// Default pricing — edit to match your real rates
-const defaultPricing = [
-  ["Shoulder Mount",       "$350"],
-  ["Full Body Mount",      "$750"],
-  ["European Skull Mount", "$150"],
-  ["Pedestal Mount",       "$950"],
+// ── Page basics ──────────────────────────────────────────────
+document.title = `${animalName} — Taxidermy Services`;
+document.getElementById('animal-name').textContent = animalName;
+const heroImg = document.getElementById('hero-img');
+heroImg.src = base + img;
+heroImg.alt = animalName;
+
+// Placeholder images on level-1 cards — swap for real ones when available
+document.getElementById('img-lifesize').src = base + img;
+document.getElementById('img-pedestal').src = base + img;
+document.getElementById('img-skulls').src   = base + img;
+
+// ── Options row from conroe.js ───────────────────────────────
+// Values: 0 = don't show, 1 = show, 2 = show as recommended
+const optRow = getOptions(animalName);
+
+// ── Top-level card definitions ───────────────────────────────
+const TOP_OPTIONS = [
+    { key: 'lifesize', label: 'Life Size',           prop: PROPS.SHOW_LIFE_SIZE },
+    { key: 'pedestal', label: 'Pedestal & Shoulder', prop: PROPS.SHOW_PEDESTAL  },
+    { key: 'skulls',   label: 'Skulls & Skins',      prop: PROPS.SHOW_SKULLS    },
 ];
 
-// Per-animal overrides (optional)
-const pricingOverrides = {
-  // "Elk": [["Shoulder Mount","$600"],["Full Body Mount","$1,400"],["European Skull Mount","$200"]],
-};
+// ── Pedestal sub-options ─────────────────────────────────────
+const PEDESTAL_OPTIONS = [
+    ['Wall',     PROPS.SHOW_WALL],
+    ['Shoulder', PROPS.SHOW_SHOULDER],
+    ['Floor',    PROPS.SHOW_FLOOR],
+];
 
-const params = new URLSearchParams(window.location.search);
-const name = params.get("animal") || "Unknown Animal";
-const img = params.get("img") || "";
+// ── Skulls & Skins sub-groups (three independent pick-one groups) ──
+const SKULL_GROUPS = [
+    {
+        options: [
+            ['Skull Hook',  PROPS.SHOW_SKULL_HOOK],
+            ['Wire Hanger', PROPS.SHOW_WIRE_HANGER],
+            ['Plaque',      PROPS.SHOW_PLACK],
+        ],
+        gridId: 'skulls-hanging-grid',
+        noteId: 'skulls-hanging-note',
+    },
+    {
+        options: [
+            ['Rec Rug', PROPS.SHOW_REC_RUG],
+            ['Pillow',  PROPS.SHOW_PILLOW],
+        ],
+        gridId: 'skulls-rug-grid',
+        noteId: 'skulls-rug-note',
+    },
+    {
+        options: [
+            ['Tail', PROPS.SHOW_TAIL],
+        ],
+        gridId: 'skulls-tail-grid',
+        noteId: 'skulls-tail-note',
+    },
+];
 
-// Set page title and content
-document.title = `${name} — Taxidermy Services`;
-document.getElementById("animal-name").textContent = name;
+// ── Render Level 1 cards based on PROPS values ───────────────
+function renderLevel1() {
+    let recLabel = null;
 
-const heroImg = document.getElementById("hero-img");
-heroImg.src = base + img;
-heroImg.alt = name;
+    TOP_OPTIONS.forEach(({ key, label, prop }) => {
+        const card = document.getElementById('card-' + key);
+        const val  = optRow ? optRow[prop] : 1; // default: show if no data
 
-const rows = pricingOverrides[name] || defaultPricing;
-document.getElementById("price-rows").innerHTML = rows
-  .map(([type, price]) => `<tr><td>${type}</td><td>${price}</td></tr>`)
-  .join("");
+        // Remove any existing badge first
+        const existing = card.querySelector('.rec-badge');
+        if (existing) existing.remove();
+
+        if (val === 0) {
+            card.style.display = 'none';
+        } else {
+            card.style.display = '';
+            if (val === 2) {
+                recLabel = label;
+                const badge = document.createElement('span');
+                badge.className = 'rec-badge';
+                badge.textContent = 'Recommended';
+                card.prepend(badge);
+            }
+        }
+    });
+
+    document.getElementById('level1-note').textContent = recLabel
+        ? `Our experts recommend a ${recLabel} mount for this animal.`
+        : '';
+}
+
+// ── Build a sub-option grid ──────────────────────────────────
+function buildSubGrid(optionDefs, gridId, noteId) {
+    const grid = document.getElementById(gridId);
+    const note = document.getElementById(noteId);
+    let recLabel = null;
+
+    const cards = optionDefs
+        .filter(([, propIdx]) => optRow && optRow[propIdx] > 0)
+        .map(([label, propIdx]) => {
+            const isRec = optRow[propIdx] === 2;
+            if (isRec) recLabel = label;
+            return `
+            <div class="animal-card" onclick="selectOption(this, '${label}', '${noteId}')">
+                ${isRec ? '<span class="rec-badge">Recommended</span>' : ''}
+                <img src="${base}${img}" alt="${label}" loading="lazy" />
+                <div class="label">${label}</div>
+            </div>`;
+        });
+
+    grid.innerHTML = cards.length
+        ? cards.join('')
+        : '<p style="color:#aaa;font-size:14px;padding:1rem 0;">No options available for this animal.</p>';
+
+    note.textContent = recLabel
+        ? `Our experts recommend the ${recLabel} option for this animal.`
+        : '';
+}
+
+// ── Top-level selection (Level 1 → Level 2) ─────────────────
+function selectTop(choice) {
+    // Check if this card is hidden (val === 0) — guard against direct calls
+    const opt = TOP_OPTIONS.find(o => o.key === choice);
+    if (opt && optRow && optRow[opt.prop] === 0) return;
+
+    TOP_OPTIONS.forEach(({ key }) =>
+        document.getElementById('card-' + key).classList.remove('selected')
+    );
+    document.getElementById('card-' + choice).classList.add('selected');
+    document.getElementById('level1').style.display = 'none';
+
+    if (choice === 'lifesize') {
+        document.getElementById('breadcrumb').innerHTML = '<span>Life Size</span>';
+        document.getElementById('level2-lifesize').style.display = 'block';
+
+    } else if (choice === 'pedestal') {
+        document.getElementById('breadcrumb').innerHTML = '<span>Pedestal &amp; Shoulder</span>';
+        buildSubGrid(PEDESTAL_OPTIONS, 'pedestal-grid', 'level2-pedestal-note');
+        document.getElementById('level2-pedestal').style.display = 'block';
+
+    } else if (choice === 'skulls') {
+        document.getElementById('breadcrumb').innerHTML = '<span>Skulls &amp; Skins</span>';
+        SKULL_GROUPS.forEach(g => buildSubGrid(g.options, g.gridId, g.noteId));
+        document.getElementById('level2-skulls').style.display = 'block';
+    }
+}
+
+// ── Sub-option selection ─────────────────────────────────────
+function selectOption(cardEl, label, noteId) {
+    // Highlight within this card's own grid only (keeps sub-groups independent)
+    cardEl.closest('.grid').querySelectorAll('.animal-card')
+        .forEach(c => c.classList.remove('selected'));
+    cardEl.classList.add('selected');
+
+    document.getElementById(noteId).textContent =
+        `You've selected: ${label}.`;
+}
+
+// ── Life Size submit ─────────────────────────────────────────
+function submitLifesize() {
+    const text = document.getElementById('lifesize-text').value.trim();
+    if (!text) {
+        document.getElementById('level2-lifesize-note').textContent =
+            'Please describe your requirements before submitting.';
+        return;
+    }
+    const subject = encodeURIComponent(`Life Size Mount Request — ${animalName}`);
+    const body    = encodeURIComponent(`Animal: ${animalName}\n\nRequirements:\n${text}`);
+    window.location.href = `mailto:info@yourstudio.com?subject=${subject}&body=${body}`;
+}
+
+// ── Back to Level 1 ──────────────────────────────────────────
+function goBack() {
+    document.getElementById('level2-lifesize').style.display = 'none';
+    document.getElementById('level2-pedestal').style.display = 'none';
+    document.getElementById('level2-skulls').style.display   = 'none';
+    document.getElementById('level1').style.display          = 'block';
+    document.getElementById('breadcrumb').innerHTML          = '';
+}
+
+// ── Init ─────────────────────────────────────────────────────
+renderLevel1();
 </script>
 
 </body>
