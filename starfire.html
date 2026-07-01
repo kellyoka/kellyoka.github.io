@@ -1,0 +1,2960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starfire</title>
+    <style>
+        /* ── TOKENS ───────────────────────────────────────────────── */
+        :root {
+            --bg:        #0a0e1a;
+            --panel-bg:  #0f1628;
+            --border:    #1e2d50;
+            --accent:    #4a90d9;
+            --accent2:   #d94a4a;
+            --gold:      #c8a84b;
+            --text:      #eeeeee;
+            --text-dim:  #8a9ab8;
+            --hex-line:  #2e4a7a;
+            --hex-hover: rgba(74,144,217,0.15);
+            --p1color:   #4a90d9;
+            --p2color:   #d94a4a;
+            --font-ui:   'Courier New', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-ui);
+            font-size: 13px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── HEADER ───────────────────────────────────────────────── */
+        #header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel-bg);
+            flex-shrink: 0;
+        }
+        #header h1 {
+            font-size: 18px;
+            letter-spacing: 6px;
+            color: var(--gold);
+            text-transform: uppercase;
+        }
+        #phaseDisplay {
+            font-size: 12px;
+            color: var(--accent);
+            letter-spacing: 2px;
+        }
+        #turnDisplay {
+            font-size: 12px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+        }
+
+        /* ── MAIN LAYOUT ──────────────────────────────────────────── */
+        #main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── LEFT PANEL ───────────────────────────────────────────── */
+        #leftPanel {
+            width: 200px;
+            min-width: 32px;
+            max-width: 420px;
+            flex-shrink: 0;
+            border-right: 1px solid var(--border);
+            background: var(--panel-bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: width 0.2s ease;
+        }
+        /* scrollable ship roster area */
+        #leftPanelScroll {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        /* controls always pinned at bottom */
+        #leftPanelControls {
+            flex-shrink: 0;
+            border-top: 1px solid var(--border);
+        }
+        #leftPanel.minimized {
+            width: 32px !important;
+            min-width: 32px;
+            overflow: hidden;
+        }
+        #leftPanel.minimized #leftPanelScroll,
+        #leftPanel.minimized #leftPanelControls {
+            display: none;
+        }
+        /* drag handle on right edge of left panel */
+        #lpDragHandle {
+            position: absolute;
+            right: 0; top: 0; bottom: 0;
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 10;
+            transition: background 0.15s;
+        }
+        #lpDragHandle:hover { background: var(--accent); opacity: 0.5; }
+        /* minimize/maximize button */
+        #lpToggleBtn {
+            position: absolute;
+            top: 6px; left: 6px;
+            width: 22px; height: 22px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text-dim);
+            font-size: 14px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 11;
+            line-height: 1;
+            font-family: var(--font-ui);
+            transition: all 0.12s;
+        }
+        #lpToggleBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ── MAP AREA ─────────────────────────────────────────────── */
+        #mapArea {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            background: var(--bg);
+        }
+        #mapArea canvas {
+            display: block;
+        }
+
+        /* ── RIGHT PANEL ──────────────────────────────────────────── */
+        #rightPanel {
+            width: 220px;
+            min-width: 160px;
+            max-width: 520px;
+            flex-shrink: 0;
+            border-left: 1px solid var(--border);
+            background: var(--panel-bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: width 0.2s ease;
+        }
+        #rightPanel.minimized {
+            width: 32px !important;
+            min-width: 32px;
+            overflow: hidden;
+        }
+        #rightPanel.minimized .panelSection,
+        #rightPanel.minimized #logDiv {
+            display: none;
+        }
+        /* drag handle on left edge of right panel */
+        #rpDragHandle {
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 10;
+            transition: background 0.15s;
+        }
+        #rpDragHandle:hover { background: var(--accent); opacity: 0.5; }
+        /* minimize/maximize button */
+        #rpToggleBtn {
+            position: absolute;
+            top: 6px; right: 6px;
+            width: 22px; height: 22px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text-dim);
+            font-size: 14px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 11;
+            line-height: 1;
+            font-family: var(--font-ui);
+            transition: all 0.12s;
+        }
+        #rpToggleBtn:hover { border-color: var(--accent); color: var(--accent); }
+        #rightPanel.minimized #rpToggleBtn {
+            right: 5px;
+            top: 6px;
+        }
+
+        /* ── PANEL SECTIONS ───────────────────────────────────────── */
+        .panelSection {
+            border-bottom: 1px solid var(--border);
+            padding: 10px;
+        }
+        .panelTitle {
+            font-size: 10px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        /* ── SHIP CARD ────────────────────────────────────────────── */
+        .shipCard {
+            margin-bottom: 10px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+        }
+        .shipCard.p1 { border-left: 3px solid var(--p1color); }
+        .shipCard.p2 { border-left: 3px solid var(--p2color); }
+        .shipCard.selected { background: rgba(74,144,217,0.08); }
+
+        .shipName {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        .shipName.p1 { color: var(--p1color); }
+        .shipName.p2 { color: var(--p2color); }
+
+        .statRow {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+        .statRow span:last-child { color: var(--text); }
+
+        /* damage pips */
+        .pipRow {
+            display: flex;
+            gap: 3px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+        .pip {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            border: 1px solid currentColor;
+        }
+        .pip.shield  { color: var(--accent); }
+        .pip.armor   { color: var(--gold); }
+        .pip.hull    { color: var(--accent2); }
+        .pip.full.shield { background: var(--accent); }
+        .pip.full.armor  { background: var(--gold); }
+        .pip.full.hull   { background: var(--accent2); }
+
+        /* ── WEAPON LIST ──────────────────────────────────────────── */
+        .weaponRow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            padding: 3px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .weaponRow:last-child { border-bottom: none; }
+        .weaponName { color: var(--text); }
+        .weaponStats { color: var(--text-dim); font-size: 10px; }
+
+        /* ── BUTTONS ──────────────────────────────────────────────── */
+        .btn {
+            display: inline-block;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-ui);
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); }
+        .btn.primary { border-color: var(--accent); color: var(--accent); }
+        .btn.primary:hover { background: var(--accent); color: var(--bg); }
+        .btn.danger { border-color: var(--accent2); color: var(--accent2); }
+        .btn.danger:hover { background: var(--accent2); color: var(--bg); }
+        .btn:disabled, .btn.disabled {
+            opacity: 0.3;
+            cursor: default;
+            pointer-events: none;
+        }
+        .btnGroup {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 10px;
+        }
+
+        /* ── LOG ──────────────────────────────────────────────────── */
+        #logDiv {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 11px;
+            line-height: 1.6;
+        }
+        .logEntry { color: var(--text-dim); margin-bottom: 2px; }
+        .logEntry.important { color: var(--text); }
+        .logEntry.hit { color: var(--accent2); }
+        .logEntry.phase { color: var(--gold); letter-spacing: 1px; }
+
+        /* ── INSTRUCTION BAR ──────────────────────────────────────── */
+        #instrBar {
+            padding: 5px 12px;
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--accent);
+            letter-spacing: 1px;
+            flex-shrink: 0;
+            min-height: 26px;
+        }
+
+        /* ── MODAL ────────────────────────────────────────────────── */
+        #modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        #modal.open { display: flex; }
+        #modalBox {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 20px;
+            min-width: 300px;
+            max-width: 420px;
+        }
+        #modalTitle {
+            font-size: 14px;
+            color: var(--gold);
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+        }
+        #modalBody { font-size: 12px; line-height: 1.7; color: var(--text); margin-bottom: 14px; }
+        #modalBtns { display: flex; gap: 8px; justify-content: flex-end; }
+
+        /* ── SETUP SCREEN ─────────────────────────────────────────── */
+        #setupScreen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            overflow-y: auto;
+            padding: 30px 20px 40px;
+        }
+        #setupScreen h1 {
+            font-size: 28px;
+            letter-spacing: 10px;
+            color: var(--gold);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        #setupScreen .subtitle {
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 3px;
+            margin-bottom: 28px;
+        }
+        .setupGrid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 780px;
+            margin-bottom: 20px;
+        }
+        .setupCard {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 16px;
+        }
+        .setupCard h2 {
+            font-size: 11px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 14px;
+        }
+        .setupCard.p1 { border-top: 3px solid var(--p1color); }
+        .setupCard.p2 { border-top: 3px solid var(--p2color); }
+
+        /* BP budget bar */
+        .bpBar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .bpLabel { font-size: 12px; color: var(--text-dim); }
+        .bpValue { font-size: 16px; font-weight: bold; }
+        .bpValue.p1 { color: var(--p1color); }
+        .bpValue.p2 { color: var(--p2color); }
+
+        /* ship type picker */
+        .shipTypeList { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+        .shipTypeRow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 10px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: transparent;
+        }
+        .shipTypeInfo { flex: 1; }
+        .shipTypeName { font-size: 13px; color: var(--text); }
+        .shipTypeStats { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+        .shipTypeCost { font-size: 12px; color: var(--gold); margin: 0 12px; white-space: nowrap; }
+        .shipTypeQty {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .qtyBtn {
+            width: 22px; height: 22px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-ui);
+            font-size: 14px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.12s;
+        }
+        .qtyBtn:hover { border-color: var(--accent); color: var(--accent); }
+        .qtyNum { font-size: 14px; min-width: 16px; text-align: center; }
+
+        /* roster preview */
+        .rosterPreview {
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            min-height: 40px;
+        }
+        .rosterTitle { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; margin-bottom: 6px; }
+        .rosterShip { font-size: 12px; color: var(--text); margin-bottom: 2px; }
+
+        /* map size section */
+        .setupFull {
+            width: 100%;
+            max-width: 780px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .setupFull h2 {
+            font-size: 11px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+        .mapSizeRow { display: flex; gap: 10px; }
+        .mapSizeBtn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-ui);
+            font-size: 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.12s;
+        }
+        .mapSizeBtn:hover { border-color: var(--accent); }
+        .mapSizeBtn.active { border-color: var(--accent); background: rgba(74,144,217,0.12); color: var(--accent); }
+        .mapSizeSub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
+        /* deploy screen overlay */
+        #deployScreen {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 150;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding-top: 16px;
+            gap: 10px;
+            pointer-events: none;
+        }
+        #deployScreen.open { display: flex; }
+        #deployScreen > * { pointer-events: none; }
+        #deployTitle {
+            font-size: 16px;
+            letter-spacing: 4px;
+            color: var(--gold);
+        }
+        #deployInstr {
+            font-size: 13px;
+            color: var(--text);
+            text-align: center;
+            max-width: 400px;
+            line-height: 1.6;
+        }
+        #deployShipList {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .deployShipChip {
+            padding: 6px 12px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid var(--border);
+        }
+        .deployShipChip.active { border-color: var(--gold); color: var(--gold); }
+        .deployShipChip.placed { border-color: var(--text-dim); color: var(--text-dim); text-decoration: line-through; }
+        #deployZoneNote {
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+        }
+        /* ── SHIP TOOLTIP ─────────────────────────────────────────── */
+        #shipTooltip {
+            position: fixed;
+            pointer-events: none;
+            z-index: 300;
+            background: #0a1020;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 8px 11px;
+            font-size: 11px;
+            min-width: 160px;
+            display: none;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+        }
+        #shipTooltip.visible { display: block; }
+        .ttName { font-size: 13px; font-weight: bold; margin-bottom: 5px; }
+        .ttName.p1 { color: var(--p1color); }
+        .ttName.p2 { color: var(--p2color); }
+        .ttRow {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+        .ttRow span:last-child { color: var(--text); }
+        .ttDivider {
+            border-top: 1px solid var(--border);
+            margin: 5px 0;
+        }
+        .ttWeapon { color: var(--text-dim); margin-bottom: 1px; font-size: 10px; }
+
+        /* ── PHASE INDICATOR BAR ──────────────────────────────────── */
+        #phaseBar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            font-size: 11px;
+            letter-spacing: 2px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.3s, color 0.3s;
+            flex-shrink: 0;
+        }
+        #phaseBar .phaseDot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        #phaseBar.move    { background: rgba(74,144,217,0.12); color: #4a90d9; }
+        #phaseBar.move    .phaseDot { background: #4a90d9; box-shadow: 0 0 6px #4a90d9; }
+        #phaseBar.combat  { background: rgba(217,74,74,0.12);  color: #d94a4a; }
+        #phaseBar.combat  .phaseDot { background: #d94a4a; box-shadow: 0 0 6px #d94a4a; }
+        #phaseBar.missile { background: rgba(217,160,50,0.12); color: #d9a032; }
+        #phaseBar.missile .phaseDot { background: #d9a032; box-shadow: 0 0 6px #d9a032; }
+        #phaseBar.pointdef { background: rgba(180,100,217,0.12); color: #b464d9; }
+        #phaseBar.pointdef .phaseDot { background: #b464d9; box-shadow: 0 0 6px #b464d9; }
+        #phaseBar.resolve { background: rgba(60,180,100,0.12); color: #3cb464; }
+        #phaseBar.resolve .phaseDot { background: #3cb464; box-shadow: 0 0 6px #3cb464; }
+        /* ── POINT DEFENSE UI ─────────────────────────────────────── */
+        .pdSection {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .pdMissileBlock {
+            background: rgba(180,100,217,0.08);
+            border: 1px solid rgba(180,100,217,0.3);
+            border-radius: 3px;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+        .pdMissileTitle {
+            font-size: 11px;
+            color: #b464d9;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+        .pdAssigned {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+            min-height: 16px;
+        }
+        .pdAssigned span { color: #b464d9; }
+        .pdDefenderRow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            padding: 3px 0;
+        }
+        .pdDefenderName { color: var(--text); }
+        .pdDiceLabel { color: var(--text-dim); font-size: 10px; margin: 0 6px; }
+        .pdRollBtn {
+            padding: 8px;
+            margin-top: 6px;
+            width: 100%;
+            background: rgba(180,100,217,0.15);
+            border: 1px solid #b464d9;
+            border-radius: 3px;
+            color: #b464d9;
+            font-family: var(--font-ui);
+            font-size: 11px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .pdRollBtn:hover { background: #b464d9; color: #000; }
+        .pdSkipBtn {
+            padding: 5px;
+            margin-top: 4px;
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text-dim);
+            font-family: var(--font-ui);
+            font-size: 10px;
+            letter-spacing: 1px;
+            cursor: pointer;
+        }
+        .pdSkipBtn:hover { border-color: var(--text-dim); color: var(--text); }
+    </style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setupScreen">
+    <h1>Starfire</h1>
+    <div class="subtitle">1979 — FLEET ENGAGEMENT</div>
+
+    <!-- Map size -->
+    <div class="setupFull">
+        <h2>Map Size</h2>
+        <div class="mapSizeRow">
+            <button class="mapSizeBtn active" id="mapSmall" onclick="selectMapSize('small',this)">
+                Small<div class="mapSizeSub">20 × 14</div>
+            </button>
+            <button class="mapSizeBtn" id="mapMedium" onclick="selectMapSize('medium',this)">
+                Medium<div class="mapSizeSub">30 × 22</div>
+            </button>
+            <button class="mapSizeBtn" id="mapLarge" onclick="selectMapSize('large',this)">
+                Large<div class="mapSizeSub">40 × 30</div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Fleet builders -->
+    <div class="setupGrid">
+        <div class="setupCard p1">
+            <h2>Fleet Alpha</h2>
+            <div class="bpBar">
+                <span class="bpLabel">Build Points:</span>
+                <span class="bpValue p1" id="bp1">40</span>
+                <span class="bpLabel">/ 40</span>
+            </div>
+            <div class="shipTypeList" id="picker1"></div>
+            <div class="rosterPreview">
+                <div class="rosterTitle">Roster</div>
+                <div id="roster1"><span style="color:var(--text-dim);font-size:11px;">No ships selected</span></div>
+            </div>
+        </div>
+        <div class="setupCard p2">
+            <h2>Fleet Beta</h2>
+            <div class="bpBar">
+                <span class="bpLabel">Build Points:</span>
+                <span class="bpValue p2" id="bp2">40</span>
+                <span class="bpLabel">/ 40</span>
+            </div>
+            <div class="shipTypeList" id="picker2"></div>
+            <div class="rosterPreview">
+                <div class="rosterTitle">Roster</div>
+                <div id="roster2"><span style="color:var(--text-dim);font-size:11px;">No ships selected</span></div>
+            </div>
+        </div>
+    </div>
+
+    <button class="btn primary" style="padding:10px 32px;font-size:13px;letter-spacing:2px;" onclick="startDeployment()">
+        Begin Deployment →
+    </button>
+</div>
+
+<!-- DEPLOY SCREEN OVERLAY (shown over the map during placement) -->
+<div id="deployScreen">
+    <div id="deployTitle">DEPLOYMENT</div>
+    <div id="deployInstr"></div>
+    <div id="deployShipList"></div>
+    <div id="deployZoneNote"></div>
+</div>
+
+<!-- SHIP TOOLTIP -->
+<div id="shipTooltip"></div>
+
+<!-- HEADER -->
+<div id="header" style="display:none;">
+    <h1>Starfire</h1>
+    <div id="phaseDisplay">MOVEMENT PHASE</div>
+    <div id="turnDisplay">TURN 1</div>
+</div>
+
+<!-- MAIN -->
+<div id="main" style="display:none;">
+
+    <!-- LEFT: ship roster + controls -->
+    <div id="leftPanel">
+        <div id="lpDragHandle"></div>
+        <button id="lpToggleBtn" onclick="toggleLeftPanel()" title="Minimize/Maximize">▶</button>
+        <div id="leftPanelScroll">
+            <div class="panelSection" style="padding-top:34px;">
+                <div class="panelTitle">Fleet Alpha</div>
+                <div id="p1Ships"></div>
+            </div>
+            <div class="panelSection">
+                <div class="panelTitle">Fleet Beta</div>
+                <div id="p2Ships"></div>
+            </div>
+        </div>
+        <div id="leftPanelControls">
+            <div class="panelSection">
+                <div class="panelTitle">Controls</div>
+                <div class="btnGroup">
+                    <button class="btn primary" id="btnNextPhase" onclick="nextPhase()">Next Phase</button>
+                    <button class="btn" id="btnEndTurn" onclick="showTurnSummary()" style="display:none;">End Turn</button>
+                    <button class="btn" id="btnUndoMove" onclick="undoMove()" style="display:none;">↩ Undo Move</button>
+                    <button class="btn" onclick="resetGame()">New Game</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAP -->
+    <div id="mapArea">
+        <canvas id="mapCanvas"></canvas>
+    </div>
+
+    <!-- RIGHT: selected ship detail + log -->
+    <div id="rightPanel">
+        <div id="rpDragHandle"></div>
+        <button id="rpToggleBtn" onclick="toggleRightPanel()" title="Minimize/Maximize">◀</button>
+        <div id="phaseBar" class="move">
+            <div class="phaseDot"></div>
+            <span id="phaseBarLabel">MOVEMENT</span>
+        </div>
+        <div id="pdPanel" style="display:none;overflow-y:auto;"></div>
+        <div class="panelSection" id="selectedShipPanel" style="padding-top:8px;">
+            <div class="panelTitle">Selected Ship</div>
+            <div id="selectedShipDetail" style="color:var(--text-dim);font-size:11px;">Click a ship to select</div>
+        </div>
+        <div class="panelSection" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+            <div class="panelTitle">Combat Log</div>
+            <div id="logDiv"></div>
+        </div>
+    </div>
+
+</div>
+
+<!-- INSTRUCTION BAR -->
+<div id="instrBar" style="display:none;">Select a ship to begin movement</div>
+
+<!-- MODAL -->
+<div id="modal">
+    <div id="modalBox">
+        <div id="modalTitle"></div>
+        <div id="modalBody"></div>
+        <div id="modalBtns"></div>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STARFIRE 1979  —  Game Engine
+// ═══════════════════════════════════════════════════════════════
+
+// ── HEX GEOMETRY ───────────────────────────────────────────────
+const HEX = {
+    size: 28,          // circumradius
+    get w()  { return this.size * 2; },
+    get h()  { return Math.sqrt(3) * this.size; },
+    get colW() { return this.size * 1.5; },
+};
+
+// Hex grid is flat-top, offset layout (odd-q offset)
+function hexToPixel(col, row) {
+    const x = HEX.size + col * HEX.colW;
+    const y = HEX.size * Math.sqrt(3) * (row + (col % 2 === 1 ? 0.5 : 0));
+    return { x, y };
+}
+
+function pixelToHex(px, py) {
+    // rough inverse for click detection
+    const col = Math.round((px - HEX.size) / HEX.colW);
+    const row = Math.round((py / (HEX.size * Math.sqrt(3))) - (col % 2 === 1 ? 0.5 : 0));
+    return { col, row };
+}
+
+// Hex distance (flat-top offset)
+function hexDist(c1, r1, c2, r2) {
+    // convert offset to cube coords
+    const toCube = (col, row) => {
+        const x = col;
+        const z = row - (col - (col & 1)) / 2;
+        const y = -x - z;
+        return { x, y, z };
+    };
+    const a = toCube(c1, r1);
+    const b = toCube(c2, r2);
+    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
+}
+
+// Neighbours of a hex
+function hexNeighbours(col, row) {
+    const even = col % 2 === 0;
+    return [
+        { col: col+1, row: even ? row-1 : row   },
+        { col: col+1, row: even ? row   : row+1 },
+        { col: col,   row: row+1 },
+        { col: col-1, row: even ? row   : row+1 },
+        { col: col-1, row: even ? row-1 : row   },
+        { col: col,   row: row-1 },
+    ];
+}
+
+// ── CONSTANTS ───────────────────────────────────────────────────
+let GRID_COLS = 20;
+let GRID_ROWS = 14;
+
+const MAP_SIZES = {
+    small:  { cols: 20, rows: 14 },
+    medium: { cols: 30, rows: 22 },
+    large:  { cols: 40, rows: 30 },
+};
+
+// Phases
+const PHASE = { MOVE: 'MOVEMENT', COMBAT: 'COMBAT', MISSILE: 'MISSILE', POINTDEF: 'POINT DEFENSE', RESOLVE: 'RESOLVE' };
+
+// ── WEAPON DEFINITIONS ──────────────────────────────────────────
+// Beams roll 1d6 and cross-reference against range band.
+// Each entry is an array indexed by (roll-1), value is damage (0=miss).
+// Missiles are flat damage, no roll.
+
+const WEAPONS = {
+    beamA: {
+        id: 'beamA', name: 'Beam A', type: 'beam',
+        maxRange: 10,
+        // roll 1-6 → damage at each range band
+        rollTable: [
+            { maxRange: 3,  results: [0, 1, 1, 2, 2, 3] },  // close
+            { maxRange: 6,  results: [0, 0, 0, 1, 1, 2] },  // medium
+            { maxRange: 10, results: [0, 0, 0, 0, 0, 1] },  // long
+        ],
+    },
+    beamB: {
+        id: 'beamB', name: 'Beam B', type: 'beam',
+        maxRange: 5,
+        rollTable: [
+            { maxRange: 2, results: [0, 0, 1, 1, 2, 2] },
+            { maxRange: 5, results: [0, 0, 0, 0, 1, 1] },
+        ],
+    },
+    beamC: {
+        id: 'beamC', name: 'Beam C', type: 'beam',
+        maxRange: 3,
+        rollTable: [
+            { maxRange: 1, results: [0, 0, 0, 2, 2, 3] },
+            { maxRange: 3, results: [0, 0, 0, 0, 1, 2] },
+        ],
+    },
+    missile: {
+        id: 'missile', name: 'Missile', type: 'missile',
+        maxRange: 15,
+        rollTable: null,   // flat damage, no roll
+        flatDmg: 2,
+    },
+};
+
+// Returns the roll table band for a beam at a given range, or null if out of range
+function getBeamBand(weapId, range) {
+    const w = WEAPONS[weapId];
+    if (!w || !w.rollTable) return null;
+    return w.rollTable.find(b => range <= b.maxRange) || null;
+}
+
+// Roll d6 and return actual damage for a beam shot (0 = miss)
+function rollBeamDamage(weapId, range) {
+    const band = getBeamBand(weapId, range);
+    if (!band) return { roll: 0, dmg: 0, miss: true };
+    const roll = rollD6();
+    const dmg = band.results[roll - 1];
+    return { roll, dmg, miss: dmg === 0 };
+}
+
+// Max possible damage at range (for UI display — show best-case)
+function getWeaponMaxDamageAtRange(weapId, range) {
+    const w = WEAPONS[weapId];
+    if (!w) return 0;
+    if (w.type === 'missile') return range <= w.maxRange ? w.flatDmg : 0;
+    const band = getBeamBand(weapId, range);
+    if (!band) return 0;
+    return Math.max(...band.results);
+}
+
+function getWeaponMaxRange(weapId) {
+    const w = WEAPONS[weapId];
+    if (!w) return 0;
+    return w.maxRange;
+}
+
+// Keep old name as alias so applyDamage callers still work for missiles
+function getWeaponDamage(weapId, range) {
+    const w = WEAPONS[weapId];
+    if (!w) return 0;
+    if (w.type === 'missile') return range <= w.maxRange ? w.flatDmg : 0;
+    return getWeaponMaxDamageAtRange(weapId, range);
+}
+
+// ── SHIP TEMPLATES ──────────────────────────────────────────────
+const SHIP_TEMPLATES = {
+    frigate: {
+        label: 'Frigate (FF)', cost: 4,
+        speed: 6, shields: 1, armor: 0, hull: 3,
+        weapons: ['beamC', 'missile'],
+        statsDesc: 'Spd 6 · Shld 1 · Hull 3 · Beam C, Missile',
+    },
+    destroyer: {
+        label: 'Destroyer (DD)', cost: 6,
+        speed: 5, shields: 2, armor: 1, hull: 4,
+        weapons: ['beamB', 'beamB'],
+        statsDesc: 'Spd 5 · Shld 2 · Armor 1 · Hull 4 · 2× Beam B',
+    },
+    lightCruiser: {
+        label: 'Light Cruiser (CL)', cost: 10,
+        speed: 5, shields: 3, armor: 1, hull: 5,
+        weapons: ['beamA', 'beamB', 'missile'],
+        statsDesc: 'Spd 5 · Shld 3 · Armor 1 · Hull 5 · Beam A, Beam B, Missile',
+    },
+    cruiser: {
+        label: 'Heavy Cruiser (CA)', cost: 14,
+        speed: 4, shields: 4, armor: 2, hull: 6,
+        weapons: ['beamA', 'beamA', 'missile'],
+        statsDesc: 'Spd 4 · Shld 4 · Armor 2 · Hull 6 · 2× Beam A, Missile',
+    },
+    battleCruiser: {
+        label: 'Battlecruiser (BC)', cost: 18,
+        speed: 4, shields: 5, armor: 3, hull: 8,
+        weapons: ['beamA', 'beamA', 'beamB', 'missile'],
+        statsDesc: 'Spd 4 · Shld 5 · Armor 3 · Hull 8 · 2× Beam A, Beam B, Missile',
+    },
+    battleship: {
+        label: 'Battleship (BB)', cost: 24,
+        speed: 3, shields: 7, armor: 4, hull: 12,
+        weapons: ['beamA', 'beamA', 'beamA', 'beamB', 'missile', 'missile'],
+        statsDesc: 'Spd 3 · Shld 7 · Armor 4 · Hull 12 · 3× Beam A, Beam B, 2× Missile',
+    },
+};
+
+const BP_MAX = 40;
+
+// ship name pools per player
+const SHIP_NAMES = {
+    1: ['Aries','Boreas','Ceres','Draco','Eris','Fornax','Gemini','Hydra',
+        'Iona','Juno','Kappa','Leo','Mars','Nova','Orion','Perseus'],
+    2: ['Krait','Mamba','Naga','Ophion','Python','Racer','Taipan','Viper',
+        'Asp','Boa','Cobra','Dagger','Fang','Glyph','Haze','Ignis'],
+};
+const SHIP_PREFIX = { 1: 'TFS ', 2: 'BSS ' };
+
+function makeShip(id, name, player, col, row, template) {
+    return {
+        id, name, player, col, row,
+        speed: template.speed,
+        movesLeft: template.speed,
+        shieldMax: template.shields,
+        shieldCur: template.shields,
+        armorMax: template.armor,
+        armorCur: template.armor,
+        hullMax: template.hull,
+        hullCur: template.hull,
+        weapons: template.weapons.map((w, i) => ({
+            slotId: i,
+            weapId: w,
+            fired: false,
+            destroyed: false,
+        })),
+        moved: false,
+        destroyed: false,
+        pendingCol: col,
+        pendingRow: row,
+    };
+}
+
+// ── SETUP STATE ─────────────────────────────────────────────────
+let SETUP = {
+    mapSize: 'small',
+    fleets: {
+        1: { frigate: 0, destroyer: 0, lightCruiser: 0, cruiser: 0, battleCruiser: 0, battleship: 0 },
+        2: { frigate: 0, destroyer: 0, lightCruiser: 0, cruiser: 0, battleCruiser: 0, battleship: 0 },
+    },
+    deployPlayer: 1,
+    deployQueue: [],   // ships left to place for current player
+    deployDone: [],    // ships already placed
+};
+
+function bpUsed(player) {
+    const f = SETUP.fleets[player];
+    return Object.entries(f).reduce((sum, [type, qty]) => sum + qty * SHIP_TEMPLATES[type].cost, 0);
+}
+function bpLeft(player) { return BP_MAX - bpUsed(player); }
+
+function selectMapSize(size, btn) {
+    SETUP.mapSize = size;
+    document.querySelectorAll('.mapSizeBtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function changeQty(player, type, delta) {
+    const f = SETUP.fleets[player];
+    const newQty = (f[type] || 0) + delta;
+    if (newQty < 0) return;
+    const cost = SHIP_TEMPLATES[type].cost;
+    if (delta > 0 && cost > bpLeft(player)) return;
+    f[type] = newQty;
+    refreshSetupUI();
+}
+
+function refreshSetupUI() {
+    for (const p of [1, 2]) {
+        // BP remaining
+        document.getElementById('bp' + p).textContent = bpLeft(p);
+
+        // picker rows
+        const pickerEl = document.getElementById('picker' + p);
+        pickerEl.innerHTML = '';
+        for (const [type, tmpl] of Object.entries(SHIP_TEMPLATES)) {
+            const qty = SETUP.fleets[p][type] || 0;
+            const canAdd = tmpl.cost <= bpLeft(p);
+            const row = document.createElement('div');
+            row.className = 'shipTypeRow';
+            row.innerHTML = `
+                <div class="shipTypeInfo">
+                    <div class="shipTypeName">${tmpl.label}</div>
+                    <div class="shipTypeStats">${tmpl.statsDesc}</div>
+                </div>
+                <div class="shipTypeCost">${tmpl.cost} BP</div>
+                <div class="shipTypeQty">
+                    <button class="qtyBtn" onclick="changeQty(${p},'${type}',-1)" ${qty===0?'disabled':''}>−</button>
+                    <span class="qtyNum">${qty}</span>
+                    <button class="qtyBtn" onclick="changeQty(${p},'${type}',1)" ${!canAdd?'disabled':''}>+</button>
+                </div>`;
+            pickerEl.appendChild(row);
+        }
+
+        // roster preview
+        const rosterEl = document.getElementById('roster' + p);
+        const ships = buildRosterList(p);
+        if (ships.length === 0) {
+            rosterEl.innerHTML = '<span style="color:var(--text-dim);font-size:11px;">No ships selected</span>';
+        } else {
+            rosterEl.innerHTML = ships.map(s => `<div class="rosterShip">• ${s}</div>`).join('');
+        }
+    }
+}
+
+function buildRosterList(player) {
+    const names = [...SHIP_NAMES[player]];
+    const prefix = SHIP_PREFIX[player];
+    const list = [];
+    let ni = 0;
+    for (const [type, tmpl] of Object.entries(SHIP_TEMPLATES)) {
+        const qty = SETUP.fleets[player][type] || 0;
+        for (let i = 0; i < qty; i++) {
+            list.push(prefix + (names[ni++] || type + i) + ' (' + tmpl.label + ')');
+        }
+    }
+    return list;
+}
+
+function startDeployment() {
+    // validate: each player needs at least 1 ship
+    if (bpUsed(1) === 0) { alert('Fleet Alpha has no ships!'); return; }
+    if (bpUsed(2) === 0) { alert('Fleet Beta has no ships!'); return; }
+
+    // set map size
+    const sz = MAP_SIZES[SETUP.mapSize];
+    GRID_COLS = sz.cols;
+    GRID_ROWS = sz.rows;
+    canvas.width  = HEX.size + GRID_COLS * HEX.colW + HEX.size;
+    canvas.height = HEX.h * (GRID_ROWS + 0.5) + HEX.size;
+
+    // hide setup, show game UI (but not header/instrBar yet)
+    document.getElementById('setupScreen').style.display = 'none';
+    document.getElementById('main').style.display = 'flex';
+    document.getElementById('instrBar').style.display = 'block';
+
+    // init bare game state (no ships yet)
+    G = {
+        turn: 1,
+        phase: PHASE.MOVE,
+        ships: [],
+        missiles: [],
+        missileIdSeq: 0,
+        selectedId: null,
+        targetId: null,
+        highlightHexes: [],
+        combatQueue: [],
+        pdQueue: [],
+        lastMove: null,      // undo snapshot
+        log: [],
+    };
+
+    beginPlayerDeployment(1);
+}
+
+function beginPlayerDeployment(player) {
+    SETUP.deployPlayer = player;
+    SETUP.deployDone = G.ships.filter(s => s.player !== player);
+
+    // build deploy queue for this player
+    const names = [...SHIP_NAMES[player]];
+    const prefix = SHIP_PREFIX[player];
+    let ni = 0, sid = (player === 1 ? 10 : 20);
+    SETUP.deployQueue = [];
+    for (const [type, tmpl] of Object.entries(SHIP_TEMPLATES)) {
+        const qty = SETUP.fleets[player][type] || 0;
+        for (let i = 0; i < qty; i++) {
+            SETUP.deployQueue.push({
+                id: 's' + (sid++),
+                name: prefix + (names[ni++] || type + i),
+                player,
+                templateKey: type,
+                placed: false,
+            });
+        }
+    }
+
+    showDeployScreen();
+    render();
+}
+
+function showDeployScreen() {
+    const player = SETUP.deployPlayer;
+    const color = player === 1 ? 'var(--p1color)' : 'var(--p2color)';
+    const fleetName = player === 1 ? 'Fleet Alpha' : 'Fleet Beta';
+    const zoneDesc = player === 1
+        ? 'left quarter of the map (columns 1–' + Math.floor(GRID_COLS / 4) + ')'
+        : 'right quarter of the map (columns ' + (GRID_COLS - Math.floor(GRID_COLS / 4) + 1) + '–' + GRID_COLS + ')';
+
+    document.getElementById('deployTitle').style.color = color;
+    document.getElementById('deployTitle').textContent = fleetName.toUpperCase() + ' — DEPLOYMENT';
+    document.getElementById('deployInstr').textContent =
+        'Click hexes in the ' + zoneDesc + ' to place your ships one by one.';
+    document.getElementById('deployZoneNote').textContent =
+        'Highlighted hexes show valid deployment zone';
+
+    refreshDeployList();
+    document.getElementById('deployScreen').classList.add('open');
+}
+
+function refreshDeployList() {
+    const el = document.getElementById('deployShipList');
+    el.innerHTML = SETUP.deployQueue.map((s, i) => {
+        const cls = s.placed ? 'placed' : (i === SETUP.deployQueue.findIndex(x => !x.placed) ? 'active' : '');
+        return `<div class="deployShipChip ${cls}">${s.name}</div>`;
+    }).join('');
+}
+
+function deployZoneHexes(player) {
+    const quarterW = Math.floor(GRID_COLS / 4);
+    const hexes = [];
+    for (let r = 0; r < GRID_ROWS; r++) {
+        const colStart = player === 1 ? 0 : GRID_COLS - quarterW;
+        const colEnd   = player === 1 ? quarterW : GRID_COLS;
+        for (let c = colStart; c < colEnd; c++) {
+            hexes.push({ col: c, row: r });
+        }
+    }
+    return hexes;
+}
+
+function nextUnplacedShip() {
+    return SETUP.deployQueue.find(s => !s.placed);
+}
+
+function placeShip(col, row) {
+    const player = SETUP.deployPlayer;
+    const zoneHexes = deployZoneHexes(player);
+    if (!zoneHexes.find(h => h.col === col && h.row === row)) return;
+
+    // check not occupied
+    if (G.ships.find(s => s.col === col && s.row === row)) return;
+
+    const next = nextUnplacedShip();
+    if (!next) return;
+
+    const tmpl = SHIP_TEMPLATES[next.templateKey];
+    const ship = makeShip(next.id, next.name, player, col, row, tmpl);
+    G.ships.push(ship);
+    next.placed = true;
+
+    refreshDeployList();
+    render();
+
+    // check if all placed
+    if (SETUP.deployQueue.every(s => s.placed)) {
+        if (player === 1) {
+            // move to player 2 deployment
+            setTimeout(() => beginPlayerDeployment(2), 400);
+        } else {
+            // all deployed — start game
+            setTimeout(() => startGame(), 400);
+        }
+    }
+}
+
+function startGame() {
+    document.getElementById('deployScreen').classList.remove('open');
+    document.getElementById('header').style.display = 'flex';
+    G_turnEvents = [];
+
+    addLog('═══ STARFIRE — TURN 1 ═══', 'phase');
+    addLog('Movement phase begins. Select a ship and click adjacent hexes to move.', 'important');
+
+    render();
+    updateUI();
+}
+
+// ── GAME STATE ──────────────────────────────────────────────────
+let G = {};
+
+function initGame() {
+    // Go back to setup screen
+    document.getElementById('setupScreen').style.display = 'flex';
+    document.getElementById('main').style.display = 'none';
+    document.getElementById('instrBar').style.display = 'none';
+    document.getElementById('header').style.display = 'none';
+    document.getElementById('deployScreen').classList.remove('open');
+    document.getElementById('logDiv').innerHTML = '';
+    document.getElementById('btnNextPhase').style.display = 'block';
+    document.getElementById('btnEndTurn').style.display = 'none';
+
+    // reset setup state
+    SETUP = {
+        mapSize: 'small',
+        fleets: {
+            1: { frigate: 0, destroyer: 0, lightCruiser: 0, cruiser: 0, battleCruiser: 0, battleship: 0 },
+            2: { frigate: 0, destroyer: 0, lightCruiser: 0, cruiser: 0, battleCruiser: 0, battleship: 0 },
+        },
+        deployPlayer: 1,
+        deployQueue: [],
+        deployDone: [],
+    };
+    // reset map size buttons
+    document.querySelectorAll('.mapSizeBtn').forEach(b => b.classList.remove('active'));
+    document.getElementById('mapSmall').classList.add('active');
+
+    refreshSetupUI();
+}
+
+// ── LOGGING ─────────────────────────────────────────────────────
+function addLog(msg, cls = '') {
+    G.log.push({ msg, cls });
+    const div = document.getElementById('logDiv');
+    const el = document.createElement('div');
+    el.className = 'logEntry ' + cls;
+    el.textContent = msg;
+    div.appendChild(el);
+    div.scrollTop = div.scrollHeight;
+}
+
+// ── SHIP HELPERS ────────────────────────────────────────────────
+function getShip(id) { return G.ships.find(s => s.id === id); }
+function liveShips(player) { return G.ships.filter(s => !s.destroyed && (player ? s.player === player : true)); }
+
+// ── MOVEMENT ────────────────────────────────────────────────────
+function selectShip(id) {
+    const ship = getShip(id);
+    if (!ship || ship.destroyed) return;
+
+    if (G.phase === PHASE.MOVE) {
+        if (ship.moved && ship.movesLeft === 0) {
+            addLog(ship.name + ' has already moved this turn.');
+            return;
+        }
+        G.selectedId = id;
+        G.targetId = null;
+        computeReachable(ship);
+    } else if (G.phase === PHASE.COMBAT) {
+        // in combat phase, click own ship to be attacker, enemy ship to be target
+        if (G.selectedId && getShip(G.selectedId)?.player !== ship.player) {
+            // clicking enemy: set as target
+            G.targetId = id;
+        } else {
+            G.selectedId = id;
+            G.targetId = null;
+        }
+    }
+
+    updateUI();
+    render();
+}
+
+function computeReachable(ship) {
+    // BFS up to movesLeft hexes from current position
+    const visited = new Map();
+    const queue = [{ col: ship.col, row: ship.row, steps: 0 }];
+    visited.set(`${ship.col},${ship.row}`, 0);
+    G.highlightHexes = [];
+
+    while (queue.length) {
+        const cur = queue.shift();
+        if (cur.steps >= ship.movesLeft) continue;
+        for (const nb of hexNeighbours(cur.col, cur.row)) {
+            if (nb.col < 0 || nb.col >= GRID_COLS || nb.row < 0 || nb.row >= GRID_ROWS) continue;
+            const key = `${nb.col},${nb.row}`;
+            if (visited.has(key)) continue;
+            // can't move into occupied hex (unless it's empty)
+            const occupied = G.ships.find(s => !s.destroyed && s.col === nb.col && s.row === nb.row);
+            if (occupied) continue;
+            visited.set(key, cur.steps + 1);
+            G.highlightHexes.push({ col: nb.col, row: nb.row, steps: cur.steps + 1 });
+            queue.push({ col: nb.col, row: nb.row, steps: cur.steps + 1 });
+        }
+    }
+}
+
+function moveShipTo(col, row) {
+    if (!G.selectedId) return;
+    const ship = getShip(G.selectedId);
+    if (!ship) return;
+
+    const dest = G.highlightHexes.find(h => h.col === col && h.row === row);
+    if (!dest) return;
+
+    // save undo snapshot before moving
+    G.lastMove = {
+        shipId:    ship.id,
+        fromCol:   ship.col,
+        fromRow:   ship.row,
+        movesLeft: ship.movesLeft,
+        moved:     ship.moved,
+    };
+
+    ship.movesLeft -= dest.steps;
+    ship.col = col;
+    ship.row = row;
+    ship.moved = true;
+    G.highlightHexes = [];
+
+    addLog(ship.name + ' moves to ' + coord(col, row) + ' (' + ship.movesLeft + ' moves left)');
+
+    // if no moves left, deselect
+    if (ship.movesLeft === 0) {
+        G.selectedId = null;
+    } else {
+        computeReachable(ship);
+    }
+
+    updateUI();
+    render();
+}
+
+// ── COMBAT ──────────────────────────────────────────────────────
+function fireWeapon(attackerId, slotId) {
+    const attacker = getShip(attackerId);
+    const target = getShip(G.targetId);
+    if (!attacker || !target) { addLog('Select a target first.'); return; }
+    if (target.player === attacker.player) { addLog('Cannot fire on friendly ships.'); return; }
+
+    const slot = attacker.weapons[slotId];
+    if (!slot || slot.fired || slot.destroyed) return;
+
+    const range = hexDist(attacker.col, attacker.row, target.col, target.row);
+    const maxR = getWeaponMaxRange(slot.weapId);
+    if (range > maxR) { addLog(WEAPONS[slot.weapId].name + ' out of range (range ' + range + ', max ' + maxR + ').'); return; }
+
+    // Queue the attack for simultaneous resolution
+    G.combatQueue.push({ attackerId, slotId, targetId: G.targetId, range });
+    slot.fired = true;
+
+    const w = WEAPONS[slot.weapId];
+    const preview = w.type === 'missile'
+        ? 'dmg ' + w.flatDmg + ' (flat)'
+        : 'roll d6 at range ' + range;
+    addLog(attacker.name + ' fires ' + w.name + ' at ' + target.name + ' (' + preview + ')');
+
+    updateUI();
+    render();
+}
+
+// ── DAMAGE ALLOCATION CHART (DAC) ───────────────────────────────
+// Starfire '79 DAC: roll 1d10 per point of damage that penetrates
+// shields & armor to determine which internal system is hit.
+// Each ship has a DAC profile based on its template type.
+//
+// Roll → System hit:
+//  1-3  : Hull (structural)
+//  4-5  : Engine (reduces speed)
+//  6-7  : Weapon (destroys one weapon)
+//  8-9  : Shield Generator (reduces shield max)
+//  10   : Magazine / Critical (double hull damage)
+
+const DAC_TABLE = [
+    { min: 1,  max: 3,  sys: 'hull',    label: 'Hull' },
+    { min: 4,  max: 5,  sys: 'engine',  label: 'Engine' },
+    { min: 6,  max: 7,  sys: 'weapon',  label: 'Weapon' },
+    { min: 8,  max: 9,  sys: 'shield',  label: 'Shield Generator' },
+    { min: 10, max: 10, sys: 'critical',label: 'CRITICAL HIT' },
+];
+
+function rollD10() { return Math.floor(Math.random() * 10) + 1; }
+function rollD6()  { return Math.floor(Math.random() * 6)  + 1; }
+
+function dacResult(roll) {
+    return DAC_TABLE.find(e => roll >= e.min && roll <= e.max);
+}
+
+// Apply one internal hit to a ship, returns description string
+function applyInternalHit(ship, sys) {
+    switch (sys) {
+        case 'hull':
+            ship.hullCur = Math.max(0, ship.hullCur - 1);
+            return 'hull (-1 hull, now ' + ship.hullCur + '/' + ship.hullMax + ')';
+
+        case 'engine': {
+            if (ship.speed <= 1) {
+                // engines already at minimum, bleed to hull instead
+                ship.hullCur = Math.max(0, ship.hullCur - 1);
+                return 'engine (already minimal — hull absorbs: ' + ship.hullCur + '/' + ship.hullMax + ')';
+            }
+            ship.speed = Math.max(1, ship.speed - 1);
+            ship.movesLeft = Math.min(ship.movesLeft, ship.speed);
+            return 'engine (speed reduced to ' + ship.speed + ')';
+        }
+
+        case 'weapon': {
+            const live = ship.weapons.filter(w => !w.destroyed);
+            if (live.length === 0) {
+                ship.hullCur = Math.max(0, ship.hullCur - 1);
+                return 'weapon (none left — hull absorbs: ' + ship.hullCur + '/' + ship.hullMax + ')';
+            }
+            // destroy a random live weapon
+            const victim = live[Math.floor(Math.random() * live.length)];
+            victim.destroyed = true;
+            return 'weapon (' + WEAPONS[victim.weapId].name + ' destroyed)';
+        }
+
+        case 'shield': {
+            if (ship.shieldMax <= 0) {
+                ship.hullCur = Math.max(0, ship.hullCur - 1);
+                return 'shield gen (no shields — hull absorbs: ' + ship.hullCur + '/' + ship.hullMax + ')';
+            }
+            ship.shieldMax = Math.max(0, ship.shieldMax - 1);
+            ship.shieldCur = Math.min(ship.shieldCur, ship.shieldMax);
+            return 'shield generator (max shields now ' + ship.shieldMax + ')';
+        }
+
+        case 'critical': {
+            // critical: 2 hull hits
+            ship.hullCur = Math.max(0, ship.hullCur - 2);
+            return '💥 CRITICAL — 2 hull hits (' + ship.hullCur + '/' + ship.hullMax + ')';
+        }
+
+        default:
+            return 'unknown system';
+    }
+}
+
+// Main damage application: shields absorb first, armor second,
+// then each remaining point of damage rolls on the DAC.
+// bypassShields=true skips shield absorption (missiles)
+function applyDamage(attacker, target, dmg, weapName, bypassShields = false) {
+    const lines = [];
+
+    // 1. Shields (skipped for missiles)
+    if (!bypassShields && target.shieldCur > 0) {
+        const abs = Math.min(target.shieldCur, dmg);
+        target.shieldCur -= abs;
+        dmg -= abs;
+        lines.push('  Shields absorb ' + abs + ' (remaining: ' + target.shieldCur + '/' + target.shieldMax + ')');
+    }
+
+    // 2. Armor
+    if (dmg > 0 && target.armorCur > 0) {
+        const abs = Math.min(target.armorCur, dmg);
+        target.armorCur -= abs;
+        dmg -= abs;
+        lines.push('  Armor absorbs ' + abs + ' (remaining: ' + target.armorCur + '/' + target.armorMax + ')');
+    }
+
+    // 3. Internal hits — one DAC roll per point of penetrating damage
+    if (dmg > 0) {
+        lines.push('  ' + dmg + ' point(s) penetrate — rolling DAC:');
+        for (let i = 0; i < dmg; i++) {
+            const roll = rollD10();
+            const entry = dacResult(roll);
+            const result = applyInternalHit(target, entry.sys);
+            lines.push('    Roll ' + roll + ' → ' + entry.label + ': ' + result);
+            recordTurnEvent('dac', target.name + ' DAC roll ' + roll + ' → ' + entry.label + ': ' + result);
+
+            if (target.hullCur <= 0) {
+                target.destroyed = true;
+                lines.push('  ⚡ ' + target.name + ' DESTROYED!');
+                break;
+            }
+        }
+    }
+
+    return lines;
+}
+
+// ── MISSILE COUNTERS ─────────────────────────────────────────────
+// Each missile: { id, player, col, row, targetId, speed, turnsLeft }
+// speed=8, moves each missile phase toward target
+
+function makeMissile(player, col, row, targetId) {
+    return {
+        id: 'm' + (G.missileIdSeq++),
+        player,
+        col, row,
+        targetId,
+        speed: 8,
+        intercepted: false,
+        hit: false,
+    };
+}
+
+// Move one missile one step toward its target using cube-coord path
+function stepMissileToward(m) {
+    const target = getShip(m.targetId);
+    if (!target || target.destroyed) { m.intercepted = true; return; } // target gone
+
+    // cube coords
+    const toCube = (col, row) => {
+        const x = col;
+        const z = row - (col - (col & 1)) / 2;
+        return { x, y: -x - z, z };
+    };
+    const fromCube = (x, y, z) => {
+        const col = x;
+        const row = z + (x - (x & 1)) / 2;
+        return { col, row };
+    };
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const roundCube = (x, y, z) => {
+        let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+        const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+        if (dx > dy && dx > dz) rx = -ry - rz;
+        else if (dy > dz) ry = -rx - rz;
+        else rz = -rx - ry;
+        return { x: rx, y: ry, z: rz };
+    };
+
+    const a = toCube(m.col, m.row);
+    const b = toCube(target.col, target.row);
+    const dist = Math.max(Math.abs(a.x-b.x), Math.abs(a.y-b.y), Math.abs(a.z-b.z));
+    if (dist === 0) { m.hit = true; return; }
+
+    // step one hex along cube line
+    const t = 1 / dist;
+    const mid = roundCube(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.z, b.z, t));
+    const next = fromCube(mid.x, mid.y, mid.z);
+    m.col = Math.max(0, Math.min(GRID_COLS-1, next.col));
+    m.row = Math.max(0, Math.min(GRID_ROWS-1, next.row));
+
+    if (m.col === target.col && m.row === target.row) m.hit = true;
+}
+
+// Point defense: ships within PD_RANGE of a missile can attempt intercept
+const PD_RANGE = 2;
+
+function pdShots(missile) {
+    // return list of enemy ships (enemy to missile.player) within PD_RANGE that haven't used PD
+    return G.ships.filter(s =>
+        !s.destroyed &&
+        s.player !== missile.player &&
+        !s.pdUsed &&
+        hexDist(s.col, s.row, missile.col, missile.row) <= PD_RANGE
+    );
+}
+
+// Point defense capacity per ship type (by hull size proxy)
+function pdDice(ship) {
+    if (ship.hullMax >= 12) return 3;   // battleship
+    if (ship.hullMax >= 8)  return 2;   // battlecruiser
+    return 1;                            // everything else
+}
+
+// ── TURN FLOW ───────────────────────────────────────────────────
+function nextPhase() {
+    if (G.phase === PHASE.MOVE) {
+        G.phase = PHASE.COMBAT;
+        G.selectedId = null;
+        G.targetId = null;
+        G.highlightHexes = [];
+        G.lastMove = null;   // can't undo once combat starts
+        addLog('── Combat phase: fire beams and launch missiles. ──', 'phase');
+        updateUI();
+        render();
+
+    } else if (G.phase === PHASE.COMBAT) {
+        // resolve beam attacks immediately; missiles become counters
+        resolveBeamCombat();
+
+    } else if (G.phase === PHASE.MISSILE) {
+        // advance all missiles and check for PD opportunities
+        advanceMissiles();
+
+    } else if (G.phase === PHASE.POINTDEF) {
+        // PD is handled via the panel UI — Next Phase here does nothing
+        addLog('Use the Point Defense panel to assign ships and roll.');
+        updateUI();
+    }
+}
+
+// ── BEAM RESOLUTION (immediate) ─────────────────────────────────
+function resolveBeamCombat() {
+    const beamAttacks = G.combatQueue.filter(a => WEAPONS[getShip(a.attackerId)?.weapons[a.slotId]?.weapId]?.type === 'beam');
+    const missileAttacks = G.combatQueue.filter(a => WEAPONS[getShip(a.attackerId)?.weapons[a.slotId]?.weapId]?.type === 'missile');
+
+    if (beamAttacks.length > 0) {
+        addLog('── Resolving beam fire ──', 'phase');
+        for (const attack of beamAttacks) {
+            const attacker = getShip(attack.attackerId);
+            const target   = getShip(attack.targetId);
+            if (!attacker || !target) continue;
+            const slot = attacker.weapons[attack.slotId];
+            const w = WEAPONS[slot.weapId];
+            const result = rollBeamDamage(slot.weapId, attack.range);
+            addLog(attacker.name + ' → ' + target.name
+                + ' [' + w.name + ' d6:' + result.roll
+                + (result.miss ? ' MISS]' : ' dmg ' + result.dmg + ']'), 'hit');
+            if (!result.miss && !target.destroyed) {
+                recordTurnEvent('beam', attacker.name + ' → ' + target.name + ': ' + w.name + ' d6:' + result.roll + ' dmg ' + result.dmg);
+                const lines = applyDamage(attacker, target, result.dmg, w.name);
+                for (const l of lines) addLog(l, 'hit');
+            }
+        }
+    }
+
+    // place missile counters on map
+    for (const attack of missileAttacks) {
+        const attacker = getShip(attack.attackerId);
+        const target   = getShip(attack.targetId);
+        if (!attacker || !target || target.destroyed) continue;
+        const m = makeMissile(attacker.player, attacker.col, attacker.row, attack.targetId);
+        G.missiles.push(m);
+        addLog(attacker.name + ' launches missile → ' + target.name + ' [counter placed]', 'hit');
+    }
+
+    G.combatQueue = [];
+
+    if (G.missiles.filter(m => !m.intercepted && !m.hit).length === 0) {
+        // no missiles in flight, skip missile phases
+        endCombatPhase();
+    } else {
+        G.phase = PHASE.MISSILE;
+        addLog('── Missile phase: ' + G.missiles.filter(m=>!m.intercepted&&!m.hit).length + ' missile(s) in flight. Press Next Phase to advance them. ──', 'phase');
+        updateUI();
+        render();
+    }
+}
+
+// ── MISSILE MOVEMENT ─────────────────────────────────────────────
+function advanceMissiles() {
+    const active = G.missiles.filter(m => !m.intercepted && !m.hit);
+    if (active.length === 0) { endCombatPhase(); return; }
+
+    addLog('── Missiles advance ──', 'phase');
+
+    // move each missile up to its speed
+    for (const m of active) {
+        const target = getShip(m.targetId);
+        if (!target || target.destroyed) { m.intercepted = true; addLog('  Missile loses lock — target destroyed.'); continue; }
+        const startDist = hexDist(m.col, m.row, target.col, target.row);
+        const steps = Math.min(m.speed, startDist);
+        for (let i = 0; i < steps; i++) {
+            stepMissileToward(m);
+            if (m.hit || m.intercepted) break;
+        }
+        if (!m.hit && !m.intercepted) {
+            addLog('  Missile at ' + coord(m.col, m.row) + ' → ' + target.name + ' (dist ' + hexDist(m.col, m.row, target.col, target.row) + ')');
+        }
+    }
+
+    // check for point defense opportunities
+    const stillActive = G.missiles.filter(m => !m.intercepted && !m.hit);
+
+    // reset PD flags
+    for (const s of G.ships) s.pdUsed = false;
+
+    // build PD queue: for each missile, find eligible defenders
+    G.pdQueue = [];
+    for (const m of stillActive) {
+        const defenders = pdShots(m);
+        if (defenders.length > 0) {
+            G.pdQueue.push({ missileId: m.id, defenders: defenders.map(s => s.id) });
+        }
+    }
+
+    if (G.pdQueue.length > 0) {
+        enterPDPhase();
+    } else {
+        // no PD opportunities — check impacts directly
+        resolveMissileImpacts();
+    }
+
+    updateUI();
+    render();
+}
+
+// ── POINT DEFENSE — INTERACTIVE ASSIGNMENT ───────────────────────
+// G.pdState tracks assignments during the PD phase:
+// { assignments: [ { missileId, shipId } ], resolved: Set(missileId) }
+
+function enterPDPhase() {
+    G.pdState = {
+        assignments: [],          // { missileId, shipId }
+        assignedShips: new Set(), // shipIds already committed
+    };
+    G.phase = PHASE.POINTDEF;
+    addLog('── Point defense: assign ships to intercept missiles. ──', 'phase');
+    updateUI();
+    renderPDPanel();
+    render();
+}
+
+function pdAssign(missileId, shipId) {
+    // toggle: if already assigned to this missile, remove
+    const existing = G.pdState.assignments.findIndex(a => a.missileId === missileId && a.shipId === shipId);
+    if (existing >= 0) {
+        G.pdState.assignments.splice(existing, 1);
+        G.pdState.assignedShips.delete(shipId);
+    } else {
+        // a ship can only be assigned to one missile
+        if (G.pdState.assignedShips.has(shipId)) {
+            // re-assign: remove old assignment for this ship
+            const old = G.pdState.assignments.findIndex(a => a.shipId === shipId);
+            if (old >= 0) G.pdState.assignments.splice(old, 1);
+            G.pdState.assignedShips.delete(shipId);
+        }
+        G.pdState.assignments.push({ missileId, shipId });
+        G.pdState.assignedShips.add(shipId);
+    }
+    renderPDPanel();
+}
+
+function renderPDPanel() {
+    const panel = document.getElementById('pdPanel');
+    const selectedShipPanel = document.getElementById('selectedShipPanel');
+    if (!G.phase || G.phase !== PHASE.POINTDEF) {
+        panel.style.display = 'none';
+        selectedShipPanel.style.display = '';
+        return;
+    }
+    panel.style.display = 'block';
+    selectedShipPanel.style.display = 'none';
+
+    const activeMissiles = G.missiles.filter(m => !m.intercepted && !m.hit);
+    // eligible pdQueue entries
+    const pdOps = G.pdQueue;
+
+    let html = '<div class="pdSection"><div class="panelTitle">POINT DEFENSE ASSIGNMENT</div>';
+    html += `<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;">Assign ships to intercept incoming missiles. Each ship can only defend against one missile. Roll 5-6 on d6 to intercept.</div>`;
+
+    for (const op of pdOps) {
+        const m = G.missiles.find(x => x.id === op.missileId);
+        if (!m || m.intercepted || m.hit) continue;
+        const target = getShip(m.targetId);
+        const assignedHere = G.pdState.assignments.filter(a => a.missileId === op.missileId).map(a => a.shipId);
+
+        html += `<div class="pdMissileBlock">`;
+        html += `<div class="pdMissileTitle">⬥ Missile → ${target ? target.name : '?'}</div>`;
+
+        // show assigned ships
+        if (assignedHere.length > 0) {
+            const names = assignedHere.map(id => getShip(id)?.name || id).join(', ');
+            html += `<div class="pdAssigned">Assigned: <span>${names}</span></div>`;
+        } else {
+            html += `<div class="pdAssigned" style="color:var(--text-dim);font-style:italic;">No ships assigned</div>`;
+        }
+
+        // available defenders for this missile
+        for (const defId of op.defenders) {
+            const def = getShip(defId);
+            if (!def || def.destroyed) continue;
+            const dice = pdDice(def);
+            const isAssignedHere = assignedHere.includes(defId);
+            const isAssignedElsewhere = !isAssignedHere && G.pdState.assignedShips.has(defId);
+            const pCol = def.player === 1 ? 'var(--p1color)' : 'var(--p2color)';
+            const btnLabel = isAssignedHere ? 'UNASSIGN' : 'ASSIGN';
+            const btnStyle = isAssignedHere
+                ? 'border-color:#b464d9;color:#b464d9;'
+                : isAssignedElsewhere
+                    ? 'opacity:0.35;cursor:not-allowed;'
+                    : '';
+            const btnDisabled = isAssignedElsewhere ? 'disabled' : '';
+            html += `<div class="pdDefenderRow">`;
+            html += `<span class="pdDefenderName" style="color:${pCol}">${def.name}</span>`;
+            html += `<span class="pdDiceLabel">${dice}d6</span>`;
+            html += `<button class="btn" style="padding:2px 7px;font-size:10px;${btnStyle}" ${btnDisabled} onclick="pdAssign('${op.missileId}','${defId}')">${btnLabel}</button>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+    }
+
+    // count undefended missiles
+    const undefended = pdOps.filter(op => {
+        return !G.pdState.assignments.find(a => a.missileId === op.missileId);
+    }).length;
+
+    html += `<button class="pdRollBtn" onclick="rollPDAssignments()">ROLL POINT DEFENSE</button>`;
+    if (undefended > 0) {
+        html += `<div style="font-size:10px;color:var(--text-dim);text-align:center;margin-top:4px;">${undefended} missile(s) undefended — will proceed to impact</div>`;
+    }
+    html += `<button class="pdSkipBtn" onclick="rollPDAssignments(true)">SKIP ALL PD →</button>`;
+    html += '</div>';
+
+    panel.innerHTML = html;
+}
+
+function rollPDAssignments(skipAll) {
+    addLog('── Point defense rolls ──', 'phase');
+
+    const assignments = skipAll ? [] : G.pdState.assignments;
+
+    // process each missile in pdQueue
+    for (const op of G.pdQueue) {
+        const m = G.missiles.find(x => x.id === op.missileId);
+        if (!m || m.intercepted || m.hit) continue;
+        const target = getShip(m.targetId);
+
+        const assigned = assignments.filter(a => a.missileId === op.missileId);
+        if (assigned.length === 0) {
+            addLog('  Missile → ' + (target?.name || '?') + ': no PD assigned — proceeds to impact');
+            continue;
+        }
+
+        for (const asgn of assigned) {
+            if (m.intercepted) break;
+            const def = getShip(asgn.shipId);
+            if (!def || def.destroyed) continue;
+            const dice = pdDice(def);
+            const rolls = Array.from({ length: dice }, () => rollD6());
+            const hit = rolls.some(r => r >= 5);
+            addLog('  ' + def.name + ' PD [' + rolls.join(',') + '] → ' + (hit ? 'INTERCEPTED!' : 'missed'), 'hit');
+            if (hit) {
+                recordTurnEvent('pd', def.name + ' intercepted missile targeting ' + (target?.name || '?') + ' [' + rolls.join(',') + ']');
+                m.intercepted = true;
+                def.pdUsed = true;
+            }
+        }
+
+        if (!m.intercepted && target) {
+            addLog('  Missile survives PD — tracking ' + target.name);
+        }
+    }
+
+    G.pdQueue = [];
+    G.pdState = null;
+
+    // hide PD panel, restore ship detail
+    document.getElementById('pdPanel').style.display = 'none';
+    document.getElementById('selectedShipPanel').style.display = '';
+
+    resolveMissileImpacts();
+}
+
+// ── MISSILE IMPACTS ──────────────────────────────────────────────
+function resolveMissileImpacts() {
+    const impacting = G.missiles.filter(m => m.hit && !m.intercepted);
+
+    if (impacting.length > 0) {
+        addLog('── Missile impacts ──', 'phase');
+        for (const m of impacting) {
+            const target = getShip(m.targetId);
+            if (!target || target.destroyed) continue;
+            // missiles bypass shields — go straight to DAC
+            addLog('  Missile hits ' + target.name + ' — bypasses shields!', 'hit');
+            recordTurnEvent('missile', 'Missile hit ' + target.name + ' (bypassed shields)');
+            const lines = applyDamage(null, target, 2, 'Missile', true); // bypassShields=true
+            for (const l of lines) addLog(l, 'hit');
+        }
+    }
+
+    // clean up spent missiles
+    G.missiles = G.missiles.filter(m => !m.intercepted && !m.hit);
+
+    if (G.missiles.length > 0) {
+        // missiles still in flight — go back to missile phase next turn
+        G.phase = PHASE.MISSILE;
+        addLog('── ' + G.missiles.length + ' missile(s) still in flight. Next phase will advance them. ──', 'phase');
+        endCombatPhase();
+    } else {
+        endCombatPhase();
+    }
+}
+
+function endCombatPhase() {
+    G.phase = PHASE.RESOLVE;
+    checkVictory();
+}
+
+function checkVictory() {
+    const p1alive = liveShips(1).length;
+    const p2alive = liveShips(2).length;
+
+    if (p1alive === 0 && p2alive === 0) {
+        showModal('MUTUAL DESTRUCTION', 'Both fleets have been annihilated. The battle ends in a draw.', [
+            { label: 'New Game', fn: resetGame }
+        ]);
+    } else if (p1alive === 0) {
+        showModal('FLEET BETA VICTORIOUS', 'All Alpha fleet ships have been destroyed.', [
+            { label: 'New Game', fn: resetGame }
+        ]);
+    } else if (p2alive === 0) {
+        showModal('FLEET ALPHA VICTORIOUS', 'All Beta fleet ships have been destroyed.', [
+            { label: 'New Game', fn: resetGame }
+        ]);
+    } else {
+        document.getElementById('btnNextPhase').style.display = 'none';
+        document.getElementById('btnEndTurn').style.display = 'block';
+        // show turn summary popup
+        showTurnSummary();
+    }
+    updateUI();
+    render();
+}
+
+function endTurn() {
+    G.turn++;
+    G.phase = PHASE.MOVE;
+    G.selectedId = null;
+    G.targetId = null;
+    G.highlightHexes = [];
+    G.combatQueue = [];
+    G.pdQueue = [];
+    G_turnEvents = [];  // reset turn event log
+
+    for (const s of G.ships) {
+        if (s.destroyed) continue;
+        s.moved = false;
+        s.movesLeft = s.speed;
+        s.pdUsed = false;
+        for (const w of s.weapons) w.fired = false;
+        s.shieldCur = Math.min(s.shieldMax, s.shieldCur + 1);
+    }
+
+    // missiles in flight carry over — they'll get their phase next turn
+    // if any remain, missile phase runs before combat
+    document.getElementById('btnNextPhase').style.display = 'block';
+    document.getElementById('btnEndTurn').style.display = 'none';
+
+    addLog('═══ TURN ' + G.turn + ' ═══', 'phase');
+    if (G.missiles.length > 0) {
+        addLog(G.missiles.length + ' missile(s) still in flight — missile phase first.', 'important');
+        G.phase = PHASE.MISSILE;
+    } else {
+        addLog('Movement phase begins.', 'important');
+    }
+    updateUI();
+    render();
+}
+
+function resetGame() {
+    closeModal();
+    initGame();
+}
+
+// ── COORDINATE HELPER ────────────────────────────────────────────
+function coord(col, row) {
+    return String(col + 1).padStart(2, '0') + String(row + 1).padStart(2, '0');
+}
+
+// ── MODAL ────────────────────────────────────────────────────────
+function showModal(title, body, buttons) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').textContent = body;
+    const btns = document.getElementById('modalBtns');
+    btns.innerHTML = '';
+    for (const b of buttons) {
+        const el = document.createElement('button');
+        el.className = 'btn primary';
+        el.textContent = b.label;
+        el.onclick = b.fn;
+        btns.appendChild(el);
+    }
+    document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+}
+
+// ── UI UPDATE ────────────────────────────────────────────────────
+function updateUI() {
+    // header
+    document.getElementById('phaseDisplay').textContent = G.phase + ' PHASE';
+    document.getElementById('turnDisplay').textContent = 'TURN ' + G.turn;
+
+    // phase bar
+    updatePhaseBar();
+
+    // instruction bar
+    const instrBar = document.getElementById('instrBar');
+    if (G.phase === PHASE.MOVE) {
+        if (!G.selectedId) instrBar.textContent = 'Select a ship to move. Press "Next Phase" when done.';
+        else {
+            const s = getShip(G.selectedId);
+            instrBar.textContent = s.name + ' selected — ' + s.movesLeft + ' moves remaining. Click a highlighted hex to move.';
+        }
+    } else if (G.phase === PHASE.COMBAT) {
+        if (!G.selectedId) instrBar.textContent = 'Select your ship to fire with.';
+        else if (!G.targetId) instrBar.textContent = 'Click an enemy ship to target it, then fire weapons below.';
+        else instrBar.textContent = 'Target: ' + getShip(G.targetId)?.name + '. Fire weapons in the right panel. Missiles become counters.';
+    } else if (G.phase === PHASE.MISSILE) {
+        const n = G.missiles.filter(m => !m.intercepted && !m.hit).length;
+        instrBar.textContent = n + ' missile(s) in flight. Press "Next Phase" to advance them toward their targets.';
+    } else if (G.phase === PHASE.POINTDEF) {
+        instrBar.textContent = 'Assign ships to intercept missiles in the right panel, then click ROLL POINT DEFENSE.';
+    } else {
+        instrBar.textContent = 'Phase complete. Press "End Turn" to advance to the next turn.';
+    }
+
+    // undo button — only visible during movement phase when a move exists
+    const undoBtn = document.getElementById('btnUndoMove');
+    if (undoBtn) {
+        undoBtn.style.display = (G.phase === PHASE.MOVE && G.lastMove) ? 'block' : 'none';
+    }
+
+    // ship cards
+    renderShipCards('p1Ships', 1);
+    renderShipCards('p2Ships', 2);
+
+    // PD panel (shows during POINTDEF phase, hides otherwise)
+    renderPDPanel();
+
+    // selected ship detail
+    renderSelectedDetail();
+}
+
+function renderShipCards(elId, player) {
+    const el = document.getElementById(elId);
+    const playerShips = G.ships.filter(s => s.player === player);
+    let html = '';
+    for (const s of playerShips) {
+        const isSel = G.selectedId === s.id;
+        const isTgt = G.targetId === s.id;
+        const pClass = 'p' + s.player;
+        const selClass = isSel ? ' selected' : '';
+        const destroyedStyle = s.destroyed ? 'opacity:0.4;' : '';
+
+        html += `<div class="shipCard ${pClass}${selClass}" style="${destroyedStyle}cursor:pointer;" onclick="selectShip('${s.id}')">`;
+        html += `<div class="shipName ${pClass}">${s.name}${s.destroyed ? ' [DEST]' : ''}</div>`;
+        html += `<div class="statRow"><span>Pos</span><span>${coord(s.col, s.row)}</span></div>`;
+        html += `<div class="statRow"><span>Speed</span><span>${s.movesLeft}/${s.speed}</span></div>`;
+
+        // shield pips
+        html += '<div class="pipRow">';
+        for (let i = 0; i < s.shieldMax; i++) {
+            html += `<div class="pip shield${i < s.shieldCur ? ' full' : ''}" title="Shield"></div>`;
+        }
+        html += '</div>';
+        // armor pips
+        if (s.armorMax > 0) {
+            html += '<div class="pipRow">';
+            for (let i = 0; i < s.armorMax; i++) {
+                html += `<div class="pip armor${i < s.armorCur ? ' full' : ''}" title="Armor"></div>`;
+            }
+            html += '</div>';
+        }
+        // hull pips
+        html += '<div class="pipRow">';
+        for (let i = 0; i < s.hullMax; i++) {
+            html += `<div class="pip hull${i < s.hullCur ? ' full' : ''}" title="Hull"></div>`;
+        }
+        html += '</div>';
+
+        if (isTgt) html += '<div style="font-size:10px;color:var(--accent2);margin-top:4px;">◀ TARGET</div>';
+        html += '</div>';
+    }
+    el.innerHTML = html;
+}
+
+function renderSelectedDetail() {
+    const el = document.getElementById('selectedShipDetail');
+    const s = G.selectedId ? getShip(G.selectedId) : null;
+    if (!s) { el.innerHTML = '<span style="color:var(--text-dim)">Click a ship to select</span>'; return; }
+
+    const tgt = G.targetId ? getShip(G.targetId) : null;
+    const range = tgt ? hexDist(s.col, s.row, tgt.col, tgt.row) : null;
+
+    let html = `<div class="shipName p${s.player}">${s.name}</div>`;
+    html += `<div class="statRow"><span>Hull</span><span>${s.hullCur}/${s.hullMax}</span></div>`;
+    html += `<div class="statRow"><span>Shields</span><span>${s.shieldCur}/${s.shieldMax}</span></div>`;
+    if (s.armorMax) html += `<div class="statRow"><span>Armor</span><span>${s.armorCur}/${s.armorMax}</span></div>`;
+    if (tgt) html += `<div class="statRow"><span>Range to target</span><span>${range}</span></div>`;
+
+    html += '<div style="margin-top:8px;margin-bottom:4px;font-size:10px;color:var(--text-dim);letter-spacing:2px;">WEAPONS</div>';
+    for (const slot of s.weapons) {
+        const w = WEAPONS[slot.weapId];
+        const maxR = getWeaponMaxRange(slot.weapId);
+        const inRange = tgt && range <= maxR;
+        const canFire = G.phase === PHASE.COMBAT && !slot.fired && !slot.destroyed && tgt && inRange && tgt.player !== s.player;
+
+        // build stat line
+        let statLine = 'Rng:' + maxR;
+        if (tgt && inRange) {
+            if (w.type === 'missile') {
+                statLine += ' | Dmg:' + w.flatDmg + ' (flat)';
+            } else {
+                const band = getBeamBand(slot.weapId, range);
+                if (band) {
+                    const maxDmg = Math.max(...band.results);
+                    const minDmg = Math.min(...band.results);
+                    // count miss chances
+                    const misses = band.results.filter(r => r === 0).length;
+                    statLine += ' | d6: miss 1-' + misses + ', max ' + maxDmg;
+                }
+            }
+        } else if (!tgt) {
+            if (w.type === 'missile') {
+                statLine += ' | Dmg:' + w.flatDmg;
+            } else {
+                const maxDmg = getWeaponMaxDamageAtRange(slot.weapId, 1);
+                statLine += ' | Max dmg:' + maxDmg + ' (roll d6)';
+            }
+        } else {
+            statLine += ' | Out of range';
+        }
+
+        html += `<div class="weaponRow">`;
+        html += `<div>`;
+        html += `<div class="weaponName" style="${slot.destroyed ? 'text-decoration:line-through;opacity:0.4' : ''}">${w.name}</div>`;
+        html += `<div class="weaponStats">${statLine}</div>`;
+        html += `</div>`;
+
+        if (!slot.destroyed) {
+            if (slot.fired) {
+                html += `<div style="font-size:10px;color:var(--text-dim)">FIRED</div>`;
+            } else if (canFire) {
+                html += `<button class="btn danger" style="padding:3px 8px;font-size:10px;" onclick="fireWeapon('${s.id}',${slot.slotId})">FIRE</button>`;
+            } else {
+                html += `<div style="font-size:10px;color:var(--text-dim)">—</div>`;
+            }
+        }
+        html += '</div>';
+    }
+
+    el.innerHTML = html;
+}
+
+// ── CANVAS RENDERING ─────────────────────────────────────────────
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+
+// Size the canvas to fit the grid
+canvas.width  = HEX.size + GRID_COLS * HEX.colW + HEX.size;
+canvas.height = HEX.h * (GRID_ROWS + 0.5) + HEX.size;
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+    drawShips();
+    drawMissiles();
+}
+
+function drawHex(col, row, fillStyle, strokeStyle, alpha) {
+    const { x, y } = hexToPixel(col, row);
+    ctx.save();
+    ctx.globalAlpha = alpha ?? 1;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i);
+        const px = x + HEX.size * Math.cos(angle);
+        const py = y + HEX.size * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    if (fillStyle) { ctx.fillStyle = fillStyle; ctx.fill(); }
+    if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.restore();
+}
+
+function drawGrid() {
+    const reachSet = new Set(G.highlightHexes.map(h => `${h.col},${h.row}`));
+
+    // deployment zone set
+    const isDeploying = document.getElementById('deployScreen').classList.contains('open');
+    const deployZone = isDeploying
+        ? new Set(deployZoneHexes(SETUP.deployPlayer).map(h => `${h.col},${h.row}`))
+        : new Set();
+
+    for (let c = 0; c < GRID_COLS; c++) {
+        for (let r = 0; r < GRID_ROWS; r++) {
+            const key = `${c},${r}`;
+            let fill = null;
+            if (deployZone.has(key)) {
+                const pColor = SETUP.deployPlayer === 1
+                    ? 'rgba(74,144,217,0.10)' : 'rgba(217,74,74,0.10)';
+                fill = pColor;
+            }
+            if (reachSet.has(key)) fill = 'rgba(74,144,217,0.18)';
+            drawHex(c, r, fill, '#2e4a7a', 1);
+
+            // coordinate label
+            const { x, y } = hexToPixel(c, r);
+            ctx.fillStyle = '#3a5580';
+            ctx.font = '8px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(coord(c, r), x, y + HEX.size * 0.7);
+        }
+    }
+
+    // highlight selected hex
+    if (G.selectedId) {
+        const s = getShip(G.selectedId);
+        if (s) drawHex(s.col, s.row, null, '#4a90d9', 0.9);
+    }
+    if (G.targetId) {
+        const t = getShip(G.targetId);
+        if (t) drawHex(t.col, t.row, null, '#d94a4a', 0.9);
+    }
+
+    // draw range line if target selected in combat
+    if (G.phase === PHASE.COMBAT && G.selectedId && G.targetId) {
+        const s = getShip(G.selectedId);
+        const t = getShip(G.targetId);
+        if (s && t) drawRangeLine(s, t);
+    }
+}
+
+function drawRangeLine(s, t) {
+    const p1 = hexToPixel(s.col, s.row);
+    const p2 = hexToPixel(t.col, t.row);
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(217,74,74,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+const SHIP_COLORS = { 1: '#4a90d9', 2: '#d94a4a' };
+
+// Map hullMax back to template key for icon selection
+function shipClass(s) {
+    if (s.hullMax >= 12) return 'battleship';
+    if (s.hullMax >= 8)  return 'battleCruiser';
+    if (s.hullMax >= 6)  return 'cruiser';
+    if (s.hullMax >= 5)  return 'lightCruiser';
+    if (s.hullMax >= 4)  return 'destroyer';
+    return 'frigate';
+}
+
+// Each draw function draws at origin (0,0), pointing up, unit scale ~12px tall
+// ctx is already translated to ship centre when called
+const SHIP_ICONS = {
+
+    // FF — slim dart: needle-thin, short swept fins
+    frigate: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.7;
+        // main needle body
+        ctx.beginPath();
+        ctx.moveTo(0, -11);   // nose
+        ctx.lineTo(2.5, 2);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-2.5, 2);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // tiny swept fins at rear
+        ctx.beginPath();
+        ctx.moveTo(2.5, 2);
+        ctx.lineTo(6, 7);
+        ctx.lineTo(1, 5);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-2.5, 2);
+        ctx.lineTo(-6, 7);
+        ctx.lineTo(-1, 5);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+    },
+
+    // DD — clean chevron: standard arrow, moderate width
+    destroyer: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(0, -11);
+        ctx.lineTo(7, 7);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-7, 7);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+    },
+
+    // CL — chevron with notched rear: wider than DD, centre cutout
+    lightCruiser: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.7;
+        // main body
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(8, 5);
+        ctx.lineTo(5, 8);
+        ctx.lineTo(0, 5);
+        ctx.lineTo(-5, 8);
+        ctx.lineTo(-8, 5);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // rear centre notch (darker cutout)
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.moveTo(0, 3);
+        ctx.lineTo(4, 8);
+        ctx.lineTo(-4, 8);
+        ctx.closePath();
+        ctx.fill();
+    },
+
+    // CA — broad body with flaring rear fins
+    cruiser: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.7;
+        // hull
+        ctx.beginPath();
+        ctx.moveTo(0, -13);
+        ctx.lineTo(5, -4);
+        ctx.lineTo(5, 4);
+        ctx.lineTo(0, 2);
+        ctx.lineTo(-5, 4);
+        ctx.lineTo(-5, -4);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // flared port fin
+        ctx.beginPath();
+        ctx.moveTo(5, 0);
+        ctx.lineTo(11, 8);
+        ctx.lineTo(4, 7);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // flared starboard fin
+        ctx.beginPath();
+        ctx.moveTo(-5, 0);
+        ctx.lineTo(-11, 8);
+        ctx.lineTo(-4, 7);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+    },
+
+    // BC — angular wedge with prominent swept wings
+    battleCruiser: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.8;
+        // central hull wedge
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(6, -2);
+        ctx.lineTo(6, 6);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-6, 6);
+        ctx.lineTo(-6, -2);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // port swept wing
+        ctx.beginPath();
+        ctx.moveTo(6, -2);
+        ctx.lineTo(13, 2);
+        ctx.lineTo(13, 8);
+        ctx.lineTo(6, 6);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // starboard swept wing
+        ctx.beginPath();
+        ctx.moveTo(-6, -2);
+        ctx.lineTo(-13, 2);
+        ctx.lineTo(-13, 8);
+        ctx.lineTo(-6, 6);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // nose accent line
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(0, 3);
+        ctx.stroke();
+    },
+
+    // BB — broad blunt dreadnought: wide flat bow, heavy wings, engine block rear
+    battleship: function(ctx, color) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.9;
+        // main hull block
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(7, -6);
+        ctx.lineTo(8, 2);
+        ctx.lineTo(8, 8);
+        ctx.lineTo(-8, 8);
+        ctx.lineTo(-8, 2);
+        ctx.lineTo(-7, -6);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // heavy port wing
+        ctx.beginPath();
+        ctx.moveTo(8, -2);
+        ctx.lineTo(16, 1);
+        ctx.lineTo(16, 9);
+        ctx.lineTo(8, 8);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // heavy starboard wing
+        ctx.beginPath();
+        ctx.moveTo(-8, -2);
+        ctx.lineTo(-16, 1);
+        ctx.lineTo(-16, 9);
+        ctx.lineTo(-8, 8);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // engine block detail at rear
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.rect(-5, 4, 10, 4);
+        ctx.fill();
+        // centreline stripe
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -14);
+        ctx.lineTo(0, 8);
+        ctx.stroke();
+    },
+};
+
+function drawShips() {
+    for (const s of G.ships) {
+        const { x, y } = hexToPixel(s.col, s.row);
+
+        if (s.destroyed) {
+            // wreck: faint X
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(x - 7, y - 7); ctx.lineTo(x + 7, y + 7);
+            ctx.moveTo(x + 7, y - 7); ctx.lineTo(x - 7, y + 7);
+            ctx.stroke();
+            ctx.restore();
+            continue;
+        }
+
+        const color  = SHIP_COLORS[s.player];
+        const isSel  = G.selectedId === s.id;
+        const isTgt  = G.targetId   === s.id;
+        const cls    = shipClass(s);
+        const drawFn = SHIP_ICONS[cls] || SHIP_ICONS.destroyer;
+
+        // scale: BB is ~1.0 natural, FF is ~0.65
+        const scales = { frigate: 0.68, destroyer: 0.80, lightCruiser: 0.85, cruiser: 0.88, battleCruiser: 0.90, battleship: 0.95 };
+        const sc = scales[cls] || 0.80;
+
+        // selection / target glow
+        if (isSel || isTgt) {
+            ctx.save();
+            ctx.shadowColor = isTgt ? '#ff6060' : '#60b0ff';
+            ctx.shadowBlur = 18;
+        }
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(sc, sc);
+        drawFn(ctx, color);
+        ctx.restore();
+
+        if (isSel || isTgt) ctx.restore();
+
+        // class label below ship
+        ctx.fillStyle = '#ccdaee';
+        ctx.font = 'bold 8px Courier New';
+        ctx.textAlign = 'center';
+        // short class abbreviation
+        const abbr = { frigate:'FF', destroyer:'DD', lightCruiser:'CL', cruiser:'CA', battleCruiser:'BC', battleship:'BB' };
+        ctx.fillText(s.name.split(' ').pop() + ' ' + (abbr[cls]||''), x, y + Math.round(sc * 18) + 4);
+
+        // shield bar — width scaled to ship size, positioned above icon
+        const barW = Math.round(sc * 22);
+        const barH = 3;
+        const bx   = x - barW / 2;
+        const by   = y - Math.round(sc * 18) - 5;
+        ctx.fillStyle = '#111e35';
+        ctx.fillRect(bx, by, barW, barH);
+        ctx.fillStyle = '#4a90d9';
+        if (s.shieldMax > 0)
+            ctx.fillRect(bx, by, barW * (s.shieldCur / s.shieldMax), barH);
+    }
+}
+
+// ── DRAW MISSILES ────────────────────────────────────────────────
+function drawMissiles() {
+    if (!G.missiles) return;
+    for (const m of G.missiles) {
+        if (m.intercepted || m.hit) continue;
+        const { x, y } = hexToPixel(m.col, m.row);
+        const color = m.player === 1 ? '#4a90d9' : '#d94a4a';
+
+        // draw a small diamond
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(0, -6);
+        ctx.lineTo(4, 0);
+        ctx.lineTo(0, 6);
+        ctx.lineTo(-4, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // draw a dashed line to target
+        const target = getShip(m.targetId);
+        if (target && !target.destroyed) {
+            const tp = hexToPixel(target.col, target.row);
+            ctx.setLineDash([3, 5]);
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = 0.35;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(tp.x - x, tp.y - y);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+
+function handleMapClick(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // DEPLOYMENT MODE — place ship on hex click
+    if (document.getElementById('deployScreen').classList.contains('open')) {
+        const { col, row } = pixelToHex(mx, my);
+        if (col >= 0 && col < GRID_COLS && row >= 0 && row < GRID_ROWS) {
+            placeShip(col, row);
+        }
+        return;
+    }
+
+    // Check ship clicks first
+    for (const s of G.ships) {
+        const { x, y } = hexToPixel(s.col, s.row);
+        const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
+        if (dist < 14) {
+            selectShip(s.id);
+            return;
+        }
+    }
+
+    // Hex click (movement)
+    if (G.phase === PHASE.MOVE && G.selectedId && G.highlightHexes.length) {
+        const { col, row } = pixelToHex(mx, my);
+        const hit = G.highlightHexes.find(h => h.col === col && h.row === row);
+        if (hit) {
+            moveShipTo(col, row);
+            return;
+        }
+    }
+
+    // Deselect on empty click
+    G.selectedId = null;
+    G.targetId = null;
+    G.highlightHexes = [];
+    updateUI();
+    render();
+}
+
+canvas.addEventListener('click', handleMapClick);
+document.getElementById('mapArea').addEventListener('click', function(e) {
+    // Only handle if click wasn't on the canvas itself (canvas has its own listener)
+    if (e.target !== canvas) handleMapClick(e);
+});
+
+// ── UNDO LAST MOVE ───────────────────────────────────────────────
+function undoMove() {
+    if (!G.lastMove) return;
+    const ship = getShip(G.lastMove.shipId);
+    if (!ship) return;
+
+    addLog('↩ ' + ship.name + ' move undone');
+    ship.col       = G.lastMove.fromCol;
+    ship.row       = G.lastMove.fromRow;
+    ship.movesLeft = G.lastMove.movesLeft;
+    ship.moved     = G.lastMove.moved;
+
+    G.lastMove  = null;
+    G.selectedId = ship.id;
+    computeReachable(ship);
+    updateUI();
+    render();
+}
+
+// ── LEFT PANEL: MINIMIZE & DRAG RESIZE ───────────────────────────
+let lpMinimized = false;
+let lpWidthBeforeMin = 200;
+
+function toggleLeftPanel() {
+    const lp  = document.getElementById('leftPanel');
+    const btn = document.getElementById('lpToggleBtn');
+    if (!lpMinimized) {
+        lpWidthBeforeMin = lp.offsetWidth;
+        lp.classList.add('minimized');
+        btn.textContent = '▶';
+        btn.title = 'Maximize';
+        lpMinimized = true;
+    } else {
+        lp.classList.remove('minimized');
+        lp.style.width = lpWidthBeforeMin + 'px';
+        btn.textContent = '◀';
+        btn.title = 'Minimize';
+        lpMinimized = false;
+    }
+}
+
+(function() {
+    const handle = document.getElementById('lpDragHandle');
+    const lp     = document.getElementById('leftPanel');
+    let dragging = false;
+    let startX, startW;
+
+    handle.addEventListener('mousedown', function(e) {
+        if (lpMinimized) return;
+        dragging = true;
+        startX = e.clientX;
+        startW = lp.offsetWidth;
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        // dragging right makes panel wider
+        const delta = e.clientX - startX;
+        const newW  = Math.min(420, Math.max(160, startW + delta));
+        lp.style.width = newW + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    });
+})();
+
+
+let rpMinimized = false;
+let rpWidthBeforeMin = 220;
+
+function toggleRightPanel() {
+    const rp = document.getElementById('rightPanel');
+    const btn = document.getElementById('rpToggleBtn');
+    if (!rpMinimized) {
+        rpWidthBeforeMin = rp.offsetWidth;
+        rp.classList.add('minimized');
+        btn.textContent = '▶';
+        btn.title = 'Maximize';
+        rpMinimized = true;
+    } else {
+        rp.classList.remove('minimized');
+        rp.style.width = rpWidthBeforeMin + 'px';
+        btn.textContent = '◀';
+        btn.title = 'Minimize';
+        rpMinimized = false;
+    }
+}
+
+// drag-to-resize: drag the left edge of the right panel leftward to widen it
+(function() {
+    const handle = document.getElementById('rpDragHandle');
+    const rp     = document.getElementById('rightPanel');
+    let dragging = false;
+    let startX, startW;
+
+    handle.addEventListener('mousedown', function(e) {
+        if (rpMinimized) return;
+        dragging = true;
+        startX = e.clientX;
+        startW = rp.offsetWidth;
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        // dragging left (negative delta) makes panel wider
+        const delta = startX - e.clientX;
+        const newW  = Math.min(520, Math.max(160, startW + delta));
+        rp.style.width = newW + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    });
+})();
+
+// ── PHASE INDICATOR BAR ──────────────────────────────────────────
+const PHASE_BAR_CFG = {
+    [PHASE.MOVE]:     { cls: 'move',     label: 'MOVEMENT' },
+    [PHASE.COMBAT]:   { cls: 'combat',   label: 'COMBAT' },
+    [PHASE.MISSILE]:  { cls: 'missile',  label: 'MISSILE' },
+    [PHASE.POINTDEF]: { cls: 'pointdef', label: 'POINT DEFENSE' },
+    [PHASE.RESOLVE]:  { cls: 'resolve',  label: 'RESOLVE' },
+};
+
+function updatePhaseBar() {
+    const bar = document.getElementById('phaseBar');
+    const lbl = document.getElementById('phaseBarLabel');
+    if (!bar || !lbl) return;
+    const cfg = PHASE_BAR_CFG[G.phase] || { cls: 'move', label: G.phase };
+    bar.className = cfg.cls;
+    lbl.textContent = cfg.label + ' — TURN ' + G.turn;
+}
+
+// ── SHIP TOOLTIP ─────────────────────────────────────────────────
+let tooltipTimer = null;
+let tooltipShipId = null;
+const tooltip = document.getElementById('shipTooltip');
+
+function showTooltip(shipId, mx, my) {
+    const s = getShip(shipId);
+    if (!s || s.destroyed) { hideTooltip(); return; }
+
+    const cls = shipClass(s);
+    const abbr = { frigate:'FF', destroyer:'DD', lightCruiser:'CL', cruiser:'CA', battleCruiser:'BC', battleship:'BB' };
+    const pClass = 'p' + s.player;
+
+    let html = `<div class="ttName ${pClass}">${s.name} <span style="color:var(--text-dim);font-size:10px;">(${abbr[cls]||cls})</span></div>`;
+    html += `<div class="ttRow"><span>Position</span><span>${coord(s.col, s.row)}</span></div>`;
+    html += `<div class="ttRow"><span>Speed</span><span>${s.movesLeft} / ${s.speed}</span></div>`;
+    html += `<div class="ttRow"><span>Shields</span><span>${s.shieldCur} / ${s.shieldMax}</span></div>`;
+    if (s.armorMax > 0)
+        html += `<div class="ttRow"><span>Armor</span><span>${s.armorCur} / ${s.armorMax}</span></div>`;
+    html += `<div class="ttRow"><span>Hull</span><span>${s.hullCur} / ${s.hullMax}</span></div>`;
+    html += `<div class="ttDivider"></div>`;
+    for (const slot of s.weapons) {
+        const w = WEAPONS[slot.weapId];
+        const state = slot.destroyed ? ' [DEST]' : slot.fired ? ' [FIRED]' : '';
+        html += `<div class="ttWeapon">${w.name}${state} — rng ${getWeaponMaxRange(slot.weapId)}</div>`;
+    }
+
+    tooltip.innerHTML = html;
+    positionTooltip(mx, my);
+    tooltip.classList.add('visible');
+}
+
+function positionTooltip(mx, my) {
+    const tw = tooltip.offsetWidth  || 180;
+    const th = tooltip.offsetHeight || 120;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let tx = mx + 16;
+    let ty = my + 12;
+    if (tx + tw > vw - 8) tx = mx - tw - 10;
+    if (ty + th > vh - 8) ty = my - th - 10;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top  = ty + 'px';
+}
+
+function hideTooltip() {
+    tooltip.classList.remove('visible');
+    tooltipShipId = null;
+    clearTimeout(tooltipTimer);
+}
+
+canvas.addEventListener('mousemove', function(e) {
+    if (!G.ships) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let hoveredId = null;
+    for (const s of G.ships) {
+        if (s.destroyed) continue;
+        const { x, y } = hexToPixel(s.col, s.row);
+        const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
+        if (dist < 16) { hoveredId = s.id; break; }
+    }
+
+    if (hoveredId && hoveredId !== tooltipShipId) {
+        clearTimeout(tooltipTimer);
+        tooltipShipId = hoveredId;
+        tooltipTimer = setTimeout(() => showTooltip(hoveredId, e.clientX, e.clientY), 350);
+    } else if (hoveredId) {
+        positionTooltip(e.clientX, e.clientY);
+    } else {
+        clearTimeout(tooltipTimer);
+        hideTooltip();
+    }
+});
+
+canvas.addEventListener('mouseleave', hideTooltip);
+
+// ── TURN SUMMARY ──────────────────────────────────────────────────
+// We track events during the turn and display them when End Turn becomes available
+let G_turnEvents = [];
+
+function recordTurnEvent(type, msg) {
+    if (!G_turnEvents) G_turnEvents = [];
+    G_turnEvents.push({ type, msg });
+}
+
+function showTurnSummary() {
+    const turn = G.turn;
+    const events = G_turnEvents || [];
+
+    const destroyed = G.ships.filter(s => s.destroyed);
+    const missiles  = G.missiles ? G.missiles.length : 0;
+
+    let html = `<div style="margin-bottom:10px;font-size:11px;color:var(--text-dim);">Turn ${turn} complete</div>`;
+
+    if (events.length === 0 && destroyed.length === 0 && missiles === 0) {
+        html += '<div style="color:var(--text-dim);">No combat this turn.</div>';
+    }
+
+    // group events by type
+    const beamHits    = events.filter(e => e.type === 'beam');
+    const missileHits = events.filter(e => e.type === 'missile');
+    const pdEvents    = events.filter(e => e.type === 'pd');
+    const dacEvents   = events.filter(e => e.type === 'dac');
+
+    if (beamHits.length)    html += _summarySection('Beam Fire', beamHits);
+    if (missileHits.length) html += _summarySection('Missile Impacts', missileHits);
+    if (pdEvents.length)    html += _summarySection('Point Defense', pdEvents);
+    if (dacEvents.length)   html += _summarySection('Internal Damage (DAC)', dacEvents);
+
+    if (destroyed.length) {
+        html += `<div style="margin-top:10px;padding:6px 8px;background:rgba(217,74,74,0.12);border-left:3px solid #d94a4a;border-radius:2px;">`;
+        html += `<div style="font-size:10px;letter-spacing:2px;color:#d94a4a;margin-bottom:4px;">SHIPS LOST</div>`;
+        for (const s of destroyed) {
+            html += `<div style="font-size:12px;color:#eee;">⚡ ${s.name}</div>`;
+        }
+        html += '</div>';
+    }
+
+    if (missiles > 0) {
+        html += `<div style="margin-top:8px;font-size:11px;color:#d9a032;">⬥ ${missiles} missile(s) still in flight</div>`;
+    }
+
+    // current ship status
+    html += `<div style="margin-top:12px;font-size:10px;letter-spacing:2px;color:var(--text-dim);margin-bottom:6px;">FLEET STATUS</div>`;
+    for (const s of G.ships) {
+        if (s.destroyed) continue;
+        const pCol = s.player === 1 ? '#4a90d9' : '#d94a4a';
+        html += `<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">`;
+        html += `<span style="color:${pCol}">${s.name}</span>`;
+        html += `<span style="color:var(--text-dim)">Shld ${s.shieldCur}/${s.shieldMax} Hull ${s.hullCur}/${s.hullMax}</span>`;
+        html += `</div>`;
+    }
+
+    document.getElementById('modalTitle').textContent = 'TURN ' + turn + ' SUMMARY';
+    document.getElementById('modalBody').innerHTML = html;
+    const btns = document.getElementById('modalBtns');
+    btns.innerHTML = '';
+    const endBtn = document.createElement('button');
+    endBtn.className = 'btn primary';
+    endBtn.textContent = 'End Turn';
+    endBtn.onclick = () => { closeModal(); endTurn(); };
+    btns.appendChild(endBtn);
+    document.getElementById('modal').classList.add('open');
+}
+
+function _summarySection(title, events) {
+    let h = `<div style="margin-top:8px;font-size:10px;letter-spacing:2px;color:var(--text-dim);margin-bottom:4px;">${title.toUpperCase()}</div>`;
+    for (const e of events) {
+        h += `<div style="font-size:11px;color:var(--text);margin-bottom:2px;">• ${e.msg}</div>`;
+    }
+    return h;
+}
+
+
+refreshSetupUI();
+// render blank map in background
+canvas.width  = HEX.size + 20 * HEX.colW + HEX.size;
+canvas.height = HEX.h * (14 + 0.5) + HEX.size;
+</script>
+</body>
+</html>

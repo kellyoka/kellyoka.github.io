@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Fleet Commander</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0d1a; color: #c8d0e0; font-family: 'Courier New', monospace; padding: 1rem; min-height: 100vh; }
+  #game { max-width: 700px; margin: 0 auto; }
+  h1 { font-size: 18px; color: #7ab3e0; margin-bottom: 1rem; letter-spacing: 0.1em; }
+  #screen { background: #111827; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; min-height: 180px; font-size: 13px; line-height: 1.6; margin-bottom: 0.75rem; overflow-y: auto; max-height: 220px; }
+  .log-line { margin: 2px 0; }
+  .log-warn { color: #f0c040; }
+  .log-good { color: #50c878; }
+  .log-bad { color: #e05050; }
+  .log-info { color: #7ab3e0; }
+  .log-title { color: #7ab3e0; font-weight: bold; }
+  .map-row { display: flex; gap: 3px; margin-bottom: 3px; }
+  .sector { background: #1a2535; border: 1px solid #3a4a5a; border-radius: 4px; width: 72px; height: 36px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; cursor: pointer; margin: 1px; gap: 4px; }
+  .sector.warp-target { cursor: crosshair; border-color: #7ab3e0; }
+  .sector.warp-target:hover { background: #0a2a40; border-color: #aad4f0; }
+  #galaxy.warp-mode { outline: 1px solid #7ab3e0; border-radius: 4px; }
+  .sector.current { border: 2px solid #7ab3e0; background: #0f2a40; }
+  .s-k { color: #ff6060; font-weight: bold; }
+  .s-b { color: #50e878; }
+  .s-s { color: #8899aa; }
+  .s-u { color: #4a5a6a; font-style: italic; }
+  #stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 0.75rem; }
+  .stat { background: #111827; border: 1px solid #2a3a4a; border-radius: 6px; padding: 8px; text-align: center; }
+  .stat-label { font-size: 11px; color: #556; margin-bottom: 2px; }
+  .stat-val { font-size: 15px; font-weight: bold; color: #c8d0e0; }
+  .stat-val.warn { color: #f0c040; }
+  .stat-val.danger { color: #e05050; }
+  #controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 0.75rem; }
+  button { font-family: 'Courier New', monospace; font-size: 12px; padding: 6px 12px; border: 1px solid #2a3a4a; border-radius: 6px; background: #111827; color: #c8d0e0; cursor: pointer; transition: background 0.1s; }
+  button:hover { background: #1a2a3a; }
+  button:active { transform: scale(0.97); }
+  button.primary { border-color: #7ab3e0; color: #7ab3e0; }
+  button.success-btn { border-color: #50c878; color: #50c878; }
+  button:disabled { opacity: 0.3; cursor: default; transform: none; }
+  #input-row { display: flex; gap: 6px; margin-bottom: 0.75rem; }
+  #cmd { flex: 1; font-family: 'Courier New', monospace; font-size: 13px; padding: 6px 10px; border: 1px solid #2a3a4a; border-radius: 6px; background: #111827; color: #c8d0e0; }
+  #cmd:focus { outline: none; border-color: #7ab3e0; }
+  .maps-row { display: flex; gap: 12px; margin-bottom: 0.75rem; }
+  .map-half { flex: 1; }
+  #sector-view { background: #111827; border: 1px solid #2a3a4a; border-radius: 8px; padding: 0.75rem; }
+  #sector-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; font-family: 'Courier New', monospace; font-size: 12px; margin-bottom: 0.5rem; }
+  .sg-cell { padding: 2px 3px; text-align: center; border-radius: 2px; cursor: default; min-width: 22px; min-height: 22px; display: flex; align-items: center; justify-content: center; }
+  .sg-ship { color: #7ab3e0; font-weight: bold; background: #0a1f30; }
+  .sg-klingon { color: #e05050; background: #2a0a0a; }
+  .sg-klingon-dmg { color: #f0c040; background: #2a1a0a; }
+  .sg-base { color: #50c878; background: #0a2a1a; }
+  .sg-star { color: #888; }
+  .sg-empty { color: #1a1a2a; }
+  .sg-cell.targetable { cursor: pointer; outline: 1px solid #e05050; }
+  .sg-cell.targetable:hover { background: #3a0a0a; }
+  .sg-klingon-blocked { color: #554; background: #1a1a0a; }
+  .k-blocked { color: #556; }
+  .sg-wreck { color: #c07820; background: #1a1000; }
+  .sg-wreck:hover { background: #2a1800; cursor: pointer; }
+  .shield-detail { font-size: 10px; color: #556; margin-top: 2px; }
+  .shield-bar { height: 3px; border-radius: 2px; background: #1a2a3a; margin-top: 3px; overflow: hidden; }
+  .shield-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s, background 0.3s; }
+  #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; }
+  #overlay.active { display: flex; }
+  .overlay-box { background: #111827; border: 1px solid #2a3a4a; border-radius: 12px; padding: 2rem; max-width: 380px; width: 90%; text-align: center; }
+  .overlay-box h2 { font-size: 18px; color: #7ab3e0; margin-bottom: 0.5rem; letter-spacing: 0.05em; }
+  .overlay-box p { font-size: 13px; color: #889; margin-bottom: 1.5rem; line-height: 1.6; }
+  .diff-btns { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+  .diff-btn { padding: 10px 16px; border-radius: 8px; border: 1px solid #2a3a4a; background: #0d0d1a; color: #c8d0e0; cursor: pointer; font-family: 'Courier New', monospace; font-size: 13px; text-align: left; transition: border-color 0.15s, background 0.15s; }
+  .diff-btn:hover { border-color: #7ab3e0; background: #0a1f30; }
+  .diff-btn .diff-name { font-weight: bold; color: #7ab3e0; display: block; margin-bottom: 2px; }
+  .diff-btn.easy .diff-name { color: #50c878; }
+  .diff-btn.hard .diff-name { color: #e05050; }
+  .diff-btn .diff-desc { font-size: 11px; color: #556; }
+  .end-stats { background: #0d0d1a; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 13px; }
+  .end-stats div { margin: 4px 0; color: #889; }
+  .end-stats span { color: #c8d0e0; float: right; }
+  .end-title-win { color: #50c878; }
+  .end-title-lose { color: #e05050; }
+  .overlay-box.wide { max-width: 620px; }
+  .hist-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 1rem; text-align: left; }
+  .hist-table th { color: #556; font-weight: normal; padding: 4px 8px; border-bottom: 1px solid #2a3a4a; }
+  .hist-table td { padding: 5px 8px; border-bottom: 1px solid #1a2a3a; color: #889; }
+  .hist-table tr:last-child td { border-bottom: none; }
+  .hist-win td:first-child { color: #50c878; }
+  .hist-lose td:first-child { color: #e05050; }
+  .hist-empty { color: #334; font-size: 13px; padding: 1.5rem 0; }
+  .hist-summary { display: flex; gap: 16px; justify-content: center; margin-bottom: 1rem; font-size: 12px; }
+  .hist-summary span { color: #889; }
+  .hist-summary strong { color: #c8d0e0; }
+  .slider-row { margin-bottom: 0.75rem; }
+  .slider-label { display: flex; justify-content: space-between; font-size: 12px; color: #889; margin-bottom: 4px; }
+  .slider-label span { color: #c8d0e0; font-weight: bold; }
+  input[type=range] { width: 100%; accent-color: #7ab3e0; cursor: pointer; }
+  h3 { font-size: 11px; font-weight: bold; color: #556; margin-bottom: 0.5rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  #dpad { display: grid; grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(3, 36px); gap: 3px; margin: 0 auto; width: fit-content; }
+  #dpad button { width: 36px; height: 36px; padding: 0; font-size: 14px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+  .phase-indicator { font-size: 11px; padding: 3px 8px; border-radius: 4px; display: inline-block; margin-bottom: 0.5rem; }
+  .phase-move { background: #0a1f30; color: #7ab3e0; border: 1px solid #2a4a6a; }
+  .phase-combat { background: #2a0a0a; color: #e05050; border: 1px solid #6a2a2a; }
+  #klingon-list { font-size: 11px; margin-top: 0.4rem; min-height: 16px; }
+  .k-entry { display: inline-block; margin-right: 8px; }
+  .k-healthy { color: #e05050; }
+  .k-damaged { color: #f0c040; }
+  .k-critical { color: #ff8c00; }
+  .maps-row { display: flex; gap: 12px; margin-bottom: 0.75rem; align-items: flex-start; }
+  .map-panel { background: #111827; border: 1px solid #2a3a4a; border-radius: 8px; padding: 0.75rem; }
+  .map-panel-title { font-size: 11px; font-weight: bold; color: #7ab3e0; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; margin-bottom: 0.5rem; }
+  .map-panel-title:hover { color: #aad4f0; }
+  .map-panel-title::after { content: '▾'; font-size: 10px; }
+  #galaxy-panel { flex: 0 0 auto; }
+  #sector-panel { flex: 1; }
+  #sector-panel.hidden { flex: 0 0 auto; }
+  #sector-panel.hidden #sector-grid,
+  #sector-panel.hidden #klingon-list,
+  #sector-panel.hidden #dpad,
+  #sector-panel.hidden #phase-label { display: none; }
+  #galaxy-full { display: none; }
+  #galaxy-full.visible { display: block; }
+  #galaxy-mini { display: grid; grid-template-columns: repeat(3,1fr); gap: 3px; }
+  .mini-sector { background: #1a2535; border: 1px solid #3a4a5a; border-radius: 4px; width: 68px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 11px; gap: 3px; }
+  .mini-sector.current { border: 2px solid #7ab3e0; background: #0f2a40; }
+  .mini-sector.empty-space { background: transparent; border-color: transparent; }
+  .mini-sector.warp-target { cursor: crosshair; border-color: #7ab3e0; }
+  .mini-sector.warp-target:hover { background: #0a2a40; }
+  #screen { background: #111827; border: 1px solid #2a3a4a; border-radius: 8px; padding: 1rem; min-height: 120px; font-size: 13px; line-height: 1.6; margin-top: 0.75rem; overflow-y: auto; max-height: 180px; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1>★ STAR FLEET COMMANDER ★</h1>
+
+  <div class="maps-row">
+    <!-- Galaxy panel: mini 3x3 by default, full 8x8 when expanded -->
+    <div class="map-panel" id="galaxy-panel">
+      <div class="map-panel-title" onclick="toggleGalaxyView()" id="galaxy-title">Galaxy map</div>
+      <div id="galaxy-mini"></div>
+      <div id="galaxy-full"><div id="galaxy"></div></div>
+    </div>
+
+    <!-- Sector panel: full view by default, minimizes when galaxy expanded -->
+    <div class="map-panel" id="sector-panel">
+      <div class="map-panel-title" onclick="toggleSectorView()" id="sector-title">Sector scan</div>
+      <div id="phase-label" class="phase-indicator phase-move">⚡ Move freely</div>
+      <div id="sector-grid"></div>
+      <div id="klingon-list"></div>
+      <div id="dpad">
+        <button onclick="move(-1,-1)">↖</button>
+        <button onclick="move(-1,0)">↑</button>
+        <button onclick="move(-1,1)">↗</button>
+        <button onclick="move(0,-1)">←</button>
+        <div style="background:#0d0d1a;border:1px solid #1a2a3a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#334;">⊕</div>
+        <button onclick="move(0,1)">→</button>
+        <button onclick="move(1,-1)">↙</button>
+        <button onclick="move(1,0)">↓</button>
+        <button onclick="move(1,1)">↘</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="stats">
+    <div class="stat"><div class="stat-label">Energy</div><div class="stat-val" id="st-energy">3000</div></div>
+    <div class="stat"><div class="stat-label">Shields</div><div class="stat-val" id="st-shields">1000</div><div class="shield-bar"><div class="shield-bar-fill" id="st-shield-bar"></div></div><div class="shield-detail" id="st-shield-detail">1000 / 1000 · bleed 0%</div></div>
+    <div class="stat"><div class="stat-label">Torpedoes</div><div class="stat-val" id="st-torps">10</div></div>
+    <div class="stat"><div class="stat-label">Stardate</div><div class="stat-val" id="st-date">2500</div></div>
+    <div class="stat"><div class="stat-label">Klingons</div><div class="stat-val" id="st-klingons">0</div></div>
+  </div>
+
+  <div id="controls">
+    <button onclick="skipMove()" id="btn-skipmove" class="primary">⏭ Skip move <span style="color:#445;font-size:10px">[Space]</span></button>
+    <button onclick="doWarp()" id="btn-warp">⚡ Warp <span style="color:#445;font-size:10px">[W]</span></button>
+    <button onclick="doPhasers()" id="btn-phasers" disabled>🔥 Phasers <span style="color:#445;font-size:10px">[P]</span></button>
+    <button onclick="doTorpedo()" id="btn-torps" disabled>💥 Torpedo <span style="color:#445;font-size:10px">[T]</span></button>
+    <button onclick="skipFire()" id="btn-skipfire" style="display:none" class="success-btn">✔ End fire phase <span style="color:#2a5;font-size:10px">[Space]</span></button>
+    <button onclick="doShields()" id="btn-shields">🛡 Shields <span style="color:#445;font-size:10px">[S]</span></button>
+    <button onclick="doDock()" id="btn-dock">⚓ Dock <span style="color:#445;font-size:10px">[D]</span></button>
+    <button onclick="doStatus()">📊 Status <span style="color:#445;font-size:10px">[I]</span></button>
+    <button onclick="showDifficultyScreen()" style="margin-left:auto; color:#556;">↺ New game</button>
+    <button onclick="showHistory(null)" style="color:#556;">📜 History</button>
+  </div>
+
+  <div id="input-label" style="display:none; font-size:11px; color:#7ab3e0; margin-bottom:3px; padding: 0 2px;"></div>
+  <div id="input-row" style="display:none;">
+    <input id="cmd" placeholder="" />
+    <button onclick="submitCmd()">OK</button>
+    <button onclick="cancelCmd()">Cancel</button>
+  </div>
+  <div id="screen"></div>
+</div>
+
+<div id="overlay">
+  <div class="overlay-box" id="overlay-content"></div>
+</div>
+
+<script>
+const GALAXY_SIZE = 8;
+const MAX_DIST = Math.sqrt(7*7 + 7*7); // max possible cell distance in sector
+
+let G = {
+  energy: 3000, shields: 1000, torpedoes: 10,
+  stardate: 2500, maxStardate: 2535,
+  shipRow: 0, shipCol: 0,
+  shipSRow: 0, shipSCol: 0,
+  galaxy: [], sectors: {}, visited: {},
+  totalKlingons: 0, alive: true, won: false,
+  phase: 'move',
+  targeting: false
+};
+
+function rnd(n) { return Math.floor(Math.random() * n); }
+function rnd1(lo, hi) { return lo + rnd(hi - lo + 1); }
+
+function cellDist(r1, c1, r2, c2) {
+  return Math.sqrt(Math.pow(r1 - r2, 2) + Math.pow(c1 - c2, 2));
+}
+
+// Line of sight check — walks all cells strictly between source and target
+function hasLineOfSight(r1, c1, r2, c2) {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  if (!sec) return true;
+  // adjacent or same cell — always clear
+  if (Math.abs(r2 - r1) <= 1 && Math.abs(c2 - c1) <= 1) return true;
+  let steps = Math.max(Math.abs(r2 - r1), Math.abs(c2 - c1));
+  for (let i = 1; i < steps; i++) {
+    let t = i / steps;
+    let r = Math.round(r1 + (r2 - r1) * t);
+    let c = Math.round(c1 + (c2 - c1) * t);
+    if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+    let cell = sec.cells[r * 8 + c];
+    if (cell && cell.type === '*') return false;
+  }
+  return true;
+}
+
+// phaser accuracy: 1.0 at distance 0, ~0.15 at max distance
+function phaserAccuracy(dist) {
+  return Math.max(0.15, 1.0 - (dist / MAX_DIST) * 0.85);
+}
+
+// phaser damage: scales fully with distance
+function damageFactor(dist) {
+  return Math.max(0.25, 1.0 - (dist / MAX_DIST) * 0.75);
+}
+
+// torpedo accuracy: full accuracy up to 40% of max range, then slight penalty
+function torpedoAccuracy(dist) {
+  let threshold = MAX_DIST * 0.4;
+  if (dist <= threshold) return 0.95;
+  return Math.max(0.65, 0.95 - ((dist - threshold) / (MAX_DIST - threshold)) * 0.30);
+}
+
+function initGalaxy() {
+  G.galaxy = [];
+  G.totalKlingons = 0;
+  for (let r = 0; r < GALAXY_SIZE; r++) {
+    G.galaxy[r] = [];
+    for (let c = 0; c < GALAXY_SIZE; c++) {
+      let k = 0, b = 0, s = 0;
+      let roll = Math.random();
+      if (roll < 0.15) k = rnd1(2, Math.round(4 * G.klingonMult));
+      else if (roll < 0.35) k = 1;
+      b = Math.random() < 0.12 ? 1 : 0;
+      s = rnd1(0, 6);
+      G.galaxy[r][c] = { k, b, s, known: false };
+      G.totalKlingons += k;
+    }
+  }
+  if (G.totalKlingons === 0) { G.galaxy[rnd(8)][rnd(8)].k = 1; G.totalKlingons = 1; }
+  G.shipRow = rnd(8); G.shipCol = rnd(8);
+  G.galaxy[G.shipRow][G.shipCol].k = 0;
+  if (!G.galaxy[G.shipRow][G.shipCol].b) { G.galaxy[rnd(8)][rnd(8)].b = 1; }
+  populateSector(G.shipRow, G.shipCol);
+  G.visited[G.shipRow + ',' + G.shipCol] = true;
+  G.galaxy[G.shipRow][G.shipCol].known = true;
+}
+
+function populateSector(gr, gc) {
+  let key = gr + ',' + gc;
+  if (G.sectors[key]) return;
+  let info = G.galaxy[gr][gc];
+  let cells = Array.from({length: 64}, () => ({ type: '.' }));
+  function place(type, extra) {
+    let pos; do { pos = rnd(64); } while (cells[pos].type !== '.'); 
+    cells[pos] = Object.assign({ type }, extra || {});
+    return pos;
+  }
+  for (let i = 0; i < info.k; i++) {
+    let shields = rnd1(Math.round(G.kShieldMax * 0.5), G.kShieldMax);
+    place('K', { shields, maxShields: shields, id: i });
+  }
+  if (info.b) place('B');
+  let ship = place('@');
+  for (let i = 0; i < info.s; i++) place('*');
+  G.sectors[key] = { cells };
+  G.shipSRow = Math.floor(ship / 8);
+  G.shipSCol = ship % 8;
+}
+
+function klingonsInSector() {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  if (!sec) return [];
+  let ks = [];
+  sec.cells.forEach((c, i) => { if (c.type === 'K') ks.push(i); });
+  return ks;
+}
+
+function baseInSector() {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  if (!sec) return -1;
+  return sec.cells.findIndex(c => c.type === 'B');
+}
+
+function isAdjacentToBase() {
+  let basePos = baseInSector();
+  if (basePos < 0) return false;
+  let br = Math.floor(basePos / 8), bc = basePos % 8;
+  return Math.max(Math.abs(G.shipSRow - br), Math.abs(G.shipSCol - bc)) <= 1;
+}
+
+let logLines = [];
+function log(msg, cls) {
+  logLines.push({ msg, cls });
+  if (logLines.length > 80) logLines.shift();
+  renderLog();
+}
+function renderLog() {
+  let el = document.getElementById('screen');
+  el.innerHTML = logLines.map(l => `<div class="log-line${l.cls ? ' ' + l.cls : ''}">${l.msg}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateStats() {
+  let e = document.getElementById('st-energy');
+  let s = document.getElementById('st-shields');
+  e.textContent = Math.round(G.energy);
+  s.textContent = Math.round(G.shields);
+  e.className = 'stat-val' + (G.energy < 500 ? ' danger' : G.energy < 1000 ? ' warn' : '');
+  s.className = 'stat-val' + (G.shields < 200 ? ' danger' : G.shields < 400 ? ' warn' : '');
+  let shieldPct = G.shields / G.maxShields;
+  let bleedPct = Math.round((1 - shieldPct) * 20);
+  let barPct = Math.round(shieldPct * 100);
+  let barColor = shieldPct > 0.6 ? '#50c878' : shieldPct > 0.25 ? '#f0c040' : '#e05050';
+  document.getElementById('st-shield-bar').style.width = barPct + '%';
+  document.getElementById('st-shield-bar').style.background = barColor;
+  document.getElementById('st-shield-detail').textContent = `${Math.round(G.shields)} / ${G.maxShields} · bleed ${bleedPct}%`;
+  document.getElementById('st-torps').textContent = G.torpedoes;
+  document.getElementById('st-date').textContent = G.stardate.toFixed(2);
+  let kLeft = countKlingons();
+  let kEl = document.getElementById('st-klingons');
+  kEl.textContent = kLeft;
+  kEl.className = 'stat-val' + (kLeft === 0 ? ' ' : kLeft <= 3 ? ' warn' : ' danger');
+}
+
+function updatePhaseUI() {
+  let inMove = G.phase === 'move';
+  let label = document.getElementById('phase-label');
+  let moveLabel = G.freeMoveMode ? '⚡ Move freely — no enemies in sector' : '⚡ Move phase — take one step or skip';
+  let pendingStr = G.pendingShots && G.pendingShots.length > 0 ? ` — ${G.pendingShots.length} weapon(s) queued, end phase to resolve` : ' — fire phasers, torpedo, or end phase';
+  label.textContent = inMove ? moveLabel : `⚔ Fire phase${pendingStr}`;
+  label.className = 'phase-indicator ' + (inMove ? 'phase-move' : 'phase-combat');
+
+  let setDisabled = (id, val) => { let el = document.getElementById(id); if (el) el.disabled = val; };
+  let setDisplay = (id, val) => { let el = document.getElementById(id); if (el) el.style.display = val; };
+  setDisplay('btn-skipmove', inMove ? '' : 'none');
+  setDisplay('btn-skipfire', inMove ? 'none' : '');
+  setDisabled('btn-warp', !inMove || G.warpMode);
+  setDisabled('btn-dock', !inMove || !isAdjacentToBase());
+  setDisabled('btn-phasers', inMove || G.phasedThisTurn);
+  setDisabled('btn-torps', inMove || G.torpedoedThisTurn);
+  let dpadBtns = document.querySelectorAll('#dpad button');
+  dpadBtns.forEach(b => b.disabled = !inMove);
+  updateShieldButton();
+}
+
+function renderKlingonList() {
+  let ks = klingonsInSector();
+  let el = document.getElementById('klingon-list');
+  if (ks.length === 0) { el.innerHTML = ''; return; }
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  el.innerHTML = ks.map(pos => {
+    let k = sec.cells[pos];
+    let pct = k.shields / k.maxShields;
+    let kr = Math.floor(pos / 8), kc = pos % 8;
+    let dist = cellDist(G.shipSRow, G.shipSCol, kr, kc).toFixed(1);
+    let los = hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc);
+    if (!los) {
+      return `<span class="k-entry k-blocked">◌ K@${pos} shields:${Math.round(k.shields)} dist:${dist} [blocked]</span>`;
+    }
+    let cls = pct > 0.6 ? 'k-healthy' : pct > 0.25 ? 'k-damaged' : 'k-critical';
+    let label = pct > 0.6 ? '●' : pct > 0.25 ? '◑' : '○';
+    return `<span class="k-entry ${cls}">${label} K@${pos} shields:${Math.round(k.shields)} dist:${dist}</span>`;
+  }).join('');
+}
+
+let galaxyExpanded = false;
+
+function toggleGalaxyView() {
+  galaxyExpanded = true;
+  document.getElementById('galaxy-mini').style.display = 'none';
+  document.getElementById('galaxy-full').classList.add('visible');
+  document.getElementById('sector-panel').classList.add('hidden');
+  document.getElementById('galaxy-title').style.color = '#aad4f0';
+  renderGalaxy();
+}
+
+function toggleSectorView() {
+  galaxyExpanded = false;
+  document.getElementById('galaxy-mini').style.display = 'grid';
+  document.getElementById('galaxy-full').classList.remove('visible');
+  document.getElementById('sector-panel').classList.remove('hidden');
+  document.getElementById('galaxy-title').style.color = '';
+  renderGalaxyMini();
+}
+
+function renderGalaxyMini() {
+  let el = document.getElementById('galaxy-mini');
+  if (!el) return;
+  el.innerHTML = '';
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      let r = G.shipRow + dr, c = G.shipCol + dc;
+      let div = document.createElement('div');
+      if (r < 0 || r > 7 || c < 0 || c > 7) {
+        div.className = 'mini-sector empty-space';
+        el.appendChild(div);
+        continue;
+      }
+      let isCurrent = (dr === 0 && dc === 0);
+      let info = G.galaxy[r][c];
+      div.className = 'mini-sector' + (isCurrent ? ' current' : '') + (G.warpMode && !isCurrent ? ' warp-target' : '');
+      if (G.visited[r+','+c] || info.known) {
+        let parts = [];
+        if (isCurrent) parts.push(`<span style="color:#7ab3e0">⊕</span>`);
+        if (info.k > 0) parts.push(`<span class="s-k">K${info.k}</span>`);
+        if (info.b > 0) parts.push(`<span class="s-b">★</span>`);
+        if (!info.k && !info.b && !isCurrent) parts.push(`<span class="s-s">·</span>`);
+        div.innerHTML = parts.join(' ');
+      } else {
+        div.innerHTML = isCurrent ? `<span style="color:#7ab3e0">⊕</span>` : `<span class="s-u">?</span>`;
+      }
+      let warpDist = Math.sqrt(Math.pow(r - G.shipRow, 2) + Math.pow(c - G.shipCol, 2));
+      let warpCost = Math.round(warpDist * 100 + 200);
+      div.title = isCurrent ? 'Current position' : `(${r+1},${c+1}) | Warp cost: ${warpCost}`;
+      div.onclick = () => {
+        if (G.warpMode && !isCurrent) { showWarpConfirm(r, c); return; }
+        if (!isCurrent && (G.visited[r+','+c] || info.known)) log(`Sector (${r+1},${c+1}): ${info.k} Klingon(s), ${info.b ? '1 starbase' : 'no base'}, ${info.s} star(s)`, 'log-info');
+      };
+      el.appendChild(div);
+    }
+  }
+}
+
+function renderGalaxy() {
+  let el = document.getElementById('galaxy');
+  if (!el) return;
+  el.innerHTML = '';
+  for (let r = 0; r < 8; r++) {
+    let rowDiv = document.createElement('div');
+    rowDiv.className = 'map-row';
+    for (let c = 0; c < 8; c++) {
+      let div = document.createElement('div');
+      let isCurrent = (r === G.shipRow && c === G.shipCol);
+      div.className = 'sector' + (isCurrent ? ' current' : '') + (G.warpMode && !isCurrent ? ' warp-target' : '');
+      let info = G.galaxy[r][c];
+      if (G.visited[r+','+c] || info.known) {
+        let parts = [];
+        if (info.k > 0) parts.push(`<span class="s-k">K${info.k}</span>`);
+        if (info.b > 0) parts.push(`<span class="s-b">★</span>`);
+        if (!info.k && !info.b) parts.push(`<span class="s-s">·</span>`);
+        div.innerHTML = parts.join(' ');
+      } else {
+        div.innerHTML = `<span class="s-u">?</span>`;
+      }
+      let warpDist = Math.sqrt(Math.pow(r - G.shipRow, 2) + Math.pow(c - G.shipCol, 2));
+      let warpCost = Math.round(warpDist * 100 + 200);
+      let costTip = isCurrent ? 'Current position' : `Warp cost: ${warpCost} energy`;
+      let knownDesc = (G.visited[r+','+c] || info.known) ? `${info.k}K ${info.b}B ${info.s}S` : 'unexplored';
+      div.title = `(${r+1},${c+1}) ${knownDesc} | ${costTip}`;
+      div.onclick = () => {
+        if (G.warpMode) { showWarpConfirm(r, c); return; }
+        let desc = (G.visited[r+','+c] || info.known)
+          ? `${info.k} Klingon(s), ${info.b ? '1 starbase' : 'no base'}, ${info.s} star(s)`
+          : 'unexplored';
+        log(`Sector (${r+1},${c+1}): ${desc}`, 'log-info');
+      };
+      rowDiv.appendChild(div);
+    }
+    el.appendChild(rowDiv);
+  }
+}
+
+function renderSectorView(selectingTarget) {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  let el = document.getElementById('sector-grid');
+  if (!sec) { el.innerHTML = ''; return; }
+  el.innerHTML = '';
+  sec.cells.forEach((c, i) => {
+    let row = Math.floor(i / 8), col = i % 8;
+    let cell = document.createElement('div');
+    cell.className = 'sg-cell';
+    let isShip = (row === G.shipSRow && col === G.shipSCol);
+    if (isShip) {
+      cell.className += ' sg-ship'; cell.textContent = '⊕';
+    } else if (c.type === 'K') {
+      let kr = Math.floor(i / 8), kc = i % 8;
+      let los = hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc);
+      let pct = c.shields / c.maxShields;
+      if (!los) {
+        cell.className += ' sg-klingon-blocked';
+        cell.textContent = '⌖';
+        cell.title = `K@${i} [star blocking line of sight]`;
+      } else {
+        cell.className += pct > 0.25 ? ' sg-klingon' : ' sg-klingon-dmg';
+        cell.textContent = '⌖';
+        if (selectingTarget) {
+          cell.className += ' targetable';
+          cell.title = `K@${i} shields:${Math.round(c.shields)}`;
+          cell.onclick = () => fireAtKlingon(i);
+        }
+      }
+    } else if (c.type === 'W') {
+      cell.className += ' sg-wreck';
+      cell.textContent = '⊠';
+      cell.title = `Wreck — ${c.salvage} energy salvageable (move onto it)`;
+    } else if (c.type === 'B') {
+      cell.className += ' sg-base'; cell.textContent = '▣';
+    } else if (c.type === '*') {
+      cell.className += ' sg-star'; cell.textContent = '✦';
+    } else {
+      cell.className += ' sg-empty'; cell.textContent = '·';
+    }
+    el.appendChild(cell);
+  });
+}
+
+function render(selectingTarget) {
+  if (galaxyExpanded) renderGalaxy(); else renderGalaxyMini();
+  renderSectorView(selectingTarget);
+  renderKlingonList();
+  updateStats();
+  updatePhaseUI();
+}
+
+let pendingResolve = null;
+function askInput(placeholder, resolve, label) {
+  pendingResolve = resolve;
+  let inp = document.getElementById('cmd');
+  let lbl = document.getElementById('input-label');
+  inp.placeholder = placeholder;
+  inp.value = '';
+  if (label) { lbl.textContent = label; lbl.style.display = 'block'; }
+  else { lbl.style.display = 'none'; }
+  document.getElementById('input-row').style.display = 'flex';
+  inp.focus();
+}
+function submitCmd() {
+  let val = document.getElementById('cmd').value.trim();
+  document.getElementById('input-row').style.display = 'none';
+  document.getElementById('input-label').style.display = 'none';
+  if (pendingResolve) { let r = pendingResolve; pendingResolve = null; r(val); }
+}
+function cancelCmd() {
+  document.getElementById('input-row').style.display = 'none';
+  document.getElementById('input-label').style.display = 'none';
+  pendingResolve = null;
+  G.targeting = false;
+  render(false);
+  log('Command cancelled.', 'log-info');
+}
+document.getElementById('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') submitCmd(); });
+
+function countKlingons() {
+  let total = 0;
+  G.galaxy.forEach(row => row.forEach(s => total += s.k));
+  return total;
+}
+
+function startFirePhase() {
+  G.phase = 'combat';
+  G.phasedThisTurn = false;
+  G.torpedoedThisTurn = false;
+  G.pendingShots = [];
+  // auto top-off shields if in auto mode
+  if (G.shieldAutoMode) {
+    let before = G.shields;
+    autoTopShields();
+    if (G.shields > before) log(`🛡 Shields auto-restored to ${Math.round(G.shields)}.`, 'log-info');
+  }
+  let ks = klingonsInSector();
+  let visibleKs = ks.filter(pos => {
+    let kr = Math.floor(pos / 8), kc = pos % 8;
+    return hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc);
+  });
+  if (visibleKs.length === 0 && ks.length === 0) {
+    // no Klingons at all — skip fire phase, allow free movement
+    G.phase = 'move';
+    G.freeMoveMode = true;
+    log('⚡ No enemies — move freely. Warp or dock when ready.', 'log-info');
+    render();
+    return;
+  }
+  if (visibleKs.length === 0) {
+    // Klingons present but all blocked — still show fire phase so they fire back on skip
+    log('⚔ Fire phase. All Klingons blocked by stars — end fire phase to continue.', 'log-info');
+  } else {
+    log(`⚔ Fire phase. ${visibleKs.length} Klingon(s) in range. Fire phasers, torpedo, both, or end phase.`, 'log-warn');
+  }
+  render();
+}
+
+function startMovePhase() {
+  G.phase = 'move';
+  G.targeting = false;
+  G.phasedThisTurn = false;
+  G.torpedoedThisTurn = false;
+  G.pendingShots = [];
+  G.freeMoveMode = false;
+  G.stardate = Math.round((G.stardate + 0.01) * 100) / 100;
+  log('⚡ Move phase. Take one step or skip.', 'log-info');
+  render();
+}
+
+function skipMove() {
+  if (!G.alive || G.phase !== 'move') return;
+  if (G.freeMoveMode) { log('No enemies in sector — move freely or warp.', 'log-info'); return; }
+  log('Move skipped.', 'log-info');
+  klingonMove();
+  startFirePhase();
+}
+
+function skipFire() {
+  if (!G.alive || G.phase !== 'combat') return;
+  if (G.pendingShots.length === 0) {
+    let ks = klingonsInSector();
+    let visibleKs = ks.filter(pos => {
+      let kr = Math.floor(pos / 8), kc = pos % 8;
+      return hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc);
+    });
+    if (visibleKs.length > 0) {
+      let box = document.getElementById('overlay-content');
+      box.className = 'overlay-box';
+      box.innerHTML = `
+        <h2 style="color:#f0c040;">⚠ End fire phase?</h2>
+        <p>${visibleKs.length} Klingon(s) are in range and you haven't fired. Klingons will still fire back.</p>
+        <button class="diff-btn" onclick="closeOverlay(); resolveFirePhase();" style="text-align:center; margin-bottom:8px; border-color:#e05050;">
+          <span class="diff-name" style="color:#e05050;">End phase anyway</span>
+        </button>
+        <button class="diff-btn" onclick="closeOverlay();" style="text-align:center;">
+          <span class="diff-name" style="color:#7ab3e0;">Go back and fire</span>
+        </button>
+      `;
+      document.getElementById('overlay').classList.add('active');
+      return;
+    }
+  }
+  resolveFirePhase();
+}
+
+function move(dr, dc) {
+  if (!G.alive || G.phase !== 'move') return;
+  let nr = G.shipSRow + dr, nc = G.shipSCol + dc;
+  if (nr < 0 || nr > 7 || nc < 0 || nc > 7) { log('Cannot move outside sector boundary.', 'log-warn'); return; }
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  let targetCell = sec.cells[nr * 8 + nc];
+  if (targetCell.type === '*') { log('Star blocking path — cannot move there.', 'log-warn'); return; }
+  if (targetCell.type === 'K') { log('Klingon ship blocking that cell.', 'log-warn'); return; }
+  if (G.energy < 10) { log('Insufficient energy for impulse movement.', 'log-warn'); return; }
+  let isSalvage = targetCell.type === 'W';
+  let salvageAmt = isSalvage ? targetCell.salvage : 0;
+  G.energy -= 10;
+  G.energySpent += 10;
+  G.shipSRow = nr;
+  G.shipSCol = nc;
+  if (isSalvage) sec.cells[nr * 8 + nc] = { type: '.' }; // only clear wrecks
+  log(`Impulse move → (${nc+1},${nr+1}). Energy -10.`, 'log-info');
+  if (isSalvage) {
+    let maxEnergy = DIFFICULTY[currentDiff].energy;
+    let gained = Math.min(salvageAmt, maxEnergy - G.energy);
+    G.energy = Math.min(maxEnergy, G.energy + salvageAmt);
+    G.energyGained += gained;
+    log(`⚡ Salvaged wreck! +${gained} energy. Total: ${Math.round(G.energy)}.`, 'log-good');
+  }
+  if (G.energy <= 0) {
+    log('💀 Out of energy! Ship adrift. Game over.', 'log-bad');
+    G.alive = false;
+    render();
+    setTimeout(() => showEndScreen(false), 800);
+    return;
+  }
+  if (isAdjacentToBase()) log('Starbase within docking range. ⚓ Dock when ready.', 'log-good');
+  if (G.freeMoveMode) {
+    // no enemies — stay in move mode, Klingons don't move either
+    render();
+  } else {
+    // combat situation — Klingons move then go to fire phase
+    klingonMove();
+    startFirePhase();
+  }
+}
+
+function klingonMove() {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  let ks = klingonsInSector();
+  if (ks.length === 0) return;
+  // snapshot positions so each Klingon moves based on original state
+  let snapshot = sec.cells.map(c => Object.assign({}, c));
+  ks.forEach(pos => {
+    let kr = Math.floor(pos / 8), kc = pos % 8;
+    let bestPos = null, bestDist = cellDist(kr, kc, G.shipSRow, G.shipSCol);
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        let nr = kr + dr, nc = kc + dc;
+        if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
+        // never move into the player's cell
+        if (nr === G.shipSRow && nc === G.shipSCol) continue;
+        let snapCell = snapshot[nr * 8 + nc];
+        if (snapCell.type !== '.') continue;
+        // also check live cells so two Klingons don't move to the same spot
+        let liveCell = sec.cells[nr * 8 + nc];
+        if (liveCell.type !== '.') continue;
+        let d = cellDist(nr, nc, G.shipSRow, G.shipSCol);
+        if (d < bestDist) { bestDist = d; bestPos = { nr, nc }; }
+      }
+    }
+    if (bestPos) {
+      sec.cells[bestPos.nr * 8 + bestPos.nc] = sec.cells[pos];
+      sec.cells[pos] = { type: '.' };
+    }
+  });
+}
+
+function doWarp() {
+  if (!G.alive) { log('Ship destroyed. Start a new game.', 'log-bad'); return; }
+  if (G.phase !== 'move') { log('Cannot warp during fire phase.', 'log-warn'); return; }
+  G.warpMode = true;
+  document.getElementById('galaxy').classList.add('warp-mode');
+  log('⚡ Warp targeting — click a sector on the galaxy map. [Esc] to cancel.', 'log-info');
+  render();
+}
+
+function showWarpConfirm(nr, nc) {
+  G.warpMode = false;
+  document.getElementById('galaxy').classList.remove('warp-mode');
+  if (nr === G.shipRow && nc === G.shipCol) { log('Already in that sector!', 'log-warn'); render(); return; }
+  let dist = Math.sqrt(Math.pow(nr - G.shipRow, 2) + Math.pow(nc - G.shipCol, 2));
+  let cost = Math.round(dist * 100 + 200);
+  if (G.energy < cost) { log(`Not enough energy. Need ${cost}, have ${Math.round(G.energy)}.`, 'log-warn'); render(); return; }
+  let remaining = Math.round(G.energy - cost);
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box';
+  box.innerHTML = `
+    <h2>⚡ Confirm Warp</h2>
+    <div class="end-stats" style="margin-bottom:1rem;">
+      <div>Destination<span>(${nr+1},${nc+1})</span></div>
+      <div>Distance<span>${dist.toFixed(1)} sectors</span></div>
+      <div>Energy cost<span>${cost}</span></div>
+      <div>Energy remaining<span>${remaining}</span></div>
+      <div>Stardate after warp<span>${(G.stardate + 1).toFixed(2)} / ${G.maxStardate}</span></div>
+    </div>
+    <button class="diff-btn" onclick="executeWarp(${nr},${nc},${cost})" style="text-align:center; margin-bottom:8px; border-color:#7ab3e0;">
+      <span class="diff-name" style="color:#7ab3e0;">⚡ Engage warp</span>
+    </button>
+    <button class="diff-btn" onclick="closeOverlay()" style="text-align:center;">
+      <span class="diff-name" style="color:#889;">Cancel</span>
+    </button>
+  `;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function cancelWarp() {
+  G.warpMode = false;
+  document.getElementById('galaxy').classList.remove('warp-mode');
+  log('Warp cancelled.', 'log-info');
+  render();
+}
+
+function executeWarp(nr, nc, cost) {
+  closeOverlay();
+  // clear any wrecks left in current sector before warping
+  let oldKey = G.shipRow + ',' + G.shipCol;
+  if (G.sectors[oldKey]) {
+    G.sectors[oldKey].cells.forEach((c, i) => { if (c.type === 'W') G.sectors[oldKey].cells[i] = { type: '.' }; });
+  }
+  G.energy -= cost;
+  G.energySpent += cost;
+  G.stardate++;
+  G.shipRow = nr; G.shipCol = nc;
+  G.visited[nr + ',' + nc] = true;
+  G.galaxy[nr][nc].known = true;
+  populateSector(G.shipRow, G.shipCol);
+  revealSurroundings();
+  let info = G.galaxy[nr][nc];
+  log(`Warped to sector (${nr+1},${nc+1}). Cost: ${cost} energy.`, 'log-info');
+  log(`${info.k} Klingon(s), ${info.b ? '1 starbase' : 'no base'}, ${info.s} star(s).`, 'log-info');
+  if (G.stardate > G.maxStardate) { log('⏰ Time limit reached! Game over.', 'log-bad'); G.alive = false; render(); setTimeout(() => showEndScreen(false), 800); return; }
+  if (info.b) log('⚓ Starbase present. Navigate adjacent to dock.', 'log-good');
+  startFirePhase();
+}
+
+function revealSurroundings() {
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      let r = G.shipRow + dr, c = G.shipCol + dc;
+      if (r >= 0 && r <= 7 && c >= 0 && c <= 7) {
+        G.galaxy[r][c].known = true;
+      }
+    }
+  }
+  if (galaxyExpanded) renderGalaxy(); else renderGalaxyMini();
+}
+
+function doPhasers() {
+  if (!G.alive || G.phase !== 'combat') { log('Not in fire phase.', 'log-warn'); return; }
+  if (G.phasedThisTurn) { log('Phasers already fired this turn.', 'log-warn'); return; }
+  let ks = klingonsInSector();
+  let visibleKs = ks.filter(pos => { let kr = Math.floor(pos/8), kc = pos%8; return hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc); });
+  if (visibleKs.length === 0) { log('No Klingons in line of sight.', 'log-warn'); return; }
+  log('Select phaser target — click a Klingon ⌖ in the sector grid.', 'log-info');
+  G.targeting = 'phaser';
+  render(true);
+}
+
+function doTorpedo() {
+  if (!G.alive || G.phase !== 'combat') { log('Not in fire phase.', 'log-warn'); return; }
+  if (G.torpedoedThisTurn) { log('Torpedo already fired this turn.', 'log-warn'); return; }
+  if (G.torpedoes <= 0) { log('No torpedoes remaining.', 'log-warn'); return; }
+  let ks = klingonsInSector();
+  let visibleKs = ks.filter(pos => { let kr = Math.floor(pos/8), kc = pos%8; return hasLineOfSight(G.shipSRow, G.shipSCol, kr, kc); });
+  if (visibleKs.length === 0) { log('No Klingons in line of sight.', 'log-warn'); return; }
+  log('Select torpedo target — click a Klingon ⌖ in the sector grid.', 'log-info');
+  G.targeting = 'torpedo';
+  render(true);
+}
+
+function checkKlingonKill(sec, pos) {
+  let k = sec.cells[pos];
+  let salvage = Math.round(rnd1(80, 150) * (k.maxShields / 150));
+  sec.cells[pos] = { type: 'W', salvage };
+  G.galaxy[G.shipRow][G.shipCol].k--;
+  let total = countKlingons();
+  log(`💥 Klingon destroyed! Wreck at position ${pos} (${salvage} energy salvageable). ${total} remain.`, 'log-good');
+  if (total === 0) {
+    log('🎉 All Klingons destroyed! You win!', 'log-good');
+    G.won = true;
+    setTimeout(() => showEndScreen(true), 800);
+  }
+}
+
+function resolveFirePhase() {
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+
+  // --- step 1: pre-calculate all Klingon shots before anything dies ---
+  let klingonShots = [];
+  let ks = klingonsInSector();
+  ks.forEach(pos => {
+    let kr = Math.floor(pos / 8), kc = pos % 8;
+    if (!hasLineOfSight(kr, kc, G.shipSRow, G.shipSCol)) return;
+    let dist = cellDist(G.shipSRow, G.shipSCol, kr, kc);
+    let acc = phaserAccuracy(dist);
+    let dmgScale = damageFactor(dist);
+    let hits = Math.random() <= acc;
+    let baseDmg = rnd1(50, 200);
+    let dmg = hits ? Math.round(baseDmg * dmgScale) : 0;
+    klingonShots.push({ pos, hits, dmg, dist });
+  });
+
+  // --- step 2: apply player weapon shots ---
+  if (G.pendingShots.length > 0) {
+    log('— Your weapons fire —', 'log-info');
+    G.pendingShots.forEach(shot => {
+      let k = sec.cells[shot.pos];
+      if (!k || k.type !== 'K') return;
+      if (shot.type === 'phaser') {
+        if (Math.random() > shot.acc) {
+          log(`🔥 Phasers at K@${shot.pos} — missed! (${shot.hitPct}% chance)`, 'log-warn');
+        } else {
+          let dmg = Math.round(shot.energy * shot.dmgScale);
+          k.shields -= dmg;
+          log(`🔥 Phaser hit! K@${shot.pos} takes ${dmg} damage. Shields: ${Math.round(Math.max(0,k.shields))}/${k.maxShields}.`, 'log-good');
+        }
+      } else if (shot.type === 'torpedo') {
+        if (Math.random() > shot.acc) {
+          log(`💥 Torpedo at K@${shot.pos} — missed! (${shot.hitPct}% chance)`, 'log-warn');
+        } else {
+          let dmg = rnd1(150, 300);
+          k.shields -= dmg;
+          log(`💥 Torpedo hit! K@${shot.pos} takes ${dmg} damage. Shields: ${Math.round(Math.max(0,k.shields))}/${k.maxShields}.`, 'log-good');
+        }
+      }
+    });
+    G.pendingShots = [];
+  }
+
+  // --- step 3: apply pre-calculated Klingon shots (even if Klingon is now dead) ---
+  if (klingonShots.length > 0) {
+    log('— Klingons fire simultaneously —', 'log-warn');
+    klingonShots.forEach(shot => {
+      if (!shot.hits) {
+        log(`⌖ Klingon at ${shot.pos} fires — missed! (dist: ${shot.dist.toFixed(1)})`, 'log-info');
+        return;
+      }
+      let shieldPct = G.shields / G.maxShields;
+      let bleedFraction = (1 - shieldPct) * 0.20;
+      let absorbed = Math.min(G.shields, shot.dmg * (1 - bleedFraction));
+      G.shields = Math.max(0, G.shields - absorbed);
+      let bleed = shot.dmg - absorbed;
+      let energyDmg = Math.round(bleed * 2);
+      G.energy = Math.max(0, G.energy - energyDmg);
+      G.damageTaken += shot.dmg;
+      let bleedPct = Math.round(bleedFraction * 100);
+      let detail = energyDmg > 0
+        ? `Shields: ${Math.round(G.shields)} | Energy bleed: -${energyDmg} (${bleedPct}%)`
+        : `Shields: ${Math.round(G.shields)} | No bleedthrough`;
+      log(`⚠ Klingon at ${shot.pos} hits for ${shot.dmg}. ${detail}.`, 'log-bad');
+    });
+  }
+
+  // --- step 4: check kills and player death after all damage is applied ---
+  ks.forEach(pos => {
+    let k = sec.cells[pos];
+    if (k && k.type === 'K' && k.shields <= 0) checkKlingonKill(sec, pos);
+  });
+
+  if (G.energy <= 0) {
+    log('💀 Ship destroyed! Game over.', 'log-bad');
+    G.alive = false;
+    render(false);
+    setTimeout(() => showEndScreen(false), 800);
+    return;
+  }
+
+  render(false);
+  if (!G.won) startMovePhase();
+}
+
+function fireAtKlingon(pos) {
+  if (!G.targeting) return;
+  let mode = G.targeting;
+  G.targeting = false;
+  let key = G.shipRow + ',' + G.shipCol;
+  let sec = G.sectors[key];
+  let k = sec.cells[pos];
+  if (!k || k.type !== 'K') { log('Invalid target.', 'log-warn'); render(false); return; }
+  let kr = Math.floor(pos / 8), kc = pos % 8;
+  let dist = cellDist(G.shipSRow, G.shipSCol, kr, kc);
+  let pAcc = phaserAccuracy(dist);
+  let tAcc = torpedoAccuracy(dist);
+  let dmgScale = damageFactor(dist);
+
+  if (mode === 'phaser') {
+    let hitPct = Math.round(pAcc * 100);
+    let maxDmgScale = Math.round(dmgScale * 100);
+    let label = `Phasers → K@${pos} | Target shields: ${Math.round(k.shields)}/${k.maxShields} | Available: ${Math.round(G.energy - 50)} | Hit: ${hitPct}% | Efficiency: ${maxDmgScale}%`;
+    askInput('Enter energy amount:', val => {
+      let energy = parseInt(val);
+      if (isNaN(energy) || energy <= 0) { log('Invalid amount.', 'log-warn'); render(false); return; }
+      if (energy > G.energy - 50) { log('Insufficient energy (50 held in reserve).', 'log-warn'); render(false); return; }
+      G.energy -= energy;
+      G.energySpent += energy;
+      G.phasedThisTurn = true;
+      G.pendingShots.push({ type: 'phaser', pos, energy, acc: pAcc, hitPct: Math.round(pAcc*100), dmgScale });
+      log(`🎯 Phasers queued → K@${pos} (${energy} energy, ${hitPct}% hit chance). Fire torpedo or resolve.`, 'log-info');
+      // disable phasers button, re-render but stay in fire phase
+      document.getElementById('btn-phasers').disabled = true;
+      render(false);
+    }, label);
+
+  } else if (mode === 'torpedo') {
+    let hitPct = Math.round(tAcc * 100);
+    G.torpedoes--;
+    G.torpedoesShot++;
+    G.torpedoedThisTurn = true;
+    G.pendingShots.push({ type: 'torpedo', pos, acc: tAcc, hitPct });
+    log(`🎯 Torpedo queued → K@${pos} (${hitPct}% hit chance). Fire phasers or resolve.`, 'log-info');
+    document.getElementById('btn-torps').disabled = true;
+    render(false);
+  }
+}
+
+function doShields() {
+  if (!G.alive) return;
+  let total = G.shields + G.energy;
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box';
+  box.innerHTML = `
+    <h2>🛡 Shield Level</h2>
+    <div class="end-stats" style="margin-bottom:1rem;">
+      <div>Current shields<span>${Math.round(G.shields)} / ${G.maxShields}</span></div>
+      <div>Available energy<span>${Math.round(G.energy)}</span></div>
+      <div>Total pool<span>${Math.round(total)}</span></div>
+    </div>
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:11px; color:#556; margin-bottom:6px;">Set shield level (0 – ${G.maxShields}):</div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input id="shield-input" type="number" min="0" max="${G.maxShields}" value="${Math.round(G.shields)}"
+          style="flex:1; font-family:'Courier New',monospace; font-size:14px; padding:6px 10px; border:1px solid #2a3a4a; border-radius:6px; background:#0d0d1a; color:#c8d0e0; width:80px;" />
+        <button class="diff-btn" onclick="applyShields()" style="text-align:center; padding:6px 12px;">
+          <span class="diff-name" style="color:#7ab3e0; font-size:12px;">Set</span>
+        </button>
+        <button class="diff-btn" onclick="applyShields(${G.maxShields})" style="text-align:center; padding:6px 12px;">
+          <span class="diff-name" style="color:#50c878; font-size:12px;">Max</span>
+        </button>
+        <button class="diff-btn" onclick="closeOverlay()" style="text-align:center; padding:6px 12px;">
+          <span class="diff-name" style="color:#556; font-size:12px;">Cancel</span>
+        </button>
+      </div>
+    </div>
+    <div style="font-size:11px; color:#556;">Shield auto-mode: <span style="color:${G.shieldAutoMode ? '#50c878' : '#f0c040'}">${G.shieldAutoMode ? 'ON' : 'OFF'}</span>
+      — <a onclick="toggleShieldAuto()" style="color:#7ab3e0; cursor:pointer;">toggle</a></div>
+  `;
+  document.getElementById('overlay').classList.add('active');
+  setTimeout(() => {
+    let inp = document.getElementById('shield-input');
+    if (inp) { inp.focus(); inp.select(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') applyShields(); }); }
+  }, 50);
+}
+
+function applyShields(forceAmount) {
+  let amount = forceAmount !== undefined ? forceAmount : parseInt(document.getElementById('shield-input').value);
+  closeOverlay();
+  if (isNaN(amount) || amount < 0) { log('Invalid shield level.', 'log-warn'); return; }
+  amount = Math.min(amount, G.maxShields);
+  let total = G.shields + G.energy;
+  if (amount > total) { amount = total; log(`Not enough energy — shields set to maximum available: ${Math.round(amount)}.`, 'log-warn'); }
+  G.shields = amount;
+  G.energy = total - amount;
+  // if they set to max, switch to auto; if less than max, switch to manual
+  G.shieldAutoMode = (amount >= G.maxShields);
+  log(`🛡 Shields set to ${Math.round(G.shields)}. Energy: ${Math.round(G.energy)}. Auto-mode: ${G.shieldAutoMode ? 'ON' : 'OFF'}.`, 'log-info');
+  updateShieldButton();
+  render();
+}
+
+function toggleShieldAuto() {
+  G.shieldAutoMode = !G.shieldAutoMode;
+  closeOverlay();
+  log(`🛡 Shield auto-mode ${G.shieldAutoMode ? 'ON' : 'OFF'}.`, 'log-info');
+  updateShieldButton();
+  render();
+}
+
+function autoTopShields() {
+  if (!G.shieldAutoMode) return;
+  // only top off when Klingons are present
+  if (klingonsInSector().length === 0) return;
+  let needed = G.maxShields - G.shields;
+  if (needed <= 0) return;
+  let available = Math.max(0, G.energy - 50);
+  let fill = Math.min(needed, available);
+  if (fill > 0) {
+    G.shields += fill;
+    G.energy -= fill;
+  }
+}
+
+function updateShieldButton() {
+  let btn = document.getElementById('btn-shields');
+  if (!btn) return;
+  if (G.shieldAutoMode) {
+    btn.innerHTML = '🛡 Shields: Auto <span style="color:#445;font-size:10px">[S]</span>';
+    btn.style.borderColor = '#50c878';
+    btn.style.color = '#50c878';
+  } else {
+    btn.innerHTML = '🛡 Shields: Manual <span style="color:#445;font-size:10px">[S]</span>';
+    btn.style.borderColor = '#f0c040';
+    btn.style.color = '#f0c040';
+  }
+}
+
+function doDock() {
+  if (!G.alive) return;
+  if (G.phase !== 'move') { log('Cannot dock during combat phase.', 'log-warn'); return; }
+  if (baseInSector() < 0) { log('No starbase in this sector.', 'log-warn'); return; }
+  if (!isAdjacentToBase()) {
+    let basePos = baseInSector();
+    let br = Math.floor(basePos / 8), bc = basePos % 8;
+    let dist = Math.max(Math.abs(G.shipSRow - br), Math.abs(G.shipSCol - bc));
+    log(`Starbase too far (${dist} cells). Use impulse engines to move closer.`, 'log-warn');
+    return;
+  }
+  let energyRestored = Math.max(0, DIFFICULTY[currentDiff].energy - G.energy);
+  G.energyGained += energyRestored;
+  G.energy = DIFFICULTY[currentDiff].energy; G.shields = G.maxShields; G.torpedoes = DIFFICULTY[currentDiff].torpedoes;
+  G.shieldAutoMode = true;
+  updateShieldButton();
+  log('⚓ Docked! Energy, shields, and torpedoes fully replenished. Shield auto-mode restored.', 'log-good');
+  render();
+}
+
+function doStatus() {
+  let total = countKlingons();
+  let ks = klingonsInSector();
+  let timeLeft = Math.floor(G.maxStardate - G.stardate);
+  log('--- Status ---', 'log-info');
+  log(`Sector (${G.shipRow+1},${G.shipCol+1}) · Position (${G.shipSCol+1},${G.shipSRow+1}) · ${DIFFICULTY[currentDiff].label}`, '');
+  log(`Stardate ${G.stardate.toFixed(2)} / ${G.maxStardate} · ${timeLeft} jump${timeLeft !== 1 ? 's' : ''} remaining`, timeLeft < 8 ? 'log-warn' : '');
+  log(`${total} Klingon${total !== 1 ? 's' : ''} remaining in galaxy · ${ks.length} in this sector`, total > 0 ? 'log-warn' : 'log-good');
+  if (G.galaxy[G.shipRow][G.shipCol].b) log('⚓ Starbase in this sector.', 'log-good');
+}
+
+const DIFFICULTY = {
+  easy:   { label: 'Easy',   klingonMult: 0.6, kShieldMax: 120, maxStardate: 2545, energy: 4000, shields: 1500, torpedoes: 15 },
+  normal: { label: 'Normal', klingonMult: 1.0, kShieldMax: 200, maxStardate: 2535, energy: 3000, shields: 1000, torpedoes: 10 },
+  hard:   { label: 'Hard',   klingonMult: 1.5, kShieldMax: 300, maxStardate: 2525, energy: 2500, shields:  800, torpedoes:  8 },
+  custom: { label: 'Custom', klingonMult: 1.0, kShieldMax: 200, maxStardate: 2535, energy: 3000, shields: 1000, torpedoes: 10 }
+};
+let currentDiff = 'normal';
+
+function showDifficultyScreen() {
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box';
+  box.innerHTML = `
+    <h2>★ New Game</h2>
+    <p>Choose your difficulty:</p>
+    <div class="diff-btns">
+      <button class="diff-btn easy" onclick="launchGame('easy')">
+        <span class="diff-name">Easy</span>
+        <span class="diff-desc">Fewer Klingons · weaker shields · more time · extra supplies</span>
+      </button>
+      <button class="diff-btn" onclick="launchGame('normal')">
+        <span class="diff-name">Normal</span>
+        <span class="diff-desc">Standard Klingon count · 35 stardates · default loadout</span>
+      </button>
+      <button class="diff-btn hard" onclick="launchGame('hard')">
+        <span class="diff-name">Hard</span>
+        <span class="diff-desc">50% more Klingons · tougher shields · tight time limit</span>
+      </button>
+      <button class="diff-btn" onclick="showCustomScreen()" style="border-color:#a070e0;">
+        <span class="diff-name" style="color:#a070e0;">Custom</span>
+        <span class="diff-desc">Set your own ship stats, enemy strength, and time limit</span>
+      </button>
+    </div>
+    <button onclick="closeOverlay()" style="color:#556; font-size:12px; border:none; background:none; cursor:pointer;">Cancel</button>
+  `;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function showCustomScreen() {
+  let d = DIFFICULTY.custom;
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box wide';
+  box.innerHTML = `
+    <h2 style="color:#a070e0;">⚙ Custom Game</h2>
+    <p style="margin-bottom:1rem;">Drag sliders to set your parameters.</p>
+
+    <div class="slider-row">
+      <div class="slider-label">Starting energy <span id="lbl-energy">${d.energy}</span></div>
+      <input type="range" min="1000" max="6000" step="100" value="${d.energy}" oninput="updateCustomLabel('energy',this.value)">
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Starting shields <span id="lbl-shields">${d.shields}</span></div>
+      <input type="range" min="200" max="2000" step="100" value="${d.shields}" oninput="updateCustomLabel('shields',this.value)">
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Starting torpedoes <span id="lbl-torpedoes">${d.torpedoes}</span></div>
+      <input type="range" min="3" max="25" step="1" value="${d.torpedoes}" oninput="updateCustomLabel('torpedoes',this.value)">
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Klingon count <span id="lbl-klingonMult">${d.klingonMult}×</span></div>
+      <input type="range" min="0.3" max="3.0" step="0.1" value="${d.klingonMult}" oninput="updateCustomLabel('klingonMult',this.value,'×')">
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Klingon shield strength <span id="lbl-kShieldMax">${d.kShieldMax}</span></div>
+      <input type="range" min="50" max="600" step="25" value="${d.kShieldMax}" oninput="updateCustomLabel('kShieldMax',this.value)">
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Time limit (warp jumps) <span id="lbl-maxStardate">${d.maxStardate - 2500}</span></div>
+      <input type="range" min="15" max="60" step="1" value="${d.maxStardate - 2500}" oninput="updateCustomLabel('maxStardate',this.value)">
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:1rem;">
+      <button class="diff-btn" onclick="launchCustomGame()" style="flex:1; text-align:center; border-color:#a070e0;">
+        <span class="diff-name" style="color:#a070e0;">Launch</span>
+      </button>
+      <button class="diff-btn" onclick="showDifficultyScreen()" style="flex:1; text-align:center;">
+        <span class="diff-name" style="color:#556;">Back</span>
+      </button>
+    </div>
+  `;
+}
+
+function updateCustomLabel(key, value, suffix) {
+  let el = document.getElementById('lbl-' + key);
+  if (!el) return;
+  let display = key === 'klingonMult' ? parseFloat(value).toFixed(1) : parseInt(value);
+  el.textContent = display + (suffix || '');
+  // update the custom difficulty object live
+  if (key === 'maxStardate') {
+    DIFFICULTY.custom.maxStardate = 2500 + parseInt(value);
+  } else if (key === 'klingonMult') {
+    DIFFICULTY.custom.klingonMult = parseFloat(value);
+  } else {
+    DIFFICULTY.custom[key] = parseInt(value);
+  }
+}
+
+function launchCustomGame() {
+  // shields can't exceed energy
+  if (DIFFICULTY.custom.shields > DIFFICULTY.custom.energy) {
+    DIFFICULTY.custom.shields = DIFFICULTY.custom.energy;
+  }
+  launchGame('custom');
+}
+
+function closeOverlay() {
+  document.getElementById('overlay').classList.remove('active');
+  if (G.warpMode) cancelWarp();
+}
+
+const STORAGE_KEY = 'sfc-history';
+
+async function loadHistory() {
+  try {
+    let result = await window.storage.get(STORAGE_KEY);
+    return result ? JSON.parse(result.value) : [];
+  } catch(e) { return []; }
+}
+
+async function saveHistory(records) {
+  try {
+    await window.storage.set(STORAGE_KEY, JSON.stringify(records));
+  } catch(e) {}
+}
+
+async function addHistoryRecord(record) {
+  let records = await loadHistory();
+  records.unshift(record); // newest first
+  await saveHistory(records);
+}
+
+async function clearHistory() {
+  await saveHistory([]);
+  showHistory();
+}
+
+function formatDuration(ms) {
+  let s = Math.floor(ms / 1000);
+  let m = Math.floor(s / 60);
+  s = s % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+let historyOrigin = null;
+
+async function showHistory(origin) {
+  historyOrigin = origin || null;
+  let records = await loadHistory();
+  records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box wide';
+  let wins = records.filter(r => r.won).length;
+  let losses = records.length - wins;
+  let summaryHTML = records.length > 0 ? `
+    <div class="hist-summary">
+      <span>Games: <strong>${records.length}</strong></span>
+      <span>Wins: <strong style="color:#50c878">${wins}</strong></span>
+      <span>Losses: <strong style="color:#e05050">${losses}</strong></span>
+      <span>Win rate: <strong>${records.length ? Math.round(wins/records.length*100) : 0}%</strong></span>
+    </div>` : '';
+  let tableHTML = records.length === 0
+    ? `<div class="hist-empty">No games recorded yet.</div>`
+    : `<table class="hist-table">
+        <thead><tr>
+          <th>Result</th><th>Difficulty</th><th>Kills</th><th>Stardates</th><th>Time</th><th>Date</th>
+        </tr></thead>
+        <tbody>
+          ${records.map(r => `
+            <tr class="${r.won ? 'hist-win' : 'hist-lose'}">
+              <td>${r.won ? '✔ Win' : '✘ Loss'}</td>
+              <td>${r.difficulty}</td>
+              <td>${r.killed} / ${r.total}</td>
+              <td>${r.stardatesUsed} / ${r.stardatesMax}</td>
+              <td>${formatDuration(r.duration)}</td>
+              <td>${r.date}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  box.innerHTML = `
+    <h2>📜 Game History</h2>
+    ${summaryHTML}
+    ${tableHTML}
+    ${records.length > 0 ? `<button onclick="clearHistory()" style="color:#e05050; font-size:12px; border:1px solid #3a1a1a; background:#1a0a0a; border-radius:6px; padding:5px 12px; cursor:pointer; margin-bottom:0.75rem;">Clear history</button>` : ''}
+    <br><button onclick="closeHistory()" style="color:#556; font-size:12px; border:none; background:none; cursor:pointer; margin-top:4px;">${historyOrigin ? '← Back' : 'Close'}</button>
+  `;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function closeHistory() {
+  let origin = historyOrigin;
+  historyOrigin = null;
+  document.getElementById('overlay-content').className = 'overlay-box';
+  if (origin === 'intro') { showIntroScreen(); return; }
+  if (origin === 'difficulty') { showDifficultyScreen(); return; }
+  if (origin === 'end') { showEndScreen(lastEndWon); return; }
+  closeOverlay();
+}
+
+let lastEndWon = false;
+let endScreenRecorded = false;
+
+function showEndScreen(won, skipRecord) {
+  lastEndWon = won;
+  let stardatesUsed = Math.round((G.stardate - 2500) * 100) / 100;
+  let killed = G.totalKlingons - countKlingons();
+  let duration = Date.now() - G.startTime;
+  if (!skipRecord && !endScreenRecorded) {
+    endScreenRecorded = true;
+    let record = {
+      won, difficulty: DIFFICULTY[currentDiff].label,
+      killed, total: G.totalKlingons,
+      stardatesUsed, stardatesMax: G.maxStardate - 2500,
+      duration,
+      energySpent: Math.round(G.energySpent),
+      energyGained: Math.round(G.energyGained),
+      damageTaken: Math.round(G.damageTaken),
+      torpedoesShot: G.torpedoesShot,
+      date: new Date().toLocaleDateString(),
+      timestamp: Date.now()
+    };
+    addHistoryRecord(record);
+  }
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box';
+  let titleCls = won ? 'end-title-win' : 'end-title-lose';
+  let title = won ? '🎉 Victory!' : '💀 Defeated';
+  let subtitle = won
+    ? 'All Klingons have been destroyed.'
+    : (G.stardate > G.maxStardate ? 'Time ran out — the Klingons won.' : 'Your ship was destroyed.');
+  box.innerHTML = `
+    <h2 class="${titleCls}">${title}</h2>
+    <p>${subtitle}</p>
+    <div class="end-stats">
+      <div>Difficulty<span>${DIFFICULTY[currentDiff].label}</span></div>
+      <div>Klingons destroyed<span>${killed} / ${G.totalKlingons}</span></div>
+      <div>Stardates used<span>${stardatesUsed} / ${G.maxStardate - 2500}</span></div>
+      <div>Time played<span>${formatDuration(duration)}</span></div>
+      <div>Energy spent<span>${Math.round(G.energySpent)}</span></div>
+      <div>Energy resupplied<span>${Math.round(G.energyGained)}</span></div>
+      <div>Damage taken<span>${Math.round(G.damageTaken)}</span></div>
+      <div>Torpedoes fired<span>${G.torpedoesShot}</span></div>
+    </div>
+    <button class="diff-btn" onclick="launchGame('${currentDiff}')" style="text-align:center; margin-bottom:8px;">
+      <span class="diff-name">Play again (${DIFFICULTY[currentDiff].label})</span>
+    </button>
+    <button class="diff-btn" onclick="showDifficultyScreen()" style="text-align:center; margin-bottom:8px;">
+      <span class="diff-name" style="color:#c8d0e0;">Change difficulty</span>
+    </button>
+    <button class="diff-btn" onclick="showHistory('end')" style="text-align:center;">
+      <span class="diff-name" style="color:#7ab3e0;">📜 View history</span>
+    </button>
+  `;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function launchGame(diff) {
+  currentDiff = diff;
+  closeOverlay();
+  startGame();
+}
+
+function startGame() {
+  endScreenRecorded = false;
+  logLines = [];
+  let d = DIFFICULTY[currentDiff];
+  G = {
+    energy: d.energy, shields: d.shields, maxShields: d.shields, torpedoes: d.torpedoes,
+    stardate: 2500, maxStardate: d.maxStardate,
+    shipRow: 0, shipCol: 0, shipSRow: 0, shipSCol: 0,
+    galaxy: [], sectors: {}, visited: {},
+    totalKlingons: 0, alive: true, won: false,
+    phase: 'move', targeting: false, warpMode: false,
+    phasedThisTurn: false, torpedoedThisTurn: false, pendingShots: [],
+    freeMoveMode: true, shieldAutoMode: true,
+    energySpent: 0, energyGained: 0, damageTaken: 0, torpedoesShot: 0,
+    klingonMult: d.klingonMult, kShieldMax: d.kShieldMax,
+    startTime: Date.now()
+  };
+  galaxyExpanded = false;
+  document.getElementById('galaxy-mini').style.display = 'grid';
+  document.getElementById('galaxy-full').classList.remove('visible');
+  document.getElementById('sector-panel').classList.remove('hidden');
+  document.getElementById('galaxy-title').style.color = '';
+  initGalaxy();
+  revealSurroundings();
+  log('╔══════════════════════════════════╗', 'log-title');
+  log('║     STAR FLEET COMMANDER         ║', 'log-title');
+  log('╚══════════════════════════════════╝', 'log-title');
+  log(`Difficulty: ${d.label}. Stardate ${G.stardate}.`, 'log-info');
+  log(`${G.totalKlingons} Klingon warship(s) threaten the Federation.`, 'log-warn');
+  log(`Destroy all before stardate ${G.maxStardate}.`, '');
+  log(`Starting in sector (${G.shipRow+1},${G.shipCol+1}).`, 'log-info');
+  log('Movement: d-pad (10 energy/cell). Stars block movement and line of sight.', '');
+  log('Combat: Enter combat → click a Klingon ⌖ to target → fire.', '');
+  render();
+}
+
+function showIntroScreen() {
+  let box = document.getElementById('overlay-content');
+  box.className = 'overlay-box';
+  box.innerHTML = `
+    <h2>★ STAR FLEET COMMANDER ★</h2>
+    <p style="margin-bottom:0.75rem;">The Klingon Empire has launched an invasion. As commander of the Federation's last starship, you must hunt down and destroy every Klingon warship before time runs out.</p>
+    <p style="font-size:11px; color:#556; margin-bottom:1.25rem;">
+      Warp between sectors · maneuver with impulse engines · use phasers and torpedoes to fight ·
+      dock at starbases to resupply · stars block movement and line of sight
+    </p>
+    <div class="diff-btns">
+      <button class="diff-btn easy" onclick="launchGame('easy')">
+        <span class="diff-name">Easy</span>
+        <span class="diff-desc">Fewer Klingons · weaker enemy shields · more time · extra supplies</span>
+      </button>
+      <button class="diff-btn" onclick="launchGame('normal')">
+        <span class="diff-name">Normal</span>
+        <span class="diff-desc">Standard challenge · 35 stardates · default loadout</span>
+      </button>
+      <button class="diff-btn hard" onclick="launchGame('hard')">
+        <span class="diff-name">Hard</span>
+        <span class="diff-desc">50% more Klingons · tougher shields · tight time limit</span>
+      </button>
+      <button class="diff-btn" onclick="showCustomScreen()" style="border-color:#a070e0;">
+        <span class="diff-name" style="color:#a070e0;">Custom</span>
+        <span class="diff-desc">Set your own ship stats, enemy strength, and time limit</span>
+      </button>
+    </div>
+    <button onclick="showHistory('intro')" style="color:#556; font-size:12px; border:none; background:none; cursor:pointer; margin-top:4px;">📜 View past games</button>
+  `;
+  document.getElementById('overlay').classList.add('active');
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  // don't fire when typing in input or overlay is open
+  if (document.getElementById('input-row').style.display !== 'none') return;
+  if (document.getElementById('overlay').classList.contains('active')) return;
+  if (!G.alive) return;
+
+  if (e.key === 'Escape') {
+    if (G.warpMode) { cancelWarp(); return; }
+    if (G.targeting) { G.targeting = false; render(false); return; }
+    return;
+  }
+  const moveKeys = {
+    'ArrowUp': [-1,0], 'ArrowDown': [1,0], 'ArrowLeft': [0,-1], 'ArrowRight': [0,1],
+    'Numpad8': [-1,0], 'Numpad2': [1,0], 'Numpad4': [0,-1], 'Numpad6': [0,1],
+    'Numpad7': [-1,-1], 'Numpad9': [-1,1], 'Numpad1': [1,-1], 'Numpad3': [1,1]
+  };
+  if (moveKeys[e.code]) {
+    e.preventDefault();
+    let [dr, dc] = moveKeys[e.code];
+    move(dr, dc);
+    return;
+  }
+
+  const key = e.key.toUpperCase();
+  switch(key) {
+    case ' ':
+      e.preventDefault();
+      if (G.phase === 'move') skipMove();
+      else if (G.phase === 'combat') skipFire();
+      break;
+    case 'W': doWarp(); break;
+    case 'P': doPhasers(); break;
+    case 'T': doTorpedo(); break;
+    case 'S': doShields(); break;
+    case 'D': doDock(); break;
+    case 'I': doStatus(); break;
+  }
+});
+
+showIntroScreen();
+</script>
+</body>
+</html>

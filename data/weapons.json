@@ -1,0 +1,227 @@
+[
+  {
+    "weaponTypeId": 1,
+    "weaponClassId": 1,
+    "weaponName": "Phaser 1",
+    "effRange": 75,
+    "powerCost": 1,
+    "fireRate": 1,
+    "damageTable": [
+      { "range": 0,  "hits": [9, 8, 7, 6, 5, 4] },
+      { "range": 1,  "hits": [8, 7, 5, 4, 4, 4] },
+      { "range": 2,  "hits": [7, 6, 5, 4, 4, 3] },
+      { "range": 3,  "hits": [6, 5, 4, 4, 4, 3] },
+      { "range": 4,  "hits": [5, 5, 4, 4, 3, 2] },
+      { "range": 5,  "hits": [5, 4, 4, 3, 3, 2] },
+      { "range": 8,  "hits": [4, 3, 3, 2, 1, 0] },
+      { "range": 15, "hits": [3, 2, 1, 0, 0, 0] },
+      { "range": 25, "hits": [2, 1, 0, 0, 0, 0] },
+      { "range": 50, "hits": [1, 1, 0, 0, 0, 0] },
+      { "range": 75, "hits": [1, 0, 0, 0, 0, 0] }
+    ]
+  },
+  {
+    "weaponTypeId": 2,
+    "weaponClassId": 1,
+    "weaponName": "Phaser 2",
+    "effRange": 50,
+    "powerCost": 1,
+    "fireRate": 1,
+    "damageTable": [
+      { "range": 0,  "hits": [6, 6, 6, 5, 5, 5] },
+      { "range": 1,  "hits": [5, 5, 4, 4, 4, 3] },
+      { "range": 2,  "hits": [5, 4, 4, 4, 3, 3] },
+      { "range": 3,  "hits": [4, 4, 4, 3, 3, 3] },
+      { "range": 8,  "hits": [3, 2, 1, 1, 0, 0] },
+      { "range": 15, "hits": [2, 1, 1, 0, 0, 0] },
+      { "range": 30, "hits": [1, 1, 0, 0, 0, 0] },
+      { "range": 50, "hits": [1, 0, 0, 0, 0, 0] }
+    ]
+  },
+  {
+    "weaponTypeId": 3,
+    "weaponClassId": 1,
+    "weaponName": "Phaser 3",
+    "effRange": 15,
+    "powerCost": 0.5,
+    "fireRate": 1,
+    "damageTable": [
+      { "range": 0,  "hits": [4, 4, 4, 4, 4, 3] },
+      { "range": 1,  "hits": [4, 4, 4, 4, 3, 3] },
+      { "range": 2,  "hits": [4, 4, 4, 3, 2, 1] },
+      { "range": 3,  "hits": [3, 2, 1, 0, 0, 0] },
+      { "range": 8,  "hits": [1, 1, 0, 0, 0, 0] },
+      { "range": 15, "hits": [1, 0, 0, 0, 0, 0] }
+    ]
+  },
+  {
+    "weaponTypeId": 4,
+    "weaponClassId": 1,
+    "weaponName": "Phaser G",
+    "effRange": 13,
+    "powerCost": 1,
+    "fireRate": 4,
+    "extends": "Phaser 3"
+  },
+  {
+    "weaponTypeId": 10,
+    "weaponClassId": 2,
+    "weaponName": "Disruptor",
+    "effRange": 30,
+    "powerCost": 2,
+    "fireRate": 1,
+    "damageTable": [
+      { "range": 0,  "hits": [6, 0, 10] },
+      { "range": 1,  "hits": [5, 5, 10] },
+      { "range": 2,  "hits": [5, 4, 8] },
+      { "range": 4,  "hits": [4, 4, 8] },
+      { "range": 8,  "hits": [4, 3, 6] },
+      { "range": 15, "hits": [4, 3, 0] },
+      { "range": 22, "hits": [3, 2, 0] },
+      { "range": 30, "hits": [2, 2, 0] }
+    ]
+  },
+  {
+    "weaponTypeId": 11,
+    "weaponClassId": 2,
+    "weaponName": "Disruptor UIM",
+    "effRange": 30,
+    "powerCost": 2,
+    "fireRate": 1,
+    "extends": "Disruptor",
+    "overrides": {
+      "15": [4, 3, 6],
+      "22": [4, 2, 4],
+      "30": [2, 2, 4]
+    }
+  },
+  {
+    "weaponTypeId": 12,
+    "weaponClassId": 2,
+    "weaponName": "Disruptor DERFACS",
+    "effRange": 30,
+    "powerCost": 2,
+    "fireRate": 1,
+    "extends": "Disruptor",
+    "overrides": {
+      "15": [4, 3, 6],
+      "22": [3, 2, 4],
+      "30": [3, 2, 4]
+    }
+  },
+  {
+    "weaponTypeId": 13,
+    "weaponClassId": 2,
+    "weaponName": "Photon",
+    "effRange": 30,
+    "powerCost": 2,
+    "fireRate": 2,
+    "damageTable": [
+      { "range": 1,  "hits": [0, 8] },
+      { "range": 2,  "hits": [5, 8] },
+      { "range": 4,  "hits": [4, 8] },
+      { "range": 8,  "hits": [3, 8] },
+      { "range": 12, "hits": [2, 8] },
+      { "range": 30, "hits": [1, 8] }
+    ]
+  },
+  {
+    "weaponTypeId": 20,
+    "weaponClassId": 3,
+    "weaponName": "Plasma R",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 3,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 21,
+    "weaponClassId": 3,
+    "weaponName": "Plasma S",
+    "effRange": 30,
+    "powerCost": 2,
+    "fireRate": 3,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 22,
+    "weaponClassId": 3,
+    "weaponName": "Plasma G",
+    "effRange": 30,
+    "powerCost": 1,
+    "fireRate": 3,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 23,
+    "weaponClassId": 3,
+    "weaponName": "Plasma F",
+    "effRange": 30,
+    "powerCost": 0,
+    "fireRate": 3,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 30,
+    "weaponClassId": 4,
+    "weaponName": "Drone A",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 1,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 31,
+    "weaponClassId": 4,
+    "weaponName": "Drone B",
+    "effRange": 30,
+    "powerCost": 6,
+    "fireRate": 1,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 32,
+    "weaponClassId": 4,
+    "weaponName": "Drone C",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 1,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 33,
+    "weaponClassId": 4,
+    "weaponName": "Drone D",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 0.3,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 34,
+    "weaponClassId": 4,
+    "weaponName": "Drone E",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 4,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 35,
+    "weaponClassId": 4,
+    "weaponName": "Drone F",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 0.5,
+    "damageTable": []
+  },
+  {
+    "weaponTypeId": 36,
+    "weaponClassId": 4,
+    "weaponName": "Drone G",
+    "effRange": 30,
+    "powerCost": 4,
+    "fireRate": 1,
+    "damageTable": []
+  }
+]

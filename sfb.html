@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+    <script src="js/jquery-3.4.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swiper@9.4.1/swiper-bundle.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/swiper@9.4.1/modules/scrollbar/scrollbar.min.css" rel="stylesheet" />
+
+    <!-- weapon damage tables + damage allocation chart, loaded from data/*.json -->
+    <script src="js/weapons.js"></script>
+    <script src="js/dac-chart.js"></script>
+
+    <script type="text/javascript">
+        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap) {
+            this.userId = userId;
+            this.name = name;
+            this.xCord = xCord;
+            this.yCord = yCord;
+            this.facing = facing;  // 0-360
+            this.turnMode = turnMode;
+            this.turnMarker = 10;
+            this.speed = speed;
+            this.sideSlip = true;
+            this.phaserCap = phaserCap;
+            this.shipWeapons = [];
+        }
+        var shipList = [];
+
+        // Weapon damage tables now live in data/weapons.json and are loaded
+        // into `weaponList` by loadWeapons() (see js/weapons.js), called
+        // from the init block at the bottom of the page.
+
+        function damageListType(targetId, shield, damage) {
+            this.targetId = targetId;
+            this.shield = shield;
+            this.damage = damage;
+        }
+
+
+
+        function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc, startP2, arc2) {
+            this.shipWeaponId = shipWeaponId;
+            this.weaponTypeId = weaponTypeId;
+            this.weaponClassId = weaponClassId;
+            this.startP = startP;
+            this.arc = arc;
+            this.startP2 = startP2;
+            this.arc2 = arc2;
+            this.bFired = false;
+            this.impFired = 0;
+            this.bDestroyed = false;
+        }
+
+        function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
+            this.userId = userId;
+
+            this.flag = flag;
+            this.bridge = bridge;
+            this.emer = emer;
+            this.aux = aux;
+            this.scrty = scrty;
+            this.armor = armor;
+            this.fHull = fHull;
+            this.aHull = aHull;
+            this.hull = hull;
+            this.lab = lab;
+            this.probe = probe;
+            this.trac = trac;
+            this.tran = tran;
+            this.shut = shut;
+            this.rWarp = rWarp;
+            this.lWarp = lWarp;
+            this.cWarp = cWarp;
+            this.imp = imp;
+            this.apr = apr;
+            this.bty = bty;
+            this.shield1 = shield1;
+            this.shield2 = shield2;
+            this.shield3 = shield3;
+            this.shield4 = shield4;
+            this.shield5 = shield5;
+            this.shield6 = shield6;
+            this.excess = excess;
+
+            this.mFlag = flag;
+            this.mBridge = bridge;
+            this.mEmer = emer;
+            this.mAux = aux;
+            this.mScrty = scrty;
+            this.mArmor = armor;
+            this.mFHull = fHull;
+            this.mAHull = aHull;
+            this.mHull = hull;
+            this.mLab = lab;
+            this.mProbe = probe;
+            this.mTrac = trac;
+            this.mTran = tran;
+            this.mShut = shut;
+            this.mRWarp = rWarp;
+            this.mLWarp = lWarp;
+            this.mCWarp = cWarp;
+            this.mImp = imp;
+            this.mApr = apr;
+            this.mBty = bty;
+            this.mShield1 = shield1;
+            this.mShield2 = shield2;
+            this.mShield3 = shield3;
+            this.mShield4 = shield4;
+            this.mShield5 = shield5;
+            this.mShield6 = shield6;
+            this.mExcess = excess;
+            this.sensor = [];
+            this.scanner = [];
+            this.damageCon = [];
+        }
+        var shipInternals = [];
+
+
+        shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8);  // FED CA
+        shipInternals[0] = new shipSystemsType(1, 2, 2, 2, 2, 0, 0, 12, 4, 0, 8, 1, 2, 3, 4, 15, 15, 0, 4, 2, 4, 30, 24, 20, 20, 20, 24, 6);
+
+        shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9);    //KLI D7
+        shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+        /*
+       shipList[2] = new shipType(3, 'NCA', 12, 10, 60, 7, 13, 6);  // FED NCA
+       shipInternals[2] = new shipSystemsType(3, 0, 2, 2, 1, 0, 0, 0, 0, 10, 4, 1, 2, 2, 4, 12, 12, 0, 4, 4, 2, 24, 24, 24, 24, 24, 24, 6);
+
+       shipList[3] = new shipType(4, 'F5', 12, 11, 120, 4, 24, 5);  // KLI F5
+       shipInternals[3] = new shipSystemsType(4, 0, 1, 1, 1, 2, 2, 0, 5, 0, 2, 1, 1, 2, 1, 8, 8, 0, 3, 1, 2, 30, 22, 15, 13, 15, 22, 4);
+
+       shipList[4] = new shipType(5, 'C9', 10, 12, 0, 7, 8, 14);  // KLI C9
+       shipInternals[4] = new shipSystemsType(5, 0, 4, 2, 2, 4, 0, 12, 20, 0, 6, 1, 3, 8, 4, 15, 15, 15, 8, 4, 8, 44, 36, 30, 30, 30, 36, 8);
+
+       shipList[5] = new shipType(6, 'D6', 9, 12, 240, 5, 20, 7);   // KLI D6
+       shipInternals[5] = new shipSystemsType(6, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+
+       shipList[6] = new shipType(7, 'D6', 3, 11, 300, 5, 20, 7);   // KLI D6
+       shipInternals[6] = new shipSystemsType(7, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+
+       shipList[7] = new shipType(8, 'D6', 9, 9, 0, 5, 20, 7);   // KLI D6
+       shipInternals[7] = new shipSystemsType(8, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+
+       shipList[8] = new shipType(9, 'D6', 7, 9, 0, 5, 23, 7);   // KLI D6
+       shipInternals[8] = new shipSystemsType(9, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+      */
+        shipList[0].shipWeapons[0] = new weaponEntryType(1, 13, 2, 300, 120, 0, 0);
+        shipList[0].shipWeapons[1] = new weaponEntryType(2, 13, 2, 300, 120, 0, 0);
+        shipList[0].shipWeapons[2] = new weaponEntryType(3, 13, 2, 300, 120, 0, 0);
+        shipList[0].shipWeapons[3] = new weaponEntryType(4, 13, 2, 300, 120, 0, 0);
+        shipList[0].shipWeapons[4] = new weaponEntryType(5, 1, 1, 0, 360, 0, 0);
+        shipList[0].shipWeapons[5] = new weaponEntryType(6, 1, 1, 0, 360, 0, 0);
+        shipList[0].shipWeapons[6] = new weaponEntryType(7, 1, 1, 300, 120, 0, 0);
+        shipList[0].shipWeapons[7] = new weaponEntryType(8, 1, 1, 300, 120, 0, 0);
+        shipList[0].shipWeapons[8] = new weaponEntryType(9, 1, 1, 240, 120, 0, 0);
+        shipList[0].shipWeapons[9] = new weaponEntryType(10, 1, 1, 240, 120, 0, 0);
+        shipList[0].shipWeapons[10] = new weaponEntryType(11, 1, 1, 0, 120, 0, 0);
+        shipList[0].shipWeapons[11] = new weaponEntryType(12, 1, 1, 0, 120, 0, 0);
+        shipInternals[0].sensor = [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]];
+        shipInternals[0].scanner = [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]];
+        shipInternals[0].damageCon = [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]];
+
+        shipList[1].shipWeapons[0] = new weaponEntryType(1, 10, 2, 300, 120, 0, 0);
+        shipList[1].shipWeapons[1] = new weaponEntryType(2, 10, 2, 300, 120, 0, 0);
+        shipList[1].shipWeapons[2] = new weaponEntryType(3, 10, 2, 300, 120, 0, 0);
+        shipList[1].shipWeapons[3] = new weaponEntryType(4, 10, 2, 300, 120, 0, 0);
+        shipList[1].shipWeapons[4] = new weaponEntryType(5, 35, 4, 0, 360, 0, 0);
+        shipList[1].shipWeapons[5] = new weaponEntryType(6, 35, 4, 0, 360, 0, 0);
+        shipList[1].shipWeapons[6] = new weaponEntryType(7, 2, 1, 240, 240, 0, 0);
+        shipList[1].shipWeapons[7] = new weaponEntryType(8, 2, 1, 240, 240, 0, 0);
+        shipList[1].shipWeapons[8] = new weaponEntryType(9, 2, 1, 240, 240, 0, 0);
+        shipList[1].shipWeapons[9] = new weaponEntryType(10, 2, 1, 240, 120, 120, 60);
+        shipList[1].shipWeapons[10] = new weaponEntryType(11, 2, 1, 0, 120, 180, 60);
+        shipList[1].shipWeapons[11] = new weaponEntryType(12, 2, 1, 180, 120, 0, 0);
+        shipList[1].shipWeapons[12] = new weaponEntryType(13, 2, 1, 180, 120, 0, 0);
+        shipList[1].shipWeapons[13] = new weaponEntryType(14, 2, 1, 60, 120, 0, 0);
+        shipList[1].shipWeapons[14] = new weaponEntryType(15, 2, 1, 60, 120, 0, 0);
+        shipInternals[1].sensor = [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]];
+        shipInternals[1].scanner = [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]];
+        shipInternals[1].damageCon = [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]];
+
+
+        var curShipId = 1;
+        var curShipArrId = 0;
+
+        $(function () {
+            // Load weapon damage tables + Damage Allocation Chart before
+            // anything that might reference weaponList/dacChart runs.
+            Promise.all([
+                loadWeapons('data/weapons.json'),
+                loadDacChart('data/dac-chart.json')
+            ]).then(initGame).catch(function (err) {
+                console.error('Failed to load chart data:', err);
+                $('#dataDiv').append('<div style="color:red;">Failed to load chart data: ' + err.message + '</div>');
+            });
+        });
+
+        function initGame() {
+            plotShip(1);
+            plotShip(2);
+            /*
+            plotShip(3);
+            plotShip(4);
+            plotShip(5);
+            plotShip(6);
+            plotShip(7);
+            plotShip(8);
+            plotShip(9);
+         */
+
+            var str = '';
+            /*
+            a = impluseChart[10];
+            // impluseChart[10] = [7, 10, 13, 14, 16, 17, 20, 21, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+
+            str += '<div>imp=10 s=' + shipList[0].speed + ' shipList[0]=' + a.includes(shipList[0].speed) + '</div>';
+            str += '<div>imp=10 s=' + shipList[1].speed + ' shipList[1]=' + a.includes(shipList[1].speed) + '</div>';
+            str += '<div>imp=10 s=' + shipList[2].speed + ' shipList[2]=' + a.includes(shipList[2].speed) + '</div>';
+            str += '<div>imp=10 s=' + shipList[3].speed + ' shipList[3]=' + a.includes(shipList[3].speed) + '</div>';
+            str += '<div>imp=10 s=' + shipList[4].speed + ' shipList[4]=' + a.includes(shipList[4].speed) + '</div>';
+
+
+            $('#dataDiv').append(str);
+
+        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap ) {
+            */
+            //oneTurn();
+
+            drawGrid(1640, 1340);
+            writeGridNumbers();
+            writeImpulseChart();
+
+
+            makeDraggableElement(document.getElementById('dataDiv'));
+            makeDraggableElement(document.getElementById('targetShipPopUpDiv'));
+            makeDraggableElement(document.getElementById('implusePopUpDiv'));
+            makeDraggableElement(document.getElementById('windowsTabDiv'));
+            makeDraggableElement(document.getElementById('moveShipPopUpDiv'));
+            makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
+            makeDraggableElement(document.getElementById('fireShipPopUpDiv'));
+            makeDraggableElement(document.getElementById('turnDetailsPopUpDiv'));
+
+
+            makeDraggableElement(document.getElementById('gamePopUpDiv'));
+
+            setupGameArea();
+
+
+            //damageList[damageList.length] = new damageListType(2, 15, 50);
+
+            //applyDamage();
+
+            oneImpluse();
+            //showShipPopUp(2)
+            //damageWeapon(sId, wClass, shield);
+            //damageWeapon(2, 1, 0);
+            //damageWeapon(2, 1, 60);
+            //damageWeapon(2, 1, 60);
+            //damageWeapon(2, 1, -1);
+            //damageWeapon(2, 2, -1);
+            //curShipId = 2
+            //shipFirePopUp(2);
+        }
+
+        function showStatus(sId) {
+            var arrId1 = -1;
+            var str = '';
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId1 = z; }
+            }
+
+            str = '<div>x=' + shipList[arrId1].xCord + ' y=' + shipList[arrId1].yCord + ' sX=' + shipList[arrId1].xMove + ' y=' + shipList[arrId1].yMove + '</div>';
+            $('#dataDiv').append(str);
+        }
+
+
+        // movement
+        /*
+        function turnShip(sId, arc) {
+            var a = 0;
+var str = '';
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+str += '<div> f=' + shipList[z].facing + '  a=' + arc;
+                    a = shipList[z].facing + arc;
+                    if (a >= 360) a -= 360;
+                    if (a < 0) a += 360;
+                    shipList[z].facing = a;
+str += ' nf=' + a + '</div>';
+                    $('#ship' + sId).css({
+                        '-webkit-transform': 'rotate(' + a + 'deg)',
+                        '-moz-transform': 'rotate(' + a + 'deg)',
+                        'transform': 'rotate(' + a + 'deg)'
+                    });
+                }
+            }
+
+$('#dataDiv').append(str);
+            $('#weaponArc').remove();
+            $('.selWeapon').removeClass('selWeapon');
+            $('.selShipColor').removeClass('selShipColor');
+            for (var z = 0; z < shipList[curShipArrId].shipWeapons.length; z++) {
+                $('#weapon' + curShipId + '-' + z).removeClass('dimWeapon');
+            }
+            selTargetShipId = -1;
+            selTShield = 0;
+            selTRange = 0;
+        }
+        */
+
+        // end turn functions
+        /*
+
+        function addThrust(sId, thrust) {
+            var a = 0;
+            var x = 0;
+            var y = 0;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+                    a = 90 - shipList[z].facing;
+                    if (a < 0) a += 360;
+                    y = Math.round(Math.sin(a * (Math.PI / 180)) * 100 * thrust) / 100;
+                    x = Math.round(Math.cos(a * (Math.PI / 180)) * 100 * thrust) / 100;
+
+                    shipList[z].xMove += x;
+                    shipList[z].yMove += y;
+$('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a + ' x=' + x + ' y=' + y + '</div>');
+                }
+            }
+        }
+
+        function moveShip(sId) {
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+                    shipList[z].xCord = Math.round((shipList[z].xCord + shipList[z].xMove) * 100) / 100;
+                    shipList[z].yCord = Math.round((shipList[z].yCord + shipList[z].yMove) * 100) / 100;
+
+                    $('#ship' + sId).css({
+                        'left': (shipList[z].xCord - 10), 'bottom': (shipList[z].yCord - 10)
+                    });
+                    showStatus(sId);  // update status
+
+                    break;
+                }
+            }
+
+
+            // reset ships & stuff
+            $('#weaponArc').remove();
+            $('.shipDiv').removeClass('selShipColor');
+            selTargetShipId = -1;
+            selTShield = 0; selTRange = 0;
+
+            $('.weaponFireDiv').removeClass('selWeapon').removeClass('dimWeapon').removeClass('firedWeapon');
+            var s = '';
+            for (var z = 0; z < shipList[curShipArrId].shipWeapons.length; z++) {
+                s = $('#weapon' + curShipId + '-' + z).html();
+                s = s.replace('-F', '');
+                $('#weapon' + curShipId + '-' + z).html(s);
+            }
+
+            // add power to system
+            shipList[curShipArrId].phaserCap++;
+        }
+        */
+
+
+        function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
+            var angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+
+            return {
+                x: centerX + Math.round((radius * Math.cos(angleInRadians)) * 100) / 100,
+                y: centerY + Math.round((radius * Math.sin(angleInRadians)) * 100) / 100
+            };
+        }
+
+
+
+
+        // weapons functions
+        var selTargetShipId = -1;
+        var selTShield = 0;
+        var selTRange = 0;
+        function shipClick(sId) {
+            var d = findDist(curShipId, sId);
+            var f = findFacing(curShipId, sId);
+            var tf = findFacing(sId, curShipId);
+            selTargetShipId = sId;
+            selTShield = shieldFacing(tf);
+            selTRange = d;
+
+            $('.shipDiv').removeClass('selShipColor')
+            $('#ship' + sId).addClass('selShipColor');
+
+            //$('#dataDiv').append('<div>d=' + d + '  f=' + f + ' tsF=' + tf + '</div>');
+
+            var speed = 0;
+            var name = '';
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+                    speed = shipList[z].speed;
+                    name = shipList[z].name;
+                }
+            }
+
+            var str = '<div style="float:left;">Target Ship: [' + sId + ']</div>';
+            str += '<div style="float:left;padding-left:4px;">' + name + '</div>';
+            str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div>Ship Speed: ' + speed + '</div>';
+            str += '<div>Distance to target: ' + d + '</div>';
+            str += '<div>I hit shield: ' + shieldFacing(tf) + '</div>';
+            str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
+
+            str += '<div style="position:relative;margin:10px auto;width:102px;font-size:10px;">';
+            str += '<div style="position:absolute;top:45px;left:48px;"><i class="fa-solid fa-solid fa-arrow-up" ';
+            if (shieldFacing(tf) == 2) str += ' data-fa-transform="rotate-60"';
+            if (shieldFacing(tf) == 3) str += ' data-fa-transform="rotate-120"';
+            if (shieldFacing(tf) == 4) str += ' data-fa-transform="rotate-180"';
+            if (shieldFacing(tf) == 5) str += ' data-fa-transform="rotate-240"';
+            if (shieldFacing(tf) == 6) str += ' data-fa-transform="rotate-300"';
+            str += '></i></div>';
+            str += writeShields(sId);
+            str += '</div>';
+            $('#targetShipPopUpDiv').html(str).css('display', 'block');
+
+            $('.weaponArc').remove();
+            shipFirePopUp(sId);
+        }
+        function writeShields(sId) {
+            var a = 0;
+            var c = '';
+            var sn = '';
+            var str = '<svg style="height:100px;width:100px;border:1px solid black;" viewBox="0 0 100 100">';
+            str += '<g fill="none">';
+            for (var z = 0; z < shipInternals.length; z++) {
+                if (shipInternals[z].userId == sId) {
+                    a = Math.round(shipInternals[z].shield1 / shipInternals[z].mShield1 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2.5) c = 'green';
+                    str += '<path id="arc1" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 331, 29) + '"/>';
+                    sn += '<div style="position:absolute;left:35px;top:11px;width:32px;text-align:center;">' + shipInternals[z].shield1 + '</div>';
+
+                    a = Math.round(shipInternals[z].shield2 / shipInternals[z].mShield2 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2) c = 'green';
+                    str += '<path id="arc2" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 31, 89) + '"/>';
+                    sn += '<div style="position:absolute;right:15px;top:29px;">' + shipInternals[z].shield2 + '</div>';
+
+                    a = Math.round(shipInternals[z].shield3 / shipInternals[z].mShield3 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2) c = 'green';
+                    str += '<path id="arc3" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 91, 149) + '"/>';
+                    sn += '<div style="position:absolute;right:15px;bottom:29px;">' + shipInternals[z].shield3 + '</div>';
+
+                    a = Math.round(shipInternals[z].shield4 / shipInternals[z].mShield4 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2) c = 'green';
+                    str += '<path id="arc4" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 151, 209) + '"/>';
+                    sn += '<div style="position:absolute;left:35px;bottom:13px;width:32px;text-align:center;">' + shipInternals[z].shield4 + '</div>';
+
+                    a = Math.round(shipInternals[z].shield5 / shipInternals[z].mShield5 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2) c = 'green';
+                    str += '<path id="arc5" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 211, 269) + '"/>';
+                    sn += '<div style="position:absolute;left:15px;bottom:29px;">' + shipInternals[z].shield5 + '</div>';
+
+                    a = Math.round(shipInternals[z].shield6 / shipInternals[z].mShield6 * 500) / 100;
+                    c = 'red';
+                    if (a > 1) c = 'yellow';
+                    if (a > 2) c = 'green';
+                    str += '<path id="arc6" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 271, 329) + '"/>';
+                    sn += '<div style="position:absolute;left:15px;top:29px;">' + shipInternals[z].shield6 + '</div>';
+                }
+            }
+            str += '</g></svg>';
+            str = sn + str;
+            return str;
+        }
+        function describeArc(x, y, radius, startAngle, endAngle) {
+            var start = polarToCartesian(x, y, radius, endAngle);
+            var end = polarToCartesian(x, y, radius, startAngle);
+
+            var largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+            var d = [
+                "M", start.x, start.y,
+                "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
+            ].join(" ");
+
+            return d;
+        }
+
+
+        // Damage Allocation Chart now lives in data/dac-chart.json and is
+        // loaded into `dacChart` by loadDacChart() (see js/dac-chart.js),
+        // called from the init block at the bottom of the page.
+
+        var impluseChart = new Array();
+        impluseChart[1] = [32];
+        impluseChart[2] = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[3] = [11, 12, 13, 14, 15, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[4] = [8, 9, 10, 16, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[5] = [7, 13, 14, 15, 20, 21, 22, 23, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[6] = [6, 11, 12, 16, 17, 18, 19, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32];
+        impluseChart[7] = [5, 10, 14, 15, 19, 20, 21, 23, 24, 25, 26, 28, 29, 30, 31, 32];
+        impluseChart[8] = [4, 8, 9, 12, 13, 16, 17, 18, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[9] = [11, 15, 18, 19, 22, 23, 25, 26, 27, 29, 30, 31, 32];
+        impluseChart[10] = [7, 10, 13, 14, 16, 17, 20, 21, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[11] = [3, 6, 9, 12, 15, 18, 19, 21, 22, 24, 25, 27, 28, 30, 31, 32];
+        impluseChart[12] = [8, 11, 14, 16, 17, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[13] = [5, 10, 13, 15, 18, 20, 21, 23, 25, 26, 28, 29, 30, 31, 32];
+        impluseChart[14] = [7, 12, 14, 16, 17, 19, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[15] = [9, 11, 13, 15, 18, 20, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[16] = [2, 4, 6, 8, 10, 12, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[17] = [17, 19, 21, 23, 25, 27, 29, 31, 32];
+        impluseChart[18] = [9, 11, 13, 15, 16, 18, 20, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[19] = [7, 12, 14, 17, 19, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[20] = [5, 8, 10, 13, 15, 16, 18, 20, 21, 23, 24, 25, 26, 28, 29, 30, 31, 32];
+        impluseChart[21] = [11, 14, 17, 19, 20, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[22] = [3, 6, 9, 12, 15, 16, 18, 19, 21, 22, 24, 25, 27, 28, 30, 31, 32];
+        impluseChart[23] = [7, 10, 13, 14, 17, 20, 21, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[24] = [4, 8, 11, 12, 15, 16, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[25] = [9, 13, 17, 18, 21, 22, 25, 26, 27, 29, 30, 31, 32];
+        impluseChart[26] = [5, 10, 14, 15, 16, 19, 20, 21, 23, 24, 25, 26, 28, 29, 30, 31, 32];
+        impluseChart[27] = [6, 11, 12, 17, 18, 19, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32];
+        impluseChart[28] = [7, 8, 13, 14, 15, 16, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[29] = [9, 10, 17, 18, 19, 20, 21, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[30] = [11, 12, 13, 14, 15, 16, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[31] = [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        impluseChart[32] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+
+        var turnMode = new Array();
+        turnMode[1] = [32];
+        turnMode[2] = [11, 23, 32];
+        turnMode[3] = [8, 16, 24, 32];
+        turnMode[4] = [6, 12, 19, 26, 32];
+        turnMode[5] = [5, 10, 15, 21, 28, 32];
+        turnMode[6] = [4, 9, 14, 20, 27, 32];
+        turnMode[7] = [4, 8, 12, 17, 24, 32];
+        turnMode[8] = [3, 6, 10, 14, 20, 29, 32];
+        turnMode[9] = [3, 5, 9, 13, 17, 23, 29, 32];
+
+
+
+
+
+
+
+        function getOffset(el) {
+            var rect = el.getBoundingClientRect();
+            return {
+                left: rect.left + window.pageXOffset,
+                top: rect.top + window.pageYOffset,
+                width: rect.width || el.offsetWidth,
+                height: rect.height || el.offsetHeight
+            };
+        }
+
+        function connect(x1, y1, x2, y2) { // draw a line connecting elements
+            // distance
+            var length = Math.sqrt(((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1)));
+            // center
+            var cx = ((x1 + x2) / 2) - (length / 2);
+            var cy = ((y1 + y2) / 2) - (1 / 2);
+            // angle
+            var angle = Math.atan2((y1 - y2), (x1 - x2)) * (180 / Math.PI);
+            // make hr
+            var htmlLine = '<div style="height:1px;background-color:black;position:absolute;left:' + cx + 'px;top:' + cy + 'px;width:' + length + 'px;';
+            htmlLine += '-moz-transform:rotate(' + angle + 'deg);-webkit-transform:rotate(' + angle + 'deg);-o-transform:rotate(' + angle + 'deg);';
+            htmlLine += '-ms-transform:rotate(' + angle + 'deg);transform:rotate(' + angle + 'deg);"/>';
+            //
+            // alert(htmlLine);
+            return htmlLine;
+        }
+
+
+        function writeLine(arc, range) {
+            // assume 200, 200 start point
+            var x = range * Math.cos(arc * (Math.PI / 180)) + 200;
+            var y = range * Math.sin(arc * (Math.PI / 180)) + 200;
+
+            var s = connect(200, 200, x, y);
+
+            var str = '<div>r=' + range + ' a=' + arc + ' x=' + x + ' y=' + y + '</div>';
+            $('#dataDiv').append(str);
+            return s;
+        }
+
+
+        function storeGuess(event) {
+            var x = event.offsetX;
+            var y = event.offsetY;
+            var guessX = x;
+            var guessY = y;
+            var h = findHex(x, y);
+            //$('#dataDiv').html('x coords: ' + guessX + ', y coords: ' + guessY + ' h=' + h);
+        }
+        function findHex(x, y) {
+            var xh = Math.floor((x - 6) / 37.5) + 1;
+            var yh = Math.floor(((y - 4) - (((xh % 2 == 1) ? 0 : 1) * 20)) / 43.3) + 1;
+            var h = xh + ' ' + yh;
+            return h;
+        }
+
+
+        // draw hex map & grid numbers
+        var HexA = 2 * Math.PI / 6;
+        var HexR = 25;
+        function drawHexagon(x, y) {
+            ctx.beginPath();
+            for (var i = 0; i < 6; i++) {
+                ctx.lineTo(x + HexR * Math.cos(HexA * i), y + HexR * Math.sin(HexA * i));
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+        function drawGrid(width, height) {
+            //for (let y = r; y + r * 2 * Math.sin(a) < height; y += r * 2 * Math.sin(a)) {
+            for (let y = HexR; y + HexR * Math.sin(HexA) < height; y += HexR * Math.sin(HexA)) {
+                for (let x = HexR, j = 0; x + HexR * (1 + Math.cos(HexA)) < width; x += HexR * (1 + Math.cos(HexA)), y += (-1) ** j++ * HexR * Math.sin(HexA)) {
+                    drawHexagon(x, y);
+                }
+            }
+        }
+
+        function writeGridNumbers() {
+            var str = '';
+            var x = 6;
+            var y = 6;
+
+            for (var b = 0; b < 30; b++) {
+                for (var a = 0; a < 43; a++) {
+                    str += '<div class="hexArea" style="left:' + (x + a * 37.5) + 'px;top:' + (y + (((a % 2 == 0) ? 0 : 1) * 22) + (b * 43.3)) + 'px;">';
+                    str += ((a < 9) ? '0' : '') + (a + 1) + ((b < 9) ? '0' : '') + (b + 1);
+                    str += '</div>';
+                }
+            }
+            $('#numberLayer').html(str);
+        }
+
+
+        function plotShip(sId) {
+            var f = 0; var x = 0; var y = 0;
+
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+                    x = ((shipList[z].xCord - 1) * 37.5) + 13;
+                    y = ((shipList[z].yCord - 1) * 43.3) + ((shipList[z].xCord % 2 == 1) ? 0 : 22) + 16;
+                    f = shipList[z].facing;
+                    break;
+                }
+            }
+
+            $('#ship' + sId).css({
+                'left': x, 'top': y,
+                '-webkit-transform': 'rotate(' + f + 'deg)',
+                '-moz-transform': 'rotate(' + f + 'deg)',
+                'transform': 'rotate(' + f + 'deg)'
+            });
+        }
+
+        var impulse = 1;
+        function writeImpulseChart() {
+            shipList.sort(speedSort);
+            var a;
+            var str = '';
+            str += '<div style="position:relative;">';
+            for (var x = 1; x < 33; x++) {
+                str += '<div class="impulseCellDiv">';
+                str += '<div class="impulseHeaderDiv ' + ((impulse == x) ? 'currentImpluse' : '') + '">' + x + '</div>';
+                a = impluseChart[x];
+
+                for (var z = 0; z < shipList.length; z++) {
+                    if (a.includes(shipList[z].speed)) {
+                        str += '<div class="impShip' + shipList[z].userId + ' impulseShipDiv" onclick="highlightShip(' + shipList[z].userId + ');">';
+                        str += '<div style="float:left;">' + shipList[z].name + '</div>';
+                        str += '<div class="impulseShipIDDiv">[' + shipList[z].userId + ']</div>';
+                        str += '<div class="impulseShipSpeedDiv">&nbsp;' + shipList[z].speed + '</div>';
+                        str += '<div style="clear:both;"></div></div>';
+                    }
+                }
+                str += '</div>';
+                str += '<div style="clear:both;"></div>';
+            }
+            str += '<div style="clear:both;"></div>';
+            str += '</div>'
+            $('#impluseChartDiv').html(str);
+        }
+        function highlightShip(sId) {
+            $('.shipDiv').removeClass('impulseShipColor');
+            $('#ship' + sId).addClass('impulseShipColor');
+            $('.impulseShipDiv').removeClass('impulseShipColor');
+            $('.impShip' + sId).addClass('impulseShipColor');
+        }
+
+        var moveShipList = new Array();
+        var seekingList = new Array();
+        var fireShipList = new Array();
+        var damageList = new Array();
+
+
+        function oneImpluse() {
+            // clear and setup all arrays
+            moveShipList = [];
+            seekingList = [];
+            fireShipList = [];
+            damageList = [];
+
+            // create lists of ships & seeking weapons that move this impluse
+            // create lists for ships to fire
+            var aS = impluseChart[impulse];
+            shipList.sort(speedSort);
+            for (var x = 0; x < shipList.length; x++) {
+                fireShipList[fireShipList.length] = shipList[x].userId;
+                if (aS.includes(shipList[x].speed)) {
+                    moveShipList[moveShipList.length] = shipList[x].userId;
+                }
+            }
+            $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">Impluse: ' + impulse + '</div>');
+            moveShips();
+        }
+        // move ships
+        function moveShips() {
+            //alert('move len=' + moveShipList.length + ' 0=' + moveShipList[0])
+            // cycle through ship list and move them then pop them off the array
+            if (moveShipList.length == 0)
+                fireShips();  //moveSeeking();
+            else
+                shipMovePopUp(moveShipList[0]);
+        }
+        // move seeking weapons
+        function moveSeeking() {
+            // cycle through seeking weapons list and move them then pop them off the array
+            if (seekingList.length == 0)
+                fireShips();
+            else
+                shipSeekingWeapons(seekingList[0]);
+        }
+        // resolve seeking weapons
+        function resolveSeeking() {
+            // check to see if seeking weapons are in the same hex as target
+
+            //go through all seeking weapons and check the target
+            // if yes do damage and remove from the list
+
+            // when done go to cloak --> fire seeking weapons
+            fireSeekingWeapons();
+        }
+        // cloak/uncloak
+        // tractor beams
+        // launch seeking weapons
+        function fireSeekingWeapons() {
+            fireSeekingWeapons();
+        }
+        // shield/transporters
+        // recover shuttlecraft
+        // launch shuttlecraft
+
+
+        // fire direct-fire weapons
+        function fireShips() {
+            //alert('fire len=' + fireShipList.length + ' 0=' + fireShipList[0])
+            if (fireShipList.length == 0)
+                damageShips();
+            else {
+                curShipId = fireShipList[0];
+                selTargetShipId = -1;
+                shipFirePopUp();
+            }
+        }
+        // resolve direct-fire weapons
+        function damageShips() {
+            if (damageList.length == 0)
+                endImpluse();
+            else {
+                $('#turnDetailsDiv').append('<div style="padding-top:4px;">apply damage - length: ' + damageList.length + ' d=' + damageList[0].damage + '</div>');
+                var str = '';
+                for (var x = 0; x < damageList.length; x++) {
+                    str += '<div>ship=' + damageList[x].targetId + ' shield=' + damageList[x].shield + ' d=' + damageList[x].damage + '</div>';
+                }
+                $('#dataDiv').html(str);
+                applyDamage();
+            }
+        }
+
+        // end impulse
+        function endImpluse() {
+            impulse++;
+            writeImpulseChart();
+            oneImpluse();
+        }
+
+        function closePopup(str) {
+            $('#' + str + 'PopUpDiv').css('display', 'none');
+        }
+        function openPopUp(str) {
+            $('#' + str + 'PopUpDiv').css('display', 'block');
+        }
+
+        /*
+        function impluseMove(imp) {
+            shipList.sort(speedSort);
+            var str = '';
+            var aS = impluseChart[imp];
+            for (var x = 0; x < shipList.length; x++) {
+                bTurn = false;
+                bSlip = false;
+                if (aS.includes(shipList[x].speed)) {
+                    if (shipList[x].turnMarker == 0) bTurn = true;
+                    bSlip = shipList[x].sideSlip;
+                    str += '<div>ShipId=' + shipList[x].userId + ' speed=' + shipList[x].speed + ' bTurn=' + bTurn + ' bSlip=' + bSlip + '</div>';
+                }
+            }
+            return str;
+        }
+        */
+
+        function shipMovePopUp(sId) {
+            var arrId1 = -1;
+            var tM = 0;
+            var bTurn = false;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId1 = z; }
+            }
+            var str = '<div style="padding-bottom:10px;"><b>Move Ship</b></div>';
+            str += '<div>Ship: ' + shipList[arrId1].name + ' id=' + sId + '</div>';
+            str += '<div>speed: ' + shipList[arrId1].speed + '</div>';
+
+            for (var z = (turnMode[shipList[arrId1].turnMode].length - 1); z >= 0; z--) {
+                //str += '<div>z=' + z + ' a=' + turnMode[shipList[arrId1].turnMode][z] + ' s=' + shipList[arrId1].speed + ' t/f=' + (turnMode[shipList[arrId1].turnMode][z] >= shipList[arrId1].speed) + '</div>';
+                if (turnMode[shipList[arrId1].turnMode][z] >= shipList[arrId1].speed) {
+                    tM = (z + 1);
+                }
+            }
+            str += '<div>turnMode: ' + shipList[arrId1].turnMode + ' #H=' + tM + '</div>';
+            str += '<div>turnMarker: ' + shipList[arrId1].turnMarker + '</div>';
+            str += '<div>sideSlip: ' + shipList[arrId1].sideSlip + '</div>';
+            str += '<div style="padding-bottom:10px;">facing: ' + shipList[arrId1].facing + '</div>';
+
+            if (tM <= shipList[arrId1].turnMarker) {
+                bTurn = true;
+            }
+            if (shipList[arrId1].sideSlip)
+                str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', -1);" onmouseover="potentialMove(' + sId + ',-1,0);" onmouseout="clearPotentialMove();">sL</div>';
+            if (bTurn)
+                str += '<div class="button" style="width:20px;" onclick="turnShip(' + sId + ',-1);" onmouseover="potentialMove(' + sId + ',-1,-1);" onmouseout="clearPotentialMove();">L</div>';
+            str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', 0);" onmouseover="potentialMove(' + sId + ',0,0);" onmouseout="clearPotentialMove();">F</div>';
+            if (bTurn)
+                str += '<div class="button" style="width:20px;" onclick="turnShip(' + sId + ',1);" onmouseover="potentialMove(' + sId + ',1,1);" onmouseout="clearPotentialMove();">R</div>';
+            if (shipList[arrId1].sideSlip)
+                str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', 1);" onmouseover="potentialMove(' + sId + ',1,0);" onmouseout="clearPotentialMove();">sR</div>';
+
+            str += '<div style="clear:both;"></div>';
+
+            $('#turnDetailsDiv').append('<div>Move Ship: ' + shipList[arrId1].name + ' id=' + sId + ' ');
+            $('#moveShipPopUpDiv').html(str).css('display', 'block');
+        }
+        function turnShip(sId, t) {
+            var arrId1 = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId1 = z; }
+            }
+            var f = shipList[arrId1].facing;
+            f += ((t == -1) ? -60 : 60);
+            if (f > 300) f = 0;
+            if (f < 0) f = 300;
+            shipList[arrId1].facing = f;
+            shipList[arrId1].turnMarker = -1;
+            shipList[arrId1].sideSlip = true;
+
+            $('#turnDetailsDiv').append('turn ' + ((t == -1) ? 'left' : 'right'));
+            moveShip(sId, 0);
+        }
+        function moveShip(sId, m) {
+            var arrId1 = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId1 = z; }
+            }
+            var f = shipList[arrId1].facing;
+            var x = shipList[arrId1].xCord;
+            var y = shipList[arrId1].yCord;
+            var a = 1;
+            if (f == 60) a = 2;
+            if (f == 120) a = 3;
+            if (f == 180) a = 4;
+            if (f == 240) a = 5;
+            if (f == 300) a = 6;
+            a += m;
+            shipList[arrId1].sideSlip = ((m != 0) ? false : true);
+            shipList[arrId1].turnMarker++;
+
+            if (a == 1 || a == 7) { shipList[arrId1].yCord = (y - 1); }
+            if (a == 2) { shipList[arrId1].xCord = (x + 1); shipList[arrId1].yCord = ((x % 2 == 0) ? y : (y - 1)); }
+            if (a == 3) { shipList[arrId1].xCord = (x + 1); shipList[arrId1].yCord = ((x % 2 == 0) ? (y + 1) : y); }
+            if (a == 4) { shipList[arrId1].yCord = (y + 1); }
+            if (a == 5) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? (y + 1) : y); }
+            if (a == 6 || a == 0) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? y : (y - 1)); }
+            plotShip(sId);
+
+            if (m != 0) $('#turnDetailsDiv').append(((m == -1) ? 'slip left' : 'slip right'));
+            $('#turnDetailsDiv').append('</div>');
+            $('#moveShipPopUpDiv').css('display', 'none');
+            $('.posShipMove').remove();
+            moveShipList.shift();
+            moveShips();
+        }
+
+        function potentialMove(sId, m, t) {
+            var arrId1 = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId1 = z; }
+            }
+            var f = shipList[arrId1].facing;
+            var x = shipList[arrId1].xCord;
+            var y = shipList[arrId1].yCord;
+            var a = 1;
+            if (f == 60) a = 2;
+            if (f == 120) a = 3;
+            if (f == 180) a = 4;
+            if (f == 240) a = 5;
+            if (f == 300) a = 6;
+            a += m;
+
+            if (a == 1 || a == 7) { y--; }
+            if (a == 2) { if (x % 2 != 0) y--; x++; }
+            if (a == 3) { if (x % 2 == 0) y++; x++; }
+            if (a == 4) { y++; }
+            if (a == 5) { if (x % 2 == 0) y++; x--; }
+            if (a == 6 || a == 0) { if (x % 2 != 0) y--; x--; }
+            // color square x, y
+
+
+
+
+            var str = '<div class="posShipMove"><i class="fa-regular fa-circle-arrow-up"></i></div>';
+            $('#shipLayer').append(str);
+
+            //var pf = 0; var px = 0; var py = 0;
+            var px = ((x - 1) * 37.5) + 17;
+            var py = ((y - 1) * 43.3) + ((x % 2 == 1) ? 0 : 22) + 18;
+            var pf = f + (60 * t);
+            //alert('x=' + x + ' y=' + y + ' px=' + px + ' py=' + py + ' t=' + t)
+
+            $('.posShipMove').css({
+                'left': px, 'top': py,
+                '-webkit-transform': 'rotate(' + pf + 'deg)',
+                '-moz-transform': 'rotate(' + pf + 'deg)',
+                'transform': 'rotate(' + pf + 'deg)'
+            });
+
+        }
+        function clearPotentialMove() {
+            $('.posShipMove').remove();
+        }
+
+
+        function shipFirePopUp() {
+            var arrId = -1;
+            var pCost = 0;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == curShipId) { arrId = z; }
+            }
+
+            var str = '<div style="float:left;">Ship: ' + shipList[arrId].name + ' id=' + curShipId + '</div>';
+            str += '<div class="button" style="float:right;padding: 2px 8px;" onclick="doneFire();">Done</div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div>Phaser Cap: ' + shipList[arrId].phaserCap + '</div>';
+            for (var z = 0; z < shipList[arrId].shipWeapons.length; z++) {
+                str += '<div id="weaponArc' + curShipId + '-' + z + '" class="weaponFireDiv" onclick="showWeaponArc(' + curShipId + ',' + z + ');">';
+                for (var y = 0; y < weaponList.length; y++) {
+                    if (weaponList[y].weaponTypeId == shipList[arrId].shipWeapons[z].weaponTypeId) {
+                        str += weaponList[y].weaponName + '&nbsp;' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
+                        pCost = ((weaponList[y].weaponClassId) ? weaponList[y].powerCost : 0);
+                    }
+                }
+                str += '</div>';
+                str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
+                if (shipList[arrId].shipWeapons[z].bDestroyed) { str += ' dimWeapon destroyedWeapon'; }
+                else if (shipList[arrId].shipWeapons[z].bFired) { str += ' dimWeapon'; }
+                else if (pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
+                else if (selTargetShipId != -1) {
+                    var arc = findFacing(curShipId, selTargetShipId);
+                    if (weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
+                        str += '" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
+                    }
+                    else {
+                        str += ' dimWeapon';
+                    }
+                }
+                else str += ' dimWeapon';
+                str += '" style="width:60px;">Fire</div>';
+                str += '<div style="float:left;padding-left:10px;line-height:30px;">' + ((shipList[arrId].shipWeapons[z].bFired) ? 'fired' : 'ready') + '</div>';
+                //str += '&nbsp;a=' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
+                str += '<div style="clear:both;"></div>';
+            }
+            $('#fireShipPopUpDiv').html(str).css('display', 'block');
+            $('#turnDetailsDiv').append('<div>Fire Ship: ' + shipList[arrId].name + ' id=' + curShipId + '</div>');
+        }
+
+        function showWeaponArc(sId, wArrId) {
+            var sArrId = -1;
+            var start = 0;
+            var arc = 0;
+            var x = -275;
+            var y = -273;
+            var start2 = 0;
+            var arc2 = 0;
+
+            $('.selWeapon').removeClass('selWeapon');
+            $('#weaponArc' + sId + '-' + wArrId).addClass('selWeapon');
+
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) {
+                    sArrId = z;
+                    start = shipList[sArrId].shipWeapons[wArrId].startP + shipList[sArrId].facing;
+                    arc = shipList[sArrId].shipWeapons[wArrId].arc;
+                    bFired = shipList[sArrId].shipWeapons[wArrId].bFired;
+                    bDestroyed = shipList[sArrId].shipWeapons[wArrId].bDestroyed;
+                    x = (x + (shipList[sArrId].xCord - 1) * 37.5);
+                    y = (y + (((shipList[sArrId].xCord % 2 == 1) ? 0 : 1) * 22) + ((shipList[sArrId].yCord - 1) * 43.3));
+                    if (shipList[sArrId].shipWeapons[wArrId].arc2 > 0) {
+                        start2 = shipList[sArrId].shipWeapons[wArrId].startP2 + shipList[sArrId].facing;
+                        arc2 = shipList[sArrId].shipWeapons[wArrId].arc2;
+                    }
+                    else { arc2 = 0; }
+                }
+            }
+
+            $('.weaponArc').remove();
+            var cP = Math.round((arc / 360) * 10000) / 100;
+            var str = '<svg class="weaponArc" viewBox="0 0 32 32"><circle id="weaponCircle" ' + ((arc == 360) ? '' : 'stroke-dasharray="' + cP + ' 100"') + ' /></svg>';
+            $('#shipLayer').append(str);
+
+            var r = -90;
+            r += start;
+            $('.weaponArc').css({ 'transform': 'rotate(' + r + 'deg)', 'top': y, 'left': x });
+
+            if (arc2 != 0) {
+                cP = Math.round((arc2 / 360) * 10000) / 100;
+                str = '<svg id="weapon2" class="weaponArc" viewBox="0 0 32 32"><circle id="weaponCircle" stroke-dasharray="' + cP + ' 100" /></svg>';
+                $('#shipLayer').append(str);
+
+                var r = -90;
+                r += start2;
+                $('#weapon2').css({ 'transform': 'rotate(' + r + 'deg)', 'top': y, 'left': x });
+            }
+
+        }
+        function displayWeaponArc(weapon) {
+            var str = '';
+            if (weapon.startP == 300 && weapon.arc == 120) { str = 'FA'; }
+            if (weapon.startP == 240 && weapon.arc == 240) { str = 'FX'; }
+            if (weapon.startP == 120 && weapon.arc == 120) { str = 'RA'; }
+            if (weapon.startP == 60 && weapon.arc == 240) { str = 'RX'; }
+            if (weapon.startP == 0 && weapon.arc == 360) { str = '360'; }
+
+            if (weapon.startP == 0 && weapon.arc == 120) { str = 'RF R'; }
+            if (weapon.startP == 60 && weapon.arc == 120) { str = 'R RR'; }
+            if (weapon.startP == 180 && weapon.arc == 120) { str = 'L LR'; }
+            if (weapon.startP == 240 && weapon.arc == 120) { str = 'LF L'; }
+
+            if (weapon.startP == 0 && weapon.arc == 120 && weapon.startP2 == 180 && weapon.arc2 == 60) { str = 'RF R LR'; }
+            if (weapon.startP == 240 && weapon.arc == 120 && weapon.startP2 == 120 && weapon.arc2 == 60) { str = 'LF L RR'; }
+
+            if (weapon.startP == 0 && weapon.arc == 180) { str = 'RS'; }
+            if (weapon.startP == 180 && weapon.arc == 180) { str = 'LS'; }
+            if (weapon.startP == 270 && weapon.arc == 180) { str = ((weaponTypeId > 19) ? 'FP' : 'FH'); }
+
+            if (weapon.weaponTypeId >= 30 && weapon.weaponTypeId <= 40) { str = ''; }
+            return str;
+        }
+        function weaponInArc(weapon, arc) {
+            var bValid = false;
+            var end = weapon.startP + weapon.arc;
+            if (weapon.arc == 360)
+                bValid = true;
+            else if (weapon.startP <= arc && arc <= end)
+                bValid = true;
+            else if (end >= 360) {
+                if ((end - 360) >= arc)
+                    bValid = true;
+            }
+            else if (weapon.arc2 > 0) {
+                end = weapon.startP2 + weapon.arc2;
+                if (weapon.startP2 <= arc && end <= arc)
+                    bValid = true;
+                else if (end >= 360) {
+                    if (arc >= (end - 360))
+                        bValid = true;
+                }
+
+            }
+            return bValid;
+        }
+        function fireWeapon(sArrId, wArrId, tsId, arc) {
+            var wClass = 0;
+            var weapon = null;
+            shipList[sArrId].shipWeapons[wArrId].bFired = true;
+            shipList[sArrId].shipWeapons[wArrId].impFired = impulse;
+            for (var y = 0; y < weaponList.length; y++) {
+                if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
+                    if (weaponList[y].weaponClassId == 1)
+                        shipList[sArrId].phaserCap -= weaponList[y].powerCost;
+                    wClass = weaponList[y].weaponClassId;
+                    weapon = weaponList[y];
+                }
+            }
+            var h = findDist(curShipId, tsId);
+            var r = 0;
+            var d = 0;
+            var bHit = false;
+            var target = 0;
+            //var str = '<div>wClass=' + wClass + ' dam=' + d + '</div>';
+            var str = '';
+            if (wClass == 1) {
+                // phasers: hits[roll-1] is the damage dealt directly
+                r = rollD6();
+                var hits = getDamage(weapon, h);
+                d = hits[r - 1];
+                //str += '<div>h=' + h + ' r=' + r + ' d=' + d + '</div>';
+            }
+            if (wClass == 2) {
+                // disruptors/photons: hits[0] is the to-hit threshold,
+                // hits[1] is the damage dealt if the roll is <= threshold
+                r = rollD6();
+                var hits = getDamage(weapon, h);
+                if (hits[0] >= r) {
+                    d = hits[1];
+                    // overload here
+                }
+                //str += '<div>h=' + h + ' r=' + r + ' d=' + d + '</div>';
+            }
+
+            if (d > 0) {
+                var bAdded = false;
+                for (var z = 0; z < damageList.length; z++) {
+                    //str += '<div style="color:blue;">dl=' + damageList[z].targetId + ' ts=' + tsId + ' t/f=' + (damageList[z].targetId == tsId);
+                    //str += ' sl=' + damageList[z].shield + ' arc=' + shieldFacing(arc) + ' t/f=' + (damageList[z].shield == shieldFacing(arc)) + '</div>';
+                    if (damageList[z].targetId == tsId && damageList[z].shield == shieldFacing(arc)) {
+                        damageList[z].damage += d;
+                        bAdded = true;
+
+                        // str += '<div>tS=' + damageList[z].targetId + ' s=' + shieldFacing(arc) + ' a=' + damageList[z].shield + ' d=' + damageList[z].damage + '</div>';
+                    }
+                }
+                if (!bAdded) {
+                    var a = shieldFacing(arc);
+                    damageList[damageList.length] = new damageListType(tsId, a, d);
+
+                    //str += '<div>tS=' + tsId + ' a=' + shieldFacing(arc) + ' d=' + d + '  l=' + damageList.length + '</div>';
+                }
+            }
+
+            shipFirePopUp();
+            //str += '<div style="padding-bottom:10px">curShipId=' + curShipId + ' w=' + wArrId + ' ' + damageList.length + '</div>';
+            //$('#dataDiv').append(str);
+        }
+
+        function doneFire() {
+            $('#fireShipPopUpDiv').css('display', 'none');
+            $('.weaponArc').remove();
+            $('.shipDiv').removeClass('selShipColor')
+            fireShipList.shift();
+            fireShips();
+        }
+
+        function applyDamage() {
+            var arrId = -1;
+            var shield = 0;
+            var s = 0;
+            var d = 0;
+            //for (var x = 0; x < damageList.length; x++) {
+            if (damageList.length > 0) {
+                s = 0;
+                d = damageList[0].damage;
+                shield = damageList[0].shield;
+                for (var z = 0; z < shipInternals.length; z++) {
+                    if (shipInternals[z].userId == damageList[0].targetId) { arrId = z; }
+                }
+                eval('s = shipInternals[arrId].shield' + shield);
+
+                var strd = '<div style="color:red;">d=' + d + ' shield=' + shield + ' sId=' + damageList[0].targetId + ' s=' + s + '</div>';
+                $('#dataDiv').append(strd);
+
+                if (s >= d) {
+                    s = s - d;
+                    eval('shipInternals[arrId].shield' + shield + ' = ' + s);
+                }
+                else {
+                    d = d - s;
+                    eval('shipInternals[arrId].shield' + shield + ' = 0');
+                    if (shipInternals[arrId].armor >= d) {
+                        shipInternals[arrId].armor = shipList[arrId].armor - d;
+                    }
+                    else {
+                        shipInternals[arrId].armor = 0;
+                        d = d - shipInternals[arrId].armor;
+                    }
+
+                    var strd = '<div style="color:red;">apply damage d=' + d + ' shield=' + shield + ' sId=' + damageList[0].targetId + '</div>';
+                    $('#dataDiv').append(strd);
+
+                    if (d > 0) {
+                        damageShip(damageList[0].targetId, damageList[0].shield, d);
+                        // alert(damageList[x].targetId + ' ' + damageList[x].arc + ' ' + d)
+                    }
+                }
+                damageList.shift();
+            }
+            damageShips();
+            //function damageListType(targetId, shield, damage) {
+            //function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess)
+        }
+
+        function damageShip(sId, shield, d) {
+            var arrId = -1;
+            var r = 0;
+            for (var z = 0; z < shipInternals.length; z++) {
+                if (shipInternals[z].userId == sId) { arrId = z; }
+            }
+            //reset chart
+            resetVolleyFlags();
+
+            var bDamage = false;
+            var str = '';
+            var x = 0;
+            var s = 0;
+            // do damage
+
+            var strd = '<div style="color:blue;">d=' + d + ' shield=' + shield + ' sId=' + sId + '</div>';
+            $('#dataDiv').append(strd);
+
+
+            for (var z = 0; z < d; z++) {
+                r = roll2D6();
+                x = 0;
+                bDamage = false;
+                strd = '<div>z=' + z + ' r= ' + r;
+                while (!bDamage) {
+                    strd += ' x=' + x;
+                    if (dacChart[r][x].bOneTime && dacChart[r][x].bVolley) {
+                        x++;
+                    }
+                    else {
+                        dacChart[r][x].bVolley = true;
+                        str = dacChart[r][x].name;
+                        strd += ' n=' + dacChart[r][x].name;
+                        if (str == 'sensor') {
+                            for (var y = 0; y < shipInternals[arrId].sensor.length; y++) {
+                                if (shipInternals[arrId].sensor[y][1] == 1) {
+                                    shipInternals[arrId].sensor[y][1] = 0;
+                                    bDamage = true;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (str == 'scanner') {
+                            for (var y = 0; y < shipInternals[arrId].scanner.length; y++) {
+                                if (shipInternals[arrId].scanner[y][1] == 1) {
+                                    shipInternals[arrId].scanner[y][1] = 0;
+                                    bDamage = true;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (str == 'damageCon') {
+                            for (var y = 0; y < shipInternals[arrId].damageCon.length; y++) {
+                                if (shipInternals[arrId].damageCon[y][1] == 1) {
+                                    shipInternals[arrId].damageCon[y][1] = 0;
+                                    bDamage = true;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (str == 'drone') {
+                            bDamage = damageWeapon(sId, 4, -1);
+                        }
+                        else if (str == 'torp') {
+                            bDamage = damageWeapon(sId, 2, -1);
+                            // or
+                            //bDamage = damageWeapon(sId, 3, -1);
+                        }
+                        else if (str == 'phaser') {
+                            bDamage = damageWeapon(sId, 1, shield);
+                        }
+                        else if (str == 'weapon') {
+                            bDamage = damageWeapon(sId, 0, -1);
+                        }
+                        else {
+                            eval('s = shipInternals[arrId].' + str);
+                            if (s > 0) {
+                                s--;
+                                bDamage = true;
+                                eval('shipInternals[arrId].' + str + ' = ' + s);
+                            }
+                            else {
+                                if (str == 'fHull' || str == 'aHull') {
+                                    if (shipInternals[arrId].hull > 0) {
+                                        bDamage = true;
+                                        eshipInternals[arrId].hull--;
+                                    }
+                                }
+                            }
+
+                            //function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
+
+                        }
+                        strd += ' bDamage=' + bDamage;
+                        if (!bDamage) x++;
+                    }
+
+                    if (!bDamage) strd += '<br>';
+                    if (x > 12) {
+                        bDamage = true;
+                        break;
+                    }
+                }
+                strd += '</div>'
+                $('#dataDiv').append(strd);
+            }
+
+            showShipPopUp(2)
+
+            if (shipList[arrId].excess == 0) {
+                alert('ship destroyed');
+            }
+        }
+
+        function damageWeapon(sId, wClass, shield) {
+            var bDamage = false;
+            var arrId = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId = z; }
+            }
+
+            //var str = '<div>sId=' + sId + ' wC=' + wClass + ' s=' + shield + ' arrId=' + arrId + ' ' + shipList[arrId].shipWeapons.length + '</div>';
+            //str += '<div>' + shipList[arrId].shipWeapons[0].startP + ' ' + shipList[arrId].shipWeapons[0].arc + '</div>';
+            //str += '<div>' + weaponInArc(shipList[arrId].shipWeapons[0], 0) + '</div>';
+            //$('#dataDiv').append(str);
+
+            var arc = 0;
+            if (shield == 2) arc = 60;
+            if (shield == 3) arc = 120;
+            if (shield == 4) arc = 180;
+            if (shield == 5) arc = 240;
+            if (shield == 6) arc = 300;
+
+            for (var x = (shipList[arrId].shipWeapons.length - 1); x >= 0; x--) {
+                if (!shipList[arrId].shipWeapons[x].bDestroyed) {
+                    if (shipList[arrId].shipWeapons[x].weaponClassId == wClass || wClass == 0) {  // right type of weapon
+                        if (weaponInArc(shipList[arrId].shipWeapons[x], arc) || arc == -1) {  // in arc
+                            shipList[arrId].shipWeapons[x].bDestroyed = true;
+                            bDamage = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            /*
+             *
+             *
+                var arc = findFacing(curShipId, selTargetShipId);
+                if (weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
+
+                            shipList[0].shipWeapons[0] = new weaponEntryType(1, 1, 1, 300, 120, 0, 0);
+
+function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc, startP2, arc2) {
+                                this.shipWeaponId = shipWeaponId;
+                                this.weaponTypeId = weaponTypeId;
+                                this.startP = startP;
+                                this.arc = arc;
+                                this.startP2 = startP2;
+                                this.arc2 = arc2;
+                                this.bFired = false;
+                                this.bDestroyed = false;
+                            }
+
+
+        function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, powerCost ) {
+            this.weaponTypeId = weaponTypeId;
+            this.weaponClassId = weaponClassId;
+            this.weaponName = weaponName;
+            this.effRange = effRange;
+            this.powerCost = powerCost;
+        }
+        var weaponList = [];
+        weaponList[0] = new weaponType(1, 1, 'Phaser 1', 75, 1);
+             */
+
+            return bDamage;
+        }
+
+
+        /*
+        function damageShield(wtId, range) {
+            var d = 0;
+            var s = 0;
+            var arrId = -1;
+            var r = 0;
+
+var w = '';
+w = '<div>wtId=' + wtId + ' r=' + range;
+            for (var z = 0; z < weaponList.length; z++)
+                if (weaponList[z].weaponTypeId == wtId)
+                    arrId = z;
+
+            if (weaponList[arrId].weaponClassId == 1) {
+                if (range < 20) { d = weaponList[arrId].maxDam; w += '  damClass=0'; }
+                else if (range < ((weaponList[arrId].effRange - 1) * 20)) {
+                    d = Math.round(((240 - range + (weaponList[arrId].eff * 20)) / 320) * weaponList[arrId].maxDam); w += '  damClass=1';
+                }
+                else if (range <= (weaponList[arrId].effRange * 20)) {
+                    d = Math.round(((240 - range + (weaponList[arrId].eff * 10)) / 320) * weaponList[arrId].maxDam); w += '  damClass=2';
+                }
+                else if (range <= (weaponList[arrId].maxRange * 20)) {
+                    d = Math.round((((weaponList[arrId].maxRange * 20) - range) / (weaponList[arrId].maxRange * 20)) * weaponList[arrId].extDam); w += '  damClass=3';
+                }
+                else { d = 0; w += '  damClass=4'; }
+w += ' rawD=' + d;
+                if (d > 0) {
+                    r = (Math.floor(Math.random() * 100) - 50) / 100;
+w += '  rnd=' + r;
+                    d = Math.round((1 + r) * d / 6);
+                }
+            }
+w += ' d=' + d + ' ef=' + weaponList[arrId].eff + '  er=' + weaponList[arrId].effRange + ' mr=' + weaponList[arrId].maxRange + '</div>'
+$('#dataDiv').append(w);
+
+            //function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, maxRange, maxDam, extDam, eff, powerCost)
+            //weaponList[0] = new weaponType(1, 1, 'Phaser 1', 5, 75, 40, 13, 2, 1);
+
+
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == selTargetShipId) {
+                    eval('s = shipList[z].shield' + selTShield);
+w = '<div>Fire Damage =' + d + ' tS=' + selTShield + ' tSId=' + selTargetShipId + ' SBefore=' + s;
+
+                    s -= d;
+                    if (s < 0) s = 0;
+                    eval('shipList[z].shield' + selTShield + ' = ' + s);
+
+w += ' sAfter=' + s + '</div> ';
+$('#dataDiv').append(w);
+                }
+            }
+            shipClick(selTargetShipId);
+        }
+        */
+
+        function showShipPopUp(sId) {
+            var arrId = -1;
+            var arrId2 = -1;
+            for (var z = 0; z < shipInternals.length; z++) {
+                if (shipInternals[z].userId == sId) { arrId = z; }
+            }
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId2 = z; }
+            }
+
+            var str = '<div style="float:left;">Target Ship: [' + sId + ']</div>';
+            str += '<div style="float:left;padding-left:4px;">' + shipList[arrId2].name + '</div>';
+            str += '<div style="float:right;" onclick="closePopup(\'shipInternals\');"><i class="fa-light fa-circle-xmark"></i></div>';
+            str += '<div style="clear:both;"></div>';
+
+            str += '<div><b>Control</b></div>';
+            if (shipInternals[arrId].mFlag != 0) str += '<div>Flag = ' + shipInternals[arrId].mFlag + ' / ' + shipInternals[arrId].flag + '</div>';
+            if (shipInternals[arrId].mBridge != 0) str += '<div>Bridge = ' + shipInternals[arrId].mBridge + ' / ' + shipInternals[arrId].bridge + '</div>';
+            if (shipInternals[arrId].mEmer != 0) str += '<div>Emer = ' + shipInternals[arrId].mEmer + ' / ' + shipInternals[arrId].emer + '</div>';
+            if (shipInternals[arrId].mAux != 0) str += '<div>Aux = ' + shipInternals[arrId].mAux + ' / ' + shipInternals[arrId].aux + '</div>';
+            if (shipInternals[arrId].mScrty != 0) str += '<div>Scrty = ' + shipInternals[arrId].mScrty + ' / ' + shipInternals[arrId].scrty + '</div>';
+
+            str += '<div><b>Systems</b></div>';
+            if (shipInternals[arrId].mArmor != 0) str += '<div>Armor = ' + shipInternals[arrId].mArmor + ' / ' + shipInternals[arrId].armor + '</div>';
+            if (shipInternals[arrId].mFHull != 0) str += '<div>F Hull = ' + shipInternals[arrId].mFHull + ' / ' + shipInternals[arrId].fHull + '</div>';
+            if (shipInternals[arrId].mAHull != 0) str += '<div>A Hull = ' + shipInternals[arrId].mAHull + ' / ' + shipInternals[arrId].aHull + '</div>';
+            if (shipInternals[arrId].mHull != 0) str += '<div>C Hull = ' + shipInternals[arrId].mHull + ' / ' + shipInternals[arrId].hull + '</div>';
+            if (shipInternals[arrId].mLab != 0) str += '<div>Lab = ' + shipInternals[arrId].mLab + ' / ' + shipInternals[arrId].lab + '</div>';
+            if (shipInternals[arrId].mProbe != 0) str += '<div>Probe = ' + shipInternals[arrId].mProbe + ' / ' + shipInternals[arrId].probe + '</div>';
+            if (shipInternals[arrId].mTrac != 0) str += '<div>Trac = ' + shipInternals[arrId].mTrac + ' / ' + shipInternals[arrId].trac + '</div>';
+            if (shipInternals[arrId].mTran != 0) str += '<div>Tran = ' + shipInternals[arrId].mTran + ' / ' + shipInternals[arrId].tran + '</div>';
+            if (shipInternals[arrId].mShut != 0) str += '<div>Shutle = ' + shipInternals[arrId].mShut + ' / ' + shipInternals[arrId].shut + '</div>';
+
+            str += '<div><b>Power</b></div>';
+            if (shipInternals[arrId].mRWarp != 0) str += '<div>R Warp = ' + shipInternals[arrId].mRWarp + ' / ' + shipInternals[arrId].rWarp + '</div>';
+            if (shipInternals[arrId].mLWarp != 0) str += '<div>L Warp = ' + shipInternals[arrId].mLWarp + ' / ' + shipInternals[arrId].lWarp + '</div>';
+            if (shipInternals[arrId].mCWarp != 0) str += '<div>C Warp = ' + shipInternals[arrId].mCWarp + ' / ' + shipInternals[arrId].cWarp + '</div>';
+            if (shipInternals[arrId].mImp != 0) str += '<div>Imp = ' + shipInternals[arrId].mImp + ' / ' + shipInternals[arrId].imp + '</div>';
+            if (shipInternals[arrId].mApr != 0) str += '<div>APR = ' + shipInternals[arrId].mApr + ' / ' + shipInternals[arrId].apr + '</div>';
+            if (shipInternals[arrId].mBty != 0) str += '<div>Bty = ' + shipInternals[arrId].mBty + ' / ' + shipInternals[arrId].bty + '</div>';
+
+            str += '<div><b>Other</b></div>';
+            str += '<div>excess = ' + shipInternals[arrId].mExcess + ' / ' + shipInternals[arrId].excess + '</div>';
+            str += '<div>Sensor = ';
+            for (var z = 0; z < shipInternals[arrId].sensor.length; z++) {
+                if (shipInternals[arrId].sensor[z][1] == 1)
+                    str += '[' + shipInternals[arrId].sensor[z][0] + '] ';
+                else
+                    str += '[/] ';
+            }
+            str += '</div>';
+            str += '<div>Scanner = ';
+            for (var z = 0; z < shipInternals[arrId].scanner.length; z++) {
+                if (shipInternals[arrId].scanner[z][1] == 1)
+                    str += '[' + shipInternals[arrId].scanner[z][0] + '] ';
+                else
+                    str += '[/] ';
+            }
+            str += '</div>';
+            str += '<div>Damage Con = ';
+            for (var z = 0; z < shipInternals[arrId].damageCon.length; z++) {
+                if (shipInternals[arrId].damageCon[z][1] == 1)
+                    str += '[' + shipInternals[arrId].damageCon[z][0] + '] ';
+                else
+                    str += '[/] ';
+            }
+            str += '</div>';
+
+            $('#shipInternalsPopUpDiv').html(str).css('display', 'block');
+        }
+
+
+        /*
+        function damageListType(targetId, shield, damage) {
+        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap ) {
+        function weaponEntryType(shipWeaponId, weaponTypeId, startP, arc, startP2, arc2) {
+            this.shipWeaponId = shipWeaponId;
+            this.weaponTypeId = weaponTypeId;
+            this.startP = startP;
+            this.arc = arc;
+            this.startP2 = startP2;
+            this.arc2 = arc2;
+            this.bFired = false;
+            this.bDestroyed = false;
+        }
+        function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, powerCost ) {
+            this.damageArray = new Array();
+
+        function weaponDamageType(range, r1, r2, r3, r4, r5, r6) {
+            this.range = range;
+            this.r1 = r1;
+            this.r2 = r2;
+            this.r3 = r3;
+            this.r4 = r4;
+            this.r5 = r5;
+            this.r6 = r6;
+        }
+
+        weaponList[0] = new weaponType(1, 1, 'Phaser 1', 75, 1);
+        weaponList[0].damageArray[0] = new weaponDamageType(0, 9, 8, 7, 6, 5, 4);
+        weaponList[0].damageArray[1] = new weaponDamageType(1, 8, 7, 5, 4, 4, 4);
+        weaponList[0].damageArray[2] = new weaponDamageType(2, 7, 6, 5, 4, 4, 3);
+        weaponList[0].damageArray[3] = new weaponDamageType(3, 6, 5, 4, 4, 4, 3);
+        */
+
+
+
+
+
+        // basic functions
+        function findDist(sId1, sId2) {
+            var x1, x2, y1, y2;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId1) { x1 = shipList[z].xCord; y1 = shipList[z].yCord; }
+                if (shipList[z].userId == sId2) { x2 = shipList[z].xCord; y2 = shipList[z].yCord; }
+            }
+            var d = 0;
+            var dx = Math.abs(x1 - x2);
+            var dy = Math.abs(y1 - y2);
+            d = dx;
+            var a = dy - Math.floor(dx / 2);
+            if (((x1 % 2) == 0) && ((x2 % 2) == 1) && (y1 < y2)) a--;
+            if (((x1 % 2) == 1) && ((x2 % 2) == 0) && (y1 > y2)) a--;
+            if (a > 0) d += a;
+            //$('#dataDiv').append('<div>x1=' + x1 + ' y1=' + y1 + ' x2=' + x2 + ' y2=' + y2 + ' dx=' + dx + ' dy=' + dy + ' a=' + a + ' d=' + d + '</div>')
+            return d;
+        }
+
+        function shieldFacing(arc) {
+            var s = 1;
+            if (arc > 30 && arc <= 90) s = 2;
+            if (arc > 90 && arc <= 150) s = 3;
+            if (arc > 150 && arc <= 210) s = 4;
+            if (arc > 210 && arc <= 270) s = 5;
+            if (arc > 270 && arc <= 330) s = 6;
+            return s;
+        }
+
+        function findFacing(selShip, tarShip) {
+            var arrId1 = -1;
+            var arrId2 = -2;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == selShip) { arrId1 = z; }
+                if (shipList[z].userId == tarShip) { arrId2 = z; }
+            }
+
+            var x1 = shipList[arrId1].xCord; var x2 = shipList[arrId2].xCord;
+            var y1 = shipList[arrId1].yCord; var y2 = shipList[arrId2].yCord;
+            var dx = (x2 - x1);
+            var dy = (y2 - y1);
+            var mx = dx * 0.866;
+            var my = -dy;
+            if ((x1 % 2 == 0) && ((x2 % 2) == 1)) my += 0.5;
+            if ((x1 % 2 == 1) && ((x2 % 2) == 0)) my -= 0.5;
+
+            //var s = '<div>selShip=' + selShip + ' x=' + shipList[arrId1].xCord + ' y=' + shipList[arrId1].yCord + ' f=' + shipList[arrId1].facing + '</div>';
+            //s += '<div> tarShip=' + tarShip + ' x=' + shipList[arrId2].xCord + ' y=' + shipList[arrId2].yCord + '</div>';
+
+            var angle = Math.round(Math.atan2(my, mx) * (180 / Math.PI) * 100) / 100;
+            if (angle > 90)
+                angle = 450 - angle;
+            else
+                angle = 90 - angle;
+            angle -= shipList[arrId1].facing;
+            if (angle >= 360) angle -= 360;
+            if (angle < 0) angle += 360;
+
+            //s += '<div>dx' + dx + ' dy=' + dy + '  mx=' + mx + ' my' + my + ' a=' + angle + '</div>';
+            //$('#dataDiv').append(s);
+            return angle;
+        }
+
+        function rollD6() {
+            var n = (Math.floor(Math.random() * 6) + 1);
+            return n;
+        }
+        function roll2D6() {
+            var n = ((Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1));
+            return n;
+        }
+
+        function shipData(sId) {
+            if (sId != curShipId)
+                shipClick(sId);
+            else
+                showShipPopUp(sId);
+
+            //var str = '';
+            //$('#dataDiv').html(str);
+        }
+
+
+        function makeDraggableElement(el) {
+            var x1 = 0;
+            var y1 = 0;
+            var x2 = 0;
+            var y2 = 0;
+
+            el.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                x2 = e.clientX;
+                y2 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                x1 = x2 - e.clientX;
+                y1 = y2 - e.clientY;
+                x2 = e.clientX;
+                y2 = e.clientY;
+                el.style.top = (el.offsetTop - y1) + 'px';
+                el.style.left = (el.offsetLeft - x1) + 'px';
+            }
+
+            function closeDragElement() {
+                document.onmousetop = null;
+                document.onmousemove = null;
+            }
+        }
+
+
+        function speedSort(a, b) {
+            var speedA = parseInt(a.speed);
+            var speedB = parseInt(b.speed);
+
+            if (speedA < speedB)
+                return -1;
+            if (speedA > speedB)
+                return 1;
+            return 0;
+        }
+
+
+
+    </script>
+    <style>
+        body {
+        }
+
+        .shipDiv {
+            position: absolute;
+            bottom: 0px;
+            left: 0px;
+            padding: 2px 2px;
+            background-color: blue;
+            border: 1px solid transparent;
+            font-size: 12px;
+            height: 18px;
+            width: 18px;
+            text-align: center;
+            z-index: 5;
+        }
+
+            .shipDiv img {
+                height: 18px;
+            }
+
+        .selShipColor {
+            border: 1px solid red;
+        }
+
+        #shipDisplay {
+            border: 1px solid black;
+            height: 200px;
+            width: 200px;
+        }
+
+        .weaponArc {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            opacity: 0.5;
+            z-index: 1;
+        }
+
+        #weaponCircle {
+            fill: transparent;
+            stroke: tomato;
+            stroke-width: 32;
+            cx: 16;
+            cy: 16;
+            r: 16;
+        }
+
+        .weaponFireDiv {
+            float: left;
+            width: 120px;
+            margin: 3px 0px 3px 3px;
+            font-size: 12px;
+            line-height: 24px;
+            text-align: center;
+            background-color: #EFEFEF;
+            cursor: pointer;
+        }
+
+        .selWeapon {
+            opacity: 0.5;
+            background-color: tomato;
+            cursor: default;
+        }
+
+        .dimWeapon, .firedWeapon {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        .destroyedWeapon {
+            background-color: tomato;
+        }
+
+        .hexArea {
+            position: absolute;
+            width: 37.5px;
+            font-size: 9px;
+            line-height: 9px;
+            text-align: center;
+        }
+
+        .nav-icon-path {
+            filter: invert(100%) sepia(0%) saturate(0%) hue-rotate(152deg) brightness(103%) contrast(103%);
+        }
+
+
+        .popUpDiv {
+            position: absolute;
+            top: 0px;
+            right: 0px;
+            padding: 10px;
+            width: 300px;
+            max-height: 400px;
+            border: 1px solid black;
+            background-color: white;
+            overflow: auto;
+            z-index: 5;
+        }
+
+
+        .button {
+            float: left;
+            margin: 2px;
+            padding: 2px 4px;
+            text-align: center;
+            background-color: #EFEFEF;
+            cursor: pointer;
+        }
+
+        #implusePopUpDiv {
+            padding: 0px;
+        }
+
+        #impluseChartDiv {
+            padding: 20px 10px 10px;
+            max-height: 270px;
+            overflow: auto;
+            font-size: 13px;
+        }
+
+        .titlePopupDiv {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            line-height: 20px;
+            background-color: white;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .closeDiv {
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            background-color: white;
+            cursor: pointer;
+            z-index: 20;
+        }
+
+        .impulseCellDiv {
+            float: left;
+            text-align: center;
+        }
+
+        .impulseHeaderDiv {
+            float: left;
+            width: 60px;
+            margin: 1px;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 20px;
+            background-color: #EFEFEF;
+        }
+
+        .impulseShipDiv {
+            float: left;
+            line-height: 20px;
+            padding: 0px 3px;
+            border: 1px solid white;
+            cursor: pointer;
+        }
+
+        .impulseShipColor {
+            border: 1px solid orange;
+        }
+
+        .currentImpluse {
+            background-color: lightgreen;
+        }
+
+        .impulseShipIDDiv {
+            float: left;
+            font-size: 11px;
+            line-height: 11px;
+            padding-top: 4px;
+        }
+
+        .impulseShipSpeedDiv {
+            float: left;
+            font-size: 9px;
+            line-height: 9px;
+            padding-top: 6px;
+        }
+
+
+        .openTab {
+            float: left;
+            line-height: 20px;
+            padding: 0px 5px;
+            margin: 5px 2px 2px;
+            background-color: #EFEFEF;
+            cursor: pointer;
+        }
+
+        .posShipMove {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            height: 16px;
+            width: 16px;
+            z-index: 100;
+            background-color: white;
+        }
+
+
+
+        .wordCellDiv {
+            float: left;
+            margin: 4px;
+            width: 100px;
+            line-height: 50px;
+            font-size: 14px;
+            text-align: center;
+            border: 1px solid black;
+            background-color: white;
+            border-radius: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .selCellDiv {
+            background-color: #AAA;
+            color: white;
+        }
+
+        .groupCellDiv {
+            margin-bottom: 3px;
+            text-align: center;
+            height: 57px;
+            border-radius: 5px;
+            font-size: 14px;
+            line-height: 16px;
+        }
+
+        .groupTitleDiv {
+            padding-top: 14px;
+            font-weight: 600;
+        }
+
+        .groupListDiv {
+            padding-bottom: 9px;
+        }
+
+        .btn {
+            float: left;
+            min-width: 80px;
+            padding: 0px 10px;
+            border: 1px solid black;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 30px;
+            text-align: center;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .dimBtn {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        #triesDiv {
+            font-size: 16px;
+            line-height: 16px;
+            width: 200px;
+            padding: 5px 0px 10px;
+            margin: 0px auto 5px;
+        }
+
+        .dotDiv {
+            float: left;
+            margin: 2px 0px 0px 2px;
+            color: #999;
+            font-size: 14px;
+        }
+
+        #resultsBox {
+            position: absolute;
+            top: 20px;
+            left: 100px;
+            width: 192px;
+            min-height: 100px;
+            border: 1px solid black;
+            background-color: white;
+            display: none;
+        }
+
+        .closeBtn {
+            float: right;
+            padding: 6px;
+            line-height: 16px;
+            cursor: pointer;
+        }
+
+        .smallBoxDiv {
+            float: left;
+            margin-right: 4px;
+            margin-bottom: 2px;
+            height: 40px;
+            width: 40px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <form id="form1" runat="server">
+        <!--<div style="width:1202px;height:812px;">-->
+        <div id="hexLayer" style="position:absolute;z-index:1;"><canvas id="cvsResize" width="1700" height="1350"></canvas></div>
+        <div id="numberLayer" style="position:absolute;z-index:1;"></div>
+        <div id="shipLayer" style="position:absolute;z-index:2;width:1200px;height:810px;">
+            <div id="ship1" class="shipDiv" onclick="shipData(1);"><img src="images/sfb/ship.svg" /></div>
+            <div id="ship2" class="shipDiv" style="background-color:black;" onclick="shipData(2);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+
+            <div id="ship3" class="shipDiv" style="background-color:black;" onclick="shipData(3);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship4" class="shipDiv" style="background-color:black;" onclick="shipData(4);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship5" class="shipDiv" style="background-color:black;" onclick="shipData(5);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship6" class="shipDiv" style="background-color:black;" onclick="shipData(6);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship7" class="shipDiv" style="background-color:black;" onclick="shipData(7);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship8" class="shipDiv" style="background-color:black;" onclick="shipData(8);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship9" class="shipDiv" style="background-color:black;" onclick="shipData(9);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <!--           -->
+        </div>
+        <div id="shipInfoDiv"></div>
+
+        <div id="windowsTabDiv" class="popUpDiv" style="padding: 0px;">
+            <div id="impluseOpenDiv" class="openTab" onclick="openPopUp('impluse');">IMP</div>
+            <div style="clear:both;"></div>
+        </div>
+
+        <div id="targetShipPopUpDiv" class="popUpDiv" style="width:200px;display:none;"></div>
+        <div id="implusePopUpDiv" class="popUpDiv">
+            <div style="position:relative;">
+                <div class="closeDiv" onclick="closePopup('impluse');"><i class="fa-light fa-circle-xmark"></i></div>
+                <div class="titlePopupDiv" onclick="highlightShip(0);">Impulse Chart</div>
+                <div id="impluseChartDiv"></div>
+            </div>
+        </div>
+        <div id="moveShipPopUpDiv" class="popUpDiv" style="border:1px solid green;"></div>
+        <div id="fireShipPopUpDiv" class="popUpDiv" style="border:1px solid red;"></div>
+        <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
+        <div id="turnDetailsPopUpDiv" class="popUpDiv" style="border:1px solid gold;">
+            <div style="position:relative;">
+                <div class="closeDiv" onclick="closePopup('turnDetails');"><i class="fa-light fa-circle-xmark"></i></div>
+                <div id="turnDetailsDiv"></div>
+            </div>
+        </div>
+
+        <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
+
+
+        <!--<div style="position:absolute;z-index:3;width:1200px;height:810px;" onclick="storeGuess(event);"></div>
+        </div>-->
+        <!--
+
+        <div style="float:left;">
+            <div id="shipDisplay"></div>
+
+            <div style="float:left;padding:5px;" onclick="turnShip(1, -15);">L</div>
+            <div style="float:left;padding:5px;" onclick="addThrust(1, 10);">F</div>
+            <div style="float:left;padding:5px;" onclick="turnShip(1, 15);">R</div>
+            <div style="clear:both;"></div>
+
+            <div style="padding:5px;" onclick="moveShip(1);">Turn</div>
+
+        </div>
+        -->
+
+        <div style="clear:both;"></div>
+
+        <script type="text/javascript">
+            // has to be defined after element on page
+            var ctx = document.getElementById('cvsResize').getContext('2d');
+
+        </script>
+    </form>
+</html>

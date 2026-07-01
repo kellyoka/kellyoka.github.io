@@ -1,0 +1,596 @@
+{
+  "2": [
+    {
+      "system": "bridge",
+      "oneTime": true
+    },
+    {
+      "system": "flag",
+      "oneTime": true
+    },
+    {
+      "system": "sensor",
+      "oneTime": true
+    },
+    {
+      "system": "damageCon",
+      "oneTime": true
+    },
+    {
+      "system": "aHull",
+      "oneTime": true
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "3": [
+    {
+      "system": "drone",
+      "oneTime": true
+    },
+    {
+      "system": "phaser",
+      "oneTime": true
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "damageCon",
+      "oneTime": true
+    },
+    {
+      "system": "cWarp",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "phaser",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "4": [
+    {
+      "system": "phaser",
+      "oneTime": true
+    },
+    {
+      "system": "tran",
+      "oneTime": true
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "apr",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "probe",
+      "oneTime": false
+    },
+    {
+      "system": "cWarp",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "5": [
+    {
+      "system": "rWarp",
+      "oneTime": true
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "cargo",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "torp",
+      "oneTime": true
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "probe",
+      "oneTime": false
+    },
+    {
+      "system": "weapon",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "6": [
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "sensor",
+      "oneTime": true
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "phaser",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "weapon",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "7": [
+    {
+      "system": "cargo",
+      "oneTime": false
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "cWarp",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "apr",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "phaser",
+      "oneTime": false
+    },
+    {
+      "system": "warp",
+      "oneTime": false
+    },
+    {
+      "system": "probe",
+      "oneTime": false
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "weapon",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "8": [
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "apr",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "scanner",
+      "oneTime": true
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "phaser",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "weapon",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "9": [
+    {
+      "system": "lWarp",
+      "oneTime": true
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "cargo",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "drone",
+      "oneTime": true
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "probe",
+      "oneTime": false
+    },
+    {
+      "system": "weapon",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "10": [
+    {
+      "system": "phaser",
+      "oneTime": true
+    },
+    {
+      "system": "trac",
+      "oneTime": true
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "apr",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "probe",
+      "oneTime": false
+    },
+    {
+      "system": "cWarp",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "11": [
+    {
+      "system": "torp",
+      "oneTime": true
+    },
+    {
+      "system": "phaser",
+      "oneTime": true
+    },
+    {
+      "system": "imp",
+      "oneTime": false
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "fHull",
+      "oneTime": false
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "damageCon",
+      "oneTime": true
+    },
+    {
+      "system": "cWarp",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "bty",
+      "oneTime": false
+    },
+    {
+      "system": "phaser",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ],
+  "12": [
+    {
+      "system": "aux",
+      "oneTime": true
+    },
+    {
+      "system": "emer",
+      "oneTime": true
+    },
+    {
+      "system": "scanner",
+      "oneTime": true
+    },
+    {
+      "system": "probe",
+      "oneTime": true
+    },
+    {
+      "system": "fHull",
+      "oneTime": true
+    },
+    {
+      "system": "rWarp",
+      "oneTime": false
+    },
+    {
+      "system": "tran",
+      "oneTime": false
+    },
+    {
+      "system": "shut",
+      "oneTime": false
+    },
+    {
+      "system": "trac",
+      "oneTime": false
+    },
+    {
+      "system": "lab",
+      "oneTime": false
+    },
+    {
+      "system": "aHull",
+      "oneTime": false
+    },
+    {
+      "system": "lWarp",
+      "oneTime": false
+    },
+    {
+      "system": "excess",
+      "oneTime": false
+    }
+  ]
+}
