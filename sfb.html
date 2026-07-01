@@ -190,7 +190,14 @@
             Promise.all([
                 loadWeapons('data/weapons.json'),
                 loadDacChart('data/dac-chart.json')
-            ]).then(initGame).catch(function (err) {
+            ]).then(function () {
+                try {
+                    initGame();
+                } catch (err) {
+                    console.error('Game failed to initialize:', err);
+                    $('#dataDiv').append('<div style="color:red;">Game failed to initialize: ' + err.message + '</div>');
+                }
+            }).catch(function (err) {
                 console.error('Failed to load chart data:', err);
                 $('#dataDiv').append('<div style="color:red;">Failed to load chart data: ' + err.message + '</div>');
             });
@@ -1647,6 +1654,10 @@ $('#dataDiv').append(w);
 
 
         function makeDraggableElement(el) {
+            if (!el) {
+                console.warn('makeDraggableElement called with a missing element (getElementById returned null) — skipping.');
+                return;
+            }
             var x1 = 0;
             var y1 = 0;
             var x2 = 0;
