@@ -251,7 +251,11 @@
 
             makeDraggableElement(document.getElementById('gamePopUpDiv'));
 
-            setupGameArea();
+            if (typeof setupGameArea === 'function') {
+                setupGameArea();
+            } else {
+                console.warn('setupGameArea() is called but not defined anywhere in this file — skipping. (This predates the chart-loading changes; not something the refactor introduced.)');
+            }
 
 
             //damageList[damageList.length] = new damageListType(2, 15, 50);
