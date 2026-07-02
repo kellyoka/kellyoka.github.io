@@ -246,6 +246,7 @@
             makeDraggableElement(document.getElementById('moveShipPopUpDiv'));
             makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
             makeDraggableElement(document.getElementById('fireShipPopUpDiv'));
+            makeDraggableElement(document.getElementById('weaponInfoPopUpDiv'));
             makeDraggableElement(document.getElementById('turnDetailsPopUpDiv'));
 
 
@@ -1071,6 +1072,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else str += ' dimWeapon';
                 str += '" style="width:60px;">Fire</div>';
                 str += '<div style="float:left;padding-left:10px;line-height:30px;">' + ((shipList[arrId].shipWeapons[z].bFired) ? 'fired' : 'ready') + '</div>';
+                str += '<div class="weaponInfoIconDiv' + ((selTargetShipId != -1) ? '' : ' weaponInfoIconDisabled') + '" title="Damage chart at current range" onclick="' + ((selTargetShipId != -1) ? ('showWeaponDamageInfo(' + curShipId + ',' + z + ');') : '') + '"><i class="fa-light fa-circle-info"></i></div>';
                 //str += '&nbsp;a=' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
                 str += '<div style="clear:both;"></div>';
             }
@@ -1173,6 +1175,63 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             }
             return bValid;
         }
+
+        // shows the damage chart a weapon will use against the currently
+        // selected target - phasers show the full 1-6 damage-by-roll row,
+        // disruptors/photons show hit chance + damage since they resolve
+        // as a threshold roll rather than a direct roll->damage lookup
+        function showWeaponDamageInfo(sId, wArrId) {
+            if (selTargetShipId == -1) return;
+            var arrId = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { arrId = z; }
+            }
+            var weaponTypeId = shipList[arrId].shipWeapons[wArrId].weaponTypeId;
+            var weapon = null;
+            for (var y = 0; y < weaponList.length; y++) {
+                if (weaponList[y].weaponTypeId == weaponTypeId) { weapon = weaponList[y]; }
+            }
+            if (!weapon) return;
+
+            var range = findDist(sId, selTargetShipId);
+
+            var str = '<div style="font-weight:bold;">' + weapon.weaponName + '</div>';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + ')</div>';
+
+            if (!weapon.damageTable || weapon.damageTable.length == 0) {
+                str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
+            } else {
+                var hits = null;
+                try { hits = getDamage(weapon, range); } catch (e) { hits = null; }
+
+                if (!hits) {
+                    str += '<div style="color:#900;">Target is out of effective range.</div>';
+                } else if (weapon.weaponClassId == 1) {
+                    // phaser: direct roll(1-6) -> damage lookup
+                    str += '<div style="font-weight:600;padding-bottom:2px;">Damage by 1d6 roll:</div>';
+                    str += '<table class="weaponInfoTable"><tr>';
+                    for (var r = 1; r <= 6; r++) str += '<th>' + r + '</th>';
+                    str += '</tr><tr>';
+                    for (var r = 1; r <= 6; r++) str += '<td>' + hits[r - 1] + '</td>';
+                    str += '</tr></table>';
+                } else if (weapon.weaponClassId == 2) {
+                    // disruptor/photon: threshold roll -> hit, then fixed damage
+                    var threshold = hits[0];
+                    var dmg = hits[1];
+                    var pct = Math.round((threshold / 6) * 100);
+                    str += '<div style="font-weight:600;">Hit chance:</div>';
+                    str += '<div>Roll 1d6, hits on ' + threshold + ' or less (' + pct + '%)</div>';
+                    str += '<div style="font-weight:600;padding-top:6px;">Damage if it hits:</div>';
+                    str += '<div>' + dmg + ' points</div>';
+                } else {
+                    str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
+                }
+            }
+
+            $('#weaponInfoDiv').html(str);
+            $('#weaponInfoPopUpDiv').css('display', 'block');
+        }
+
         function fireWeapon(sArrId, wArrId, tsId, arc) {
             var wClass = 0;
             var weapon = null;
@@ -1849,6 +1908,40 @@ $('#dataDiv').append(w);
             background-color: tomato;
         }
 
+        .weaponInfoIconDiv {
+            float: left;
+            width: 22px;
+            line-height: 30px;
+            text-align: center;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .weaponInfoIconDiv:hover {
+            color: #000;
+        }
+
+        .weaponInfoIconDisabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        .weaponInfoTable {
+            border-collapse: collapse;
+        }
+
+        .weaponInfoTable th, .weaponInfoTable td {
+            border: 1px solid #ddd;
+            width: 22px;
+            text-align: center;
+            font-size: 11px;
+            padding: 2px 0;
+        }
+
+        .weaponInfoTable th {
+            background-color: #EFEFEF;
+        }
+
         .hexArea {
             position: absolute;
             width: 37.5px;
@@ -2182,6 +2275,13 @@ $('#dataDiv').append(w);
         </div>
         <div id="moveShipPopUpDiv" class="popUpDiv" style="border:1px solid green;"></div>
         <div id="fireShipPopUpDiv" class="popUpDiv" style="border:1px solid red;"></div>
+        <div id="weaponInfoPopUpDiv" class="popUpDiv" style="width:200px;border:1px solid #888;display:none;">
+            <div style="position:relative;">
+                <div class="closeDiv" onclick="closePopup('weaponInfo');"><i class="fa-light fa-circle-xmark"></i></div>
+                <div class="titlePopupDiv">Weapon Info</div>
+                <div id="weaponInfoDiv" style="padding-top:24px;"></div>
+            </div>
+        </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
         <div id="turnDetailsPopUpDiv" class="popUpDiv" style="border:1px solid gold;">
             <div style="position:relative;">
