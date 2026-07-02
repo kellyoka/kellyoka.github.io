@@ -678,31 +678,62 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
 
         var impulse = 1;
+        var turnNumber = 1;
+        var currentPhase = 'Move';
+        function setPhase(phase) {
+            currentPhase = phase;
+            updateImpulseStatusBar();
+        }
+        function updateImpulseStatusBar() {
+            var str = '<span class="statusTurn">Turn ' + turnNumber + '</span>';
+            str += '<span class="statusSep">&middot;</span>';
+            str += '<span class="statusImpulse">Impulse ' + impulse + ' / 32</span>';
+            str += '<span class="statusSep">&middot;</span>';
+            str += '<span class="statusPhase phase' + currentPhase.replace(/\s+/g, '') + '">' + currentPhase + '</span>';
+            $('#impulseStatusDiv').html(str);
+        }
         function writeImpulseChart() {
             shipList.sort(speedSort);
             var a;
-            var str = '';
-            str += '<div style="position:relative;">';
+            var str = '<div style="position:relative;">';
             for (var x = 1; x < 33; x++) {
-                str += '<div class="impulseCellDiv">';
-                str += '<div class="impulseHeaderDiv ' + ((impulse == x) ? 'currentImpluse' : '') + '">' + x + '</div>';
+                var rowState = (x < impulse) ? 'pastImpulse' : (x == impulse) ? 'presentImpulse' : 'futureImpulse';
                 a = impluseChart[x];
 
+                var shipsStr = '';
+                var shipCount = 0;
                 for (var z = 0; z < shipList.length; z++) {
                     if (a.includes(shipList[z].speed)) {
-                        str += '<div class="impShip' + shipList[z].userId + ' impulseShipDiv" onclick="highlightShip(' + shipList[z].userId + ');">';
-                        str += '<div style="float:left;">' + shipList[z].name + '</div>';
-                        str += '<div class="impulseShipIDDiv">[' + shipList[z].userId + ']</div>';
-                        str += '<div class="impulseShipSpeedDiv">&nbsp;' + shipList[z].speed + '</div>';
-                        str += '<div style="clear:both;"></div></div>';
+                        shipCount++;
+                        var doneThisImpulse = (x == impulse) && !moveShipList.includes(shipList[z].userId) && !fireShipList.includes(shipList[z].userId);
+                        shipsStr += '<div class="impShip' + shipList[z].userId + ' impulseShipDiv' + (doneThisImpulse ? ' impulseShipDone' : '') + '" onclick="highlightShip(' + shipList[z].userId + ');">';
+                        shipsStr += '<div style="float:left;">' + shipList[z].name + '</div>';
+                        shipsStr += '<div class="impulseShipIDDiv">[' + shipList[z].userId + ']</div>';
+                        shipsStr += '<div class="impulseShipSpeedDiv">&nbsp;' + shipList[z].speed + '</div>';
+                        shipsStr += '<div style="clear:both;"></div></div>';
                     }
                 }
+
+                str += '<div class="impulseRowDiv ' + rowState + (shipCount == 0 ? ' emptyImpulseRow' : '') + '" id="impulseRow' + x + '">';
+                str += '<div class="impulseCellDiv">';
+                str += '<div class="impulseHeaderDiv ' + ((impulse == x) ? 'currentImpluse' : '') + '">' + x + '</div>';
+                str += shipsStr;
                 str += '</div>';
                 str += '<div style="clear:both;"></div>';
+                str += '</div>';
             }
             str += '<div style="clear:both;"></div>';
             str += '</div>'
             $('#impluseChartDiv').html(str);
+            updateImpulseStatusBar();
+
+            // keep the current impulse scrolled into view
+            var $chart = $('#impluseChartDiv');
+            var $current = $('#impulseRow' + impulse);
+            if ($chart.length && $current.length) {
+                var targetScroll = $current.position().top + $chart.scrollTop() - ($chart.height() / 2) + ($current.outerHeight() / 2);
+                $chart.scrollTop(Math.max(0, targetScroll));
+            }
         }
         function highlightShip(sId) {
             $('.shipDiv').removeClass('impulseShipColor');
@@ -713,6 +744,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         var moveShipList = new Array();
         var seekingList = new Array();
+        var launchSeekingList = new Array(); // weapons queued to launch this impulse (not yet populated by any code - stub for future drone/photon launch logic)
         var fireShipList = new Array();
         var damageList = new Array();
 
@@ -734,25 +766,27 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     moveShipList[moveShipList.length] = shipList[x].userId;
                 }
             }
-            $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">Impluse: ' + impulse + '</div>');
+            $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">Turn ' + turnNumber + ' &middot; Impulse: ' + impulse + '</div>');
+            setPhase('Move');
             moveShips();
         }
         // move ships
         function moveShips() {
-            //alert('move len=' + moveShipList.length + ' 0=' + moveShipList[0])
             // cycle through ship list and move them then pop them off the array
             if (moveShipList.length == 0)
-                fireShips();  //moveSeeking();
+                moveSeeking();
             else
                 shipMovePopUp(moveShipList[0]);
         }
         // move seeking weapons
         function moveSeeking() {
             // cycle through seeking weapons list and move them then pop them off the array
-            if (seekingList.length == 0)
-                fireShips();
-            else
+            if (seekingList.length == 0) {
+                resolveSeeking();
+            } else {
+                setPhase('Seeking Weapons');
                 shipSeekingWeapons(seekingList[0]);
+            }
         }
         // resolve seeking weapons
         function resolveSeeking() {
@@ -761,14 +795,19 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             //go through all seeking weapons and check the target
             // if yes do damage and remove from the list
 
-            // when done go to cloak --> fire seeking weapons
+            // when done go to cloak --> tractor beams --> launch seeking weapons
             fireSeekingWeapons();
         }
         // cloak/uncloak
         // tractor beams
         // launch seeking weapons
         function fireSeekingWeapons() {
-            fireSeekingWeapons();
+            // cycle through weapons queued to launch this impulse; when none remain,
+            // move on to shields/transporters/shuttles, then direct-fire weapons
+            if (launchSeekingList.length == 0)
+                fireShips();
+            else
+                launchSeekingList.shift();
         }
         // shield/transporters
         // recover shuttlecraft
@@ -781,6 +820,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (fireShipList.length == 0)
                 damageShips();
             else {
+                setPhase('Fire');
                 curShipId = fireShipList[0];
                 selTargetShipId = -1;
                 shipFirePopUp();
@@ -791,6 +831,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (damageList.length == 0)
                 endImpluse();
             else {
+                setPhase('Damage');
                 $('#turnDetailsDiv').append('<div style="padding-top:4px;">apply damage - length: ' + damageList.length + ' d=' + damageList[0].damage + '</div>');
                 var str = '';
                 for (var x = 0; x < damageList.length; x++) {
@@ -804,6 +845,28 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         // end impulse
         function endImpluse() {
             impulse++;
+            if (impulse > 32) {
+                endTurn();
+            } else {
+                writeImpulseChart();
+                oneImpluse();
+            }
+        }
+
+        // end turn: wrap impulse back to 1, advance the turn counter, and
+        // reset per-turn ship/weapon state (nothing previously reset
+        // shipWeapons[].bFired, so once a weapon fired it stayed disabled
+        // for the rest of the game - this is what actually clears it).
+        function endTurn() {
+            turnNumber++;
+            impulse = 1;
+            for (var s = 0; s < shipList.length; s++) {
+                for (var w = 0; w < shipList[s].shipWeapons.length; w++) {
+                    shipList[s].shipWeapons[w].bFired = false;
+                    shipList[s].shipWeapons[w].impFired = 0;
+                }
+            }
+            $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">--- Turn ' + turnNumber + ' begins ---</div>');
             writeImpulseChart();
             oneImpluse();
         }
@@ -1824,14 +1887,46 @@ $('#dataDiv').append(w);
 
         #implusePopUpDiv {
             padding: 0px;
+            width: 340px;
         }
 
         #impluseChartDiv {
-            padding: 20px 10px 10px;
-            max-height: 270px;
+            padding: 8px 10px 10px;
+            max-height: 320px;
             overflow: auto;
             font-size: 13px;
         }
+
+        .impulseStatusDiv {
+            position: sticky;
+            top: 0;
+            padding: 24px 10px 6px;
+            background-color: white;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+            line-height: 18px;
+        }
+
+        .statusTurn {
+            font-weight: 700;
+        }
+
+        .statusSep {
+            padding: 0 5px;
+            color: #999;
+        }
+
+        .statusPhase {
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 3px;
+            background-color: #EFEFEF;
+        }
+
+        .phaseMove { background-color: #DCEEFF; }
+        .phaseSeekingWeapons { background-color: #FFE9CC; }
+        .phaseFire { background-color: #FFD9D9; }
+        .phaseDamage { background-color: #FFC2C2; }
 
         .titlePopupDiv {
             position: absolute;
@@ -1855,6 +1950,32 @@ $('#dataDiv').append(w);
             z-index: 20;
         }
 
+        .impulseRowDiv {
+            padding: 1px 0;
+            border-radius: 3px;
+        }
+
+        .pastImpulse {
+            opacity: 0.4;
+        }
+
+        .presentImpulse {
+            background-color: #F3FFF0;
+            border: 1px solid lightgreen;
+            border-radius: 3px;
+        }
+
+        .futureImpulse {
+            opacity: 1;
+        }
+
+        .emptyImpulseRow .impulseHeaderDiv {
+            height: 16px;
+            line-height: 16px;
+            font-size: 11px;
+            opacity: 0.6;
+        }
+
         .impulseCellDiv {
             float: left;
             text-align: center;
@@ -1876,6 +1997,11 @@ $('#dataDiv').append(w);
             padding: 0px 3px;
             border: 1px solid white;
             cursor: pointer;
+        }
+
+        .impulseShipDone {
+            opacity: 0.45;
+            text-decoration: line-through;
         }
 
         .impulseShipColor {
@@ -2050,6 +2176,7 @@ $('#dataDiv').append(w);
             <div style="position:relative;">
                 <div class="closeDiv" onclick="closePopup('impluse');"><i class="fa-light fa-circle-xmark"></i></div>
                 <div class="titlePopupDiv" onclick="highlightShip(0);">Impulse Chart</div>
+                <div id="impulseStatusDiv" class="impulseStatusDiv"></div>
                 <div id="impluseChartDiv"></div>
             </div>
         </div>
