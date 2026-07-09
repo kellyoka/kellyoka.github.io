@@ -40,7 +40,7 @@
 
 
 
-        function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc, startP2, arc2) {
+        function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc, startP2, arc2, extraArcs) {
             this.shipWeaponId = shipWeaponId;
             this.weaponTypeId = weaponTypeId;
             this.weaponClassId = weaponClassId;
@@ -48,6 +48,11 @@
             this.arc = arc;
             this.startP2 = startP2;
             this.arc2 = arc2;
+            // extraArcs: optional array of {start, arc} segments for weapons whose
+            // firing coverage is more than two contiguous ranges (e.g. a wing
+            // phaser with disjoint bonus/excluded hexes per its SSD diagram).
+            // Each segment is checked the same way as the primary/secondary arc.
+            this.extraArcs = extraArcs || [];
             this.bFired = false;
             this.impFired = 0;
             this.bDestroyed = false;
@@ -1150,30 +1155,43 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (weapon.startP == 270 && weapon.arc == 180) { str = ((weaponTypeId > 19) ? 'FP' : 'FH'); }
 
             if (weapon.weaponTypeId >= 30 && weapon.weaponTypeId <= 40) { str = ''; }
+
+            // weapons with extra disjoint arc segments (e.g. a wing phaser with
+            // bonus/excluded hexes) won't match any named pattern above -
+            // fall back to listing the raw ranges instead of showing nothing
+            if (str == '' && weapon.extraArcs && weapon.extraArcs.length > 0) {
+                var ranges = [weapon.startP + '-' + (weapon.startP + weapon.arc)];
+                if (weapon.arc2 > 0) ranges.push(weapon.startP2 + '-' + (weapon.startP2 + weapon.arc2));
+                for (var i = 0; i < weapon.extraArcs.length; i++) {
+                    ranges.push(weapon.extraArcs[i].start + '-' + (weapon.extraArcs[i].start + weapon.extraArcs[i].arc));
+                }
+                str = ranges.join(',');
+            }
             return str;
         }
-        function weaponInArc(weapon, arc) {
-            var bValid = false;
-            var end = weapon.startP + weapon.arc;
-            if (weapon.arc == 360)
-                bValid = true;
-            else if (weapon.startP <= arc && arc <= end)
-                bValid = true;
-            else if (end >= 360) {
-                if ((end - 360) >= arc)
-                    bValid = true;
+        // true if `angle` (a relative bearing, 0-360) falls within a segment
+        // that starts at `start` and spans `span` degrees. Handles segments
+        // that wrap past 360 (e.g. start=350, span=30 covers 350-360 and 0-20).
+        function isAngleInSegment(angle, start, span) {
+            if (!span || span <= 0) return false;
+            if (span >= 360) return true;
+            var end = start + span;
+            if (end <= 360) {
+                return (angle >= start && angle <= end);
+            } else {
+                return (angle >= start) || (angle <= (end - 360));
             }
-            else if (weapon.arc2 > 0) {
-                end = weapon.startP2 + weapon.arc2;
-                if (weapon.startP2 <= arc && end <= arc)
-                    bValid = true;
-                else if (end >= 360) {
-                    if (arc >= (end - 360))
-                        bValid = true;
-                }
+        }
 
+        function weaponInArc(weapon, arc) {
+            if (isAngleInSegment(arc, weapon.startP, weapon.arc)) return true;
+            if (isAngleInSegment(arc, weapon.startP2, weapon.arc2)) return true;
+            if (weapon.extraArcs) {
+                for (var i = 0; i < weapon.extraArcs.length; i++) {
+                    if (isAngleInSegment(arc, weapon.extraArcs[i].start, weapon.extraArcs[i].arc)) return true;
+                }
             }
-            return bValid;
+            return false;
         }
 
         // shows the damage chart a weapon will use against the currently
