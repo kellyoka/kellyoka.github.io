@@ -246,7 +246,7 @@
 
             makeDraggableElement(document.getElementById('dataDiv'));
             makeDraggableElement(document.getElementById('targetShipPopUpDiv'));
-            makeDraggableElement(document.getElementById('implusePopUpDiv'));
+            //makeDraggableElement(document.getElementById('implusePopUpDiv')); // pinned to top-left, no longer draggable
             makeDraggableElement(document.getElementById('windowsTabDiv'));
             makeDraggableElement(document.getElementById('moveShipPopUpDiv'));
             makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
@@ -696,7 +696,19 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '<span class="statusImpulse">Impulse ' + impulse + ' / 32</span>';
             str += '<span class="statusSep">&middot;</span>';
             str += '<span class="statusPhase phase' + currentPhase.replace(/\s+/g, '') + '">' + currentPhase + '</span>';
-            $('#impulseStatusDiv').html(str);
+            $('#impulseStatusTextDiv').html(str);
+        }
+
+        var bImpulseChartCollapsed = false;
+        function toggleImpulseChart() {
+            bImpulseChartCollapsed = !bImpulseChartCollapsed;
+            if (bImpulseChartCollapsed) {
+                $('#impluseChartDiv').hide();
+                $('#impulseToggleDiv i').removeClass('fa-chevron-down').addClass('fa-chevron-up');
+            } else {
+                $('#impluseChartDiv').show();
+                $('#impulseToggleDiv i').removeClass('fa-chevron-up').addClass('fa-chevron-down');
+            }
         }
         function writeImpulseChart() {
             shipList.sort(speedSort);
@@ -1999,6 +2011,10 @@ $('#dataDiv').append(w);
         #implusePopUpDiv {
             padding: 0px;
             width: 340px;
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            right: auto;
         }
 
         #impluseChartDiv {
@@ -2011,11 +2027,24 @@ $('#dataDiv').append(w);
         .impulseStatusDiv {
             position: sticky;
             top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             padding: 24px 10px 6px;
             background-color: white;
             border-bottom: 1px solid #ddd;
             font-size: 12px;
             line-height: 18px;
+        }
+
+        .impulseToggleDiv {
+            cursor: pointer;
+            color: #666;
+            padding: 0 4px;
+        }
+
+        .impulseToggleDiv:hover {
+            color: #000;
         }
 
         .statusTurn {
@@ -2285,9 +2314,11 @@ $('#dataDiv').append(w);
         <div id="targetShipPopUpDiv" class="popUpDiv" style="width:200px;display:none;"></div>
         <div id="implusePopUpDiv" class="popUpDiv">
             <div style="position:relative;">
-                <div class="closeDiv" onclick="closePopup('impluse');"><i class="fa-light fa-circle-xmark"></i></div>
                 <div class="titlePopupDiv" onclick="highlightShip(0);">Impulse Chart</div>
-                <div id="impulseStatusDiv" class="impulseStatusDiv"></div>
+                <div id="impulseStatusDiv" class="impulseStatusDiv">
+                    <div id="impulseStatusTextDiv"></div>
+                    <div id="impulseToggleDiv" class="impulseToggleDiv" onclick="toggleImpulseChart();" title="Show/hide impulse chart"><i class="fa-light fa-chevron-down"></i></div>
+                </div>
                 <div id="impluseChartDiv"></div>
             </div>
         </div>
