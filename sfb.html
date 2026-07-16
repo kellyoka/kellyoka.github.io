@@ -431,7 +431,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
 
             str += '<div style="position:relative;margin:10px auto;width:102px;font-size:10px;">';
-            str += '<div style="position:absolute;top:45px;left:48px;"><i class="fa-solid fa-solid fa-arrow-up" ';
+            str += '<div style="position:absolute;top:46px;left:44px;"><i class="fa-solid fa-solid fa-arrow-up" ';
             if (shieldFacing(tf) == 2) str += ' data-fa-transform="rotate-60"';
             if (shieldFacing(tf) == 3) str += ' data-fa-transform="rotate-120"';
             if (shieldFacing(tf) == 4) str += ' data-fa-transform="rotate-180"';
@@ -1355,6 +1355,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 //str += '<div>h=' + h + ' r=' + r + ' d=' + d + '</div>';
             }
 
+            var attackerName = shipList[sArrId].name;
+            var targetName = '';
+            for (var zz = 0; zz < shipList.length; zz++) {
+                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; }
+            }
+            var shieldNum = shieldFacing(arc);
+            var rollStr = '<div>' + attackerName + ' - ' + targetName + '  ' + weapon.weaponName + ' roll ' + r;
+            rollStr += (d > 0) ? (' -- ' + d + ' damage to shield #' + shieldNum) : ' miss';
+            rollStr += '</div>';
+            $('#dataDiv').append(rollStr);
+
             if (d > 0) {
                 var bAdded = false;
                 for (var z = 0; z < damageList.length; z++) {
@@ -1402,8 +1413,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 }
                 eval('s = shipInternals[arrId].shield' + shield);
 
-                var strd = '<div style="color:red;">d=' + d + ' shield=' + shield + ' sId=' + damageList[0].targetId + ' s=' + s + '</div>';
-                $('#dataDiv').append(strd);
+                var targetName = '';
+                for (var zz = 0; zz < shipList.length; zz++) {
+                    if (shipList[zz].userId == damageList[0].targetId) { targetName = shipList[zz].name; }
+                }
+                $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' absorbs up to ' + s + ' (incoming ' + d + ')</div>');
 
                 if (s >= d) {
                     s = s - d;
@@ -1420,8 +1434,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                         d = d - shipInternals[arrId].armor;
                     }
 
-                    var strd = '<div style="color:red;">apply damage d=' + d + ' shield=' + shield + ' sId=' + damageList[0].targetId + '</div>';
-                    $('#dataDiv').append(strd);
+                    $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' overloaded - ' + d + ' damage carries through</div>');
 
                     if (d > 0) {
                         damageShip(damageList[0].targetId, damageList[0].shield, d);
@@ -1433,6 +1446,20 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             damageShips();
             //function damageListType(targetId, shield, damage) {
             //function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess)
+        }
+
+        var internalSystemNames = {
+            bridge: 'Bridge', flag: 'Flag Bridge', sensor: 'Sensor', damageCon: 'Damage Control',
+            aHull: 'Aft Hull', fHull: 'Forward Hull', hull: 'Hull',
+            lWarp: 'Left Warp Engine', rWarp: 'Right Warp Engine', cWarp: 'Center Warp Engine',
+            tran: 'Transporter', trac: 'Tractor Beam', shut: 'Shuttle Bay', lab: 'Lab',
+            drone: 'Drone Rack', torp: 'Torpedo Tube', phaser: 'Phaser', weapon: 'Weapon',
+            imp: 'Impulse Engine', bty: 'Battery', cargo: 'Cargo', apr: 'APR',
+            probe: 'Probe', scanner: 'Scanner', aux: 'Auxiliary Control', emer: 'Emergency Control',
+            warp: 'Warp Engine', excess: 'Excess Damage'
+        };
+        function friendlySystemName(key) {
+            return internalSystemNames[key] || key;
         }
 
         function damageShip(sId, shield, d) {
@@ -1448,26 +1475,26 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var str = '';
             var x = 0;
             var s = 0;
+            var hitSystems = [];
             // do damage
 
-            var strd = '<div style="color:blue;">d=' + d + ' shield=' + shield + ' sId=' + sId + '</div>';
-            $('#dataDiv').append(strd);
-
+            var targetName = '';
+            for (var zz = 0; zz < shipList.length; zz++) {
+                if (shipList[zz].userId == sId) { targetName = shipList[zz].name; }
+            }
+            $('#dataDiv').append('<div>' + targetName + ' takes ' + d + ' internal hit' + ((d == 1) ? '' : 's') + ' (excess past shield #' + shield + ')</div>');
 
             for (var z = 0; z < d; z++) {
                 r = roll2D6();
                 x = 0;
                 bDamage = false;
-                strd = '<div>z=' + z + ' r= ' + r;
                 while (!bDamage) {
-                    strd += ' x=' + x;
                     if (dacChart[r][x].bOneTime && dacChart[r][x].bVolley) {
                         x++;
                     }
                     else {
                         dacChart[r][x].bVolley = true;
                         str = dacChart[r][x].name;
-                        strd += ' n=' + dacChart[r][x].name;
                         if (str == 'sensor') {
                             for (var y = 0; y < shipInternals[arrId].sensor.length; y++) {
                                 if (shipInternals[arrId].sensor[y][1] == 1) {
@@ -1520,7 +1547,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                                 if (str == 'fHull' || str == 'aHull') {
                                     if (shipInternals[arrId].hull > 0) {
                                         bDamage = true;
-                                        eshipInternals[arrId].hull--;
+                                        shipInternals[arrId].hull--;
                                     }
                                 }
                             }
@@ -1528,18 +1555,22 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                             //function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
 
                         }
-                        strd += ' bDamage=' + bDamage;
                         if (!bDamage) x++;
                     }
 
-                    if (!bDamage) strd += '<br>';
                     if (x > 12) {
                         bDamage = true;
                         break;
                     }
                 }
-                strd += '</div>'
-                $('#dataDiv').append(strd);
+                if (x <= 12) hitSystems.push(friendlySystemName(str));
+            }
+
+            if (hitSystems.length > 0) {
+                var internalsStr = '<div>' + hitSystems.length + ' internal' + ((hitSystems.length == 1) ? '' : 's') + ': ';
+                internalsStr += hitSystems.map(function (name, idx) { return (idx + 1) + ') ' + name; }).join('  ');
+                internalsStr += '</div>';
+                $('#dataDiv').append(internalsStr);
             }
 
             showShipPopUp(2)
