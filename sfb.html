@@ -408,8 +408,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             selTShield = shieldFacing(tf);
             selTRange = d;
 
-            $('.shipDiv').removeClass('selShipColor')
-            $('#ship' + sId).addClass('selShipColor');
+            setTargetHexHighlight(sId);
 
             //$('#dataDiv').append('<div>d=' + d + '  f=' + f + ' tsF=' + tf + '</div>');
 
@@ -684,6 +683,34 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             });
         }
 
+        // pixel center of a hex, in the same coordinate space plotShip() uses
+        // for ship icons (so a highlight lines up with the ship sitting in it)
+        function hexCenterPixel(xCord, yCord) {
+            var x = ((xCord - 1) * 37.5) + 13 + 9;
+            var y = ((yCord - 1) * 43.3) + ((xCord % 2 == 1) ? 0 : 22) + 16 + 9;
+            return { x: x, y: y };
+        }
+
+        function getShipCoords(sId) {
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) return { x: shipList[z].xCord, y: shipList[z].yCord };
+            }
+            return null;
+        }
+
+        function positionHexHighlight(elId, sId) {
+            var coords = getShipCoords(sId);
+            if (!coords) return;
+            var c = hexCenterPixel(coords.x, coords.y);
+            $('#' + elId).css({ left: (c.x - 22) + 'px', top: (c.y - 19) + 'px' }).show();
+        }
+
+        function setSelfHexHighlight(sId) { positionHexHighlight('selfHexHighlightDiv', sId); }
+        function setTargetHexHighlight(sId) { positionHexHighlight('targetHexHighlightDiv', sId); }
+        function clearSelfHexHighlight() { $('#selfHexHighlightDiv').hide(); }
+        function clearTargetHexHighlight() { $('#targetHexHighlightDiv').hide(); }
+        function clearFireHexHighlights() { clearSelfHexHighlight(); clearTargetHexHighlight(); }
+
         var impulse = 1;
         var turnNumber = 1;
         var currentPhase = 'Move';
@@ -705,10 +732,10 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             bImpulseChartCollapsed = !bImpulseChartCollapsed;
             if (bImpulseChartCollapsed) {
                 $('#impluseChartDiv').hide();
-                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-up"></i>');
+                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-down"></i>');
             } else {
                 $('#impluseChartDiv').show();
-                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-down"></i>');
+                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-up"></i>');
             }
         }
         function writeImpulseChart() {
@@ -836,12 +863,15 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         // fire direct-fire weapons
         function fireShips() {
             //alert('fire len=' + fireShipList.length + ' 0=' + fireShipList[0])
-            if (fireShipList.length == 0)
+            if (fireShipList.length == 0) {
+                clearFireHexHighlights();
                 damageShips();
-            else {
+            } else {
                 setPhase('Fire');
                 curShipId = fireShipList[0];
                 selTargetShipId = -1;
+                setSelfHexHighlight(curShipId);
+                clearTargetHexHighlight();
                 shipFirePopUp();
             }
         }
@@ -1330,7 +1360,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         function doneFire() {
             $('#fireShipPopUpDiv').css('display', 'none');
             $('.weaponArc').remove();
-            $('.shipDiv').removeClass('selShipColor')
             fireShipList.shift();
             fireShips();
         }
@@ -1887,6 +1916,24 @@ $('#dataDiv').append(w);
             border: 1px solid red;
         }
 
+        .hexHighlightDiv {
+            position: absolute;
+            width: 44px;
+            height: 38px;
+            z-index: 3;
+            pointer-events: none;
+            display: none;
+            clip-path: polygon(100% 50%, 75% 100%, 25% 100%, 0% 50%, 25% 0%, 75% 0%);
+        }
+
+        .selfHexHighlight {
+            background-color: rgba(30, 120, 255, 0.35);
+        }
+
+        .targetHexHighlight {
+            background-color: rgba(255, 30, 30, 0.35);
+        }
+
         #shipDisplay {
             border: 1px solid black;
             height: 200px;
@@ -2304,6 +2351,8 @@ $('#dataDiv').append(w);
         <div id="hexLayer" style="position:absolute;z-index:1;"><canvas id="cvsResize" width="1700" height="1350"></canvas></div>
         <div id="numberLayer" style="position:absolute;z-index:1;"></div>
         <div id="shipLayer" style="position:absolute;z-index:2;width:1200px;height:810px;">
+            <div id="selfHexHighlightDiv" class="hexHighlightDiv selfHexHighlight"></div>
+            <div id="targetHexHighlightDiv" class="hexHighlightDiv targetHexHighlight"></div>
             <div id="ship1" class="shipDiv" onclick="shipData(1);"><img src="images/sfb/ship.svg" /></div>
             <div id="ship2" class="shipDiv" style="background-color:black;" onclick="shipData(2);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
 
@@ -2329,7 +2378,7 @@ $('#dataDiv').append(w);
                 <div class="titlePopupDiv" onclick="highlightShip(0);">Impulse Chart</div>
                 <div id="impulseStatusDiv" class="impulseStatusDiv">
                     <div id="impulseStatusTextDiv"></div>
-                    <div id="impulseToggleDiv" class="impulseToggleDiv" onclick="toggleImpulseChart();" title="Show/hide impulse chart"><i class="fa-light fa-chevron-down"></i></div>
+                    <div id="impulseToggleDiv" class="impulseToggleDiv" onclick="toggleImpulseChart();" title="Show/hide impulse chart"><i class="fa-light fa-chevron-up"></i></div>
                 </div>
                 <div id="impluseChartDiv"></div>
             </div>
