@@ -702,7 +702,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var coords = getShipCoords(sId);
             if (!coords) return;
             var c = hexCenterPixel(coords.x, coords.y);
-            $('#' + elId).css({ left: (c.x - 22) + 'px', top: (c.y - 19) + 'px' }).show();
+            $('#' + elId).css({ left: (c.x - 18) + 'px', top: (c.y - 19) + 'px' }).show();
         }
 
         function setSelfHexHighlight(sId) { positionHexHighlight('selfHexHighlightDiv', sId); }
@@ -819,10 +819,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         // move ships
         function moveShips() {
             // cycle through ship list and move them then pop them off the array
-            if (moveShipList.length == 0)
+            if (moveShipList.length == 0) {
+                clearSelfHexHighlight();
                 moveSeeking();
-            else
+            } else {
+                setSelfHexHighlight(moveShipList[0]);
                 shipMovePopUp(moveShipList[0]);
+            }
         }
         // move seeking weapons
         function moveSeeking() {
@@ -1069,6 +1072,26 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var px = ((x - 1) * 37.5) + 17;
             var py = ((y - 1) * 43.3) + ((x % 2 == 1) ? 0 : 22) + 18;
             var pf = f + (60 * t);
+            var normalizedPf = ((pf % 360) + 360) % 360;
+
+            // per-facing pixel correction for the arrow icon. The base
+            // px/py math above doesn't quite land dead-center at every
+            // rotation - these nudge it back. ASSUMPTION (please correct
+            // if wrong): 0=up, 60=upper-right, 120=lower-right, 180=down,
+            // 240=lower-left, 300=upper-left. "Pointing left" was applied
+            // to both 240 and 300 since it wasn't clear which one was
+            // meant - tell me if it should only be one of them.
+            var arrowOffset = {
+                0: { dx: -2, dy: 0 },   // pointing up
+                60: { dx: -1, dy: -1 },  // upper-right (undo down/right rotation drift)
+                120: { dx: -1, dy: -1 },  // lower-right (undo down/right rotation drift)
+                180: { dx: 2, dy: 0 },   // pointing down
+                240: { dx: -1, dy: 0 },   // pointing left (lower-left): rotation drift (-1,-1) + requested down 1px (+1) nets to (-1,0)
+                300: { dx: -1, dy: 0 }    // pointing left (upper-left): same net correction as above
+            }[normalizedPf] || { dx: 0, dy: 0 };
+
+            px += arrowOffset.dx;
+            py += arrowOffset.dy;
             //alert('x=' + x + ' y=' + y + ' px=' + px + ' py=' + py + ' t=' + t)
 
             $('.posShipMove').css({
