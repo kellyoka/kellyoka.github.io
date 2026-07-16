@@ -705,10 +705,10 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             bImpulseChartCollapsed = !bImpulseChartCollapsed;
             if (bImpulseChartCollapsed) {
                 $('#impluseChartDiv').hide();
-                $('#impulseToggleDiv i').removeClass('fa-chevron-down').addClass('fa-chevron-up');
+                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-up"></i>');
             } else {
                 $('#impluseChartDiv').show();
-                $('#impulseToggleDiv i').removeClass('fa-chevron-up').addClass('fa-chevron-down');
+                $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-down"></i>');
             }
         }
         function writeImpulseChart() {
