@@ -889,7 +889,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 for (var x = 0; x < damageList.length; x++) {
                     str += '<div>ship=' + damageList[x].targetId + ' shield=' + damageList[x].shield + ' d=' + damageList[x].damage + '</div>';
                 }
-                $('#dataDiv').html(str);
+                $('#dataDiv').append(str);
                 applyDamage();
             }
         }
