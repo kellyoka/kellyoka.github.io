@@ -698,14 +698,14 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             return null;
         }
 
-        function positionHexHighlight(elId, sId) {
+        function positionHexHighlight(elId, sId, extraDx) {
             var coords = getShipCoords(sId);
             if (!coords) return;
             var c = hexCenterPixel(coords.x, coords.y);
-            $('#' + elId).css({ left: (c.x - 18) + 'px', top: (c.y - 19) + 'px' }).show();
+            $('#' + elId).css({ left: (c.x - 18 + (extraDx || 0)) + 'px', top: (c.y - 19) + 'px' }).show();
         }
 
-        function setSelfHexHighlight(sId) { positionHexHighlight('selfHexHighlightDiv', sId); }
+        function setSelfHexHighlight(sId) { positionHexHighlight('selfHexHighlightDiv', sId, -1); }
         function setTargetHexHighlight(sId) { positionHexHighlight('targetHexHighlightDiv', sId); }
         function clearSelfHexHighlight() { $('#selfHexHighlightDiv').hide(); }
         function clearTargetHexHighlight() { $('#targetHexHighlightDiv').hide(); }
@@ -1083,11 +1083,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             // meant - tell me if it should only be one of them.
             var arrowOffset = {
                 0: { dx: -2, dy: 0 },   // pointing up
-                60: { dx: -1, dy: -1 },  // upper-right (undo down/right rotation drift)
-                120: { dx: -1, dy: -1 },  // lower-right (undo down/right rotation drift)
+                60: { dx: -1, dy: -1 },  // upper-right
+                120: { dx: 0, dy: -1 },  // lower-right
                 180: { dx: 2, dy: 0 },   // pointing down
-                240: { dx: -1, dy: 0 },   // pointing left (lower-left): rotation drift (-1,-1) + requested down 1px (+1) nets to (-1,0)
-                300: { dx: -1, dy: 0 }    // pointing left (upper-left): same net correction as above
+                240: { dx: 0, dy: 1 },   // pointing left (lower-left)
+                300: { dx: -1, dy: 1 }    // pointing left (upper-left)
             }[normalizedPf] || { dx: 0, dy: 0 };
 
             px += arrowOffset.dx;
