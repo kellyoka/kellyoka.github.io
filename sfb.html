@@ -254,7 +254,6 @@
             makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
             makeDraggableElement(document.getElementById('fireShipPopUpDiv'));
             makeDraggableElement(document.getElementById('weaponInfoPopUpDiv'));
-            //makeDraggableElement(document.getElementById('turnDetailsPopUpDiv')); // now anchored below the impulse chart, no longer independently draggable
 
 
             makeDraggableElement(document.getElementById('gamePopUpDiv'));
@@ -904,25 +903,10 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (bImpulseChartCollapsed) {
                 $('#impluseChartDiv').hide();
                 $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-down"></i>');
-                // deliberately NOT repositioning turnDetailsPopUpDiv here -
-                // it stays put when the chart collapses, per the requested
-                // behavior, rather than sliding up to hug the shorter popup
             } else {
                 $('#impluseChartDiv').show();
                 $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-up"></i>');
-                repositionTurnDetails();
             }
-        }
-
-        // positions turnDetailsPopUpDiv directly below the impulse popup's
-        // current bottom edge. Only called while the chart is expanded and
-        // visible, so collapsing it (via the arrow) never moves this popup -
-        // it stays anchored to where the chart last was when expanded.
-        function repositionTurnDetails() {
-            if (bImpulseChartCollapsed) return;
-            var $impulsePopup = $('#implusePopUpDiv');
-            var top = $impulsePopup.position().top + $impulsePopup.outerHeight();
-            $('#turnDetailsPopUpDiv').css('top', top + 'px');
         }
 
         function writeImpulseChart() {
@@ -2352,7 +2336,7 @@ $('#dataDiv').append(w);
             str += '<div style="float:right;" onclick="closePopup(\'hexPicker\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
             for (var i = 0; i < entities.length; i++) {
-                str += '<div class="button" style="margin:4px 0;" onclick="closePopup(\'hexPicker\');selectHexEntity(\'' + entities[i].type + '\',' + entities[i].id + ');">' + entities[i].label + '</div>';
+                str += '<div class="button" style="float:none;margin:4px 0;" onclick="closePopup(\'hexPicker\');selectHexEntity(\'' + entities[i].type + '\',' + entities[i].id + ');">' + entities[i].label + '</div>';
             }
             $('#hexPickerPopUpDiv').html(str).css('display', 'block');
         }
@@ -2633,21 +2617,19 @@ $('#dataDiv').append(w);
             top: 0px;
             left: 0px;
             right: auto;
+            max-height: unset;
         }
 
-        #turnDetailsPopUpDiv {
-            position: absolute;
-            left: 0px;
-            right: auto;
-            top: 400px; /* fallback until repositionTurnDetails() runs */
-            width: 340px;
-        }
 
         #impluseChartDiv {
             padding: 8px 10px 10px;
             max-height: 320px;
             overflow: auto;
             font-size: 13px;
+        }
+        #turnDetailsDiv {
+            border-top: 1px solid #ddd;
+            padding: 5px 10px;
         }
 
         .impulseStatusDiv {
@@ -2973,12 +2955,7 @@ $('#dataDiv').append(w);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
-        <div id="turnDetailsPopUpDiv" class="popUpDiv" style="border:1px solid gold;">
-            <div style="position:relative;">
-                <div class="closeDiv" onclick="closePopup('turnDetails');"><i class="fa-light fa-circle-xmark"></i></div>
-                <div id="turnDetailsDiv"></div>
-            </div>
-        </div>
+
 
         <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
 
