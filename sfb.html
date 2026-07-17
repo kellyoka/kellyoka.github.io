@@ -129,7 +129,11 @@
 
         shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9);    //KLI D7
         shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
-        /*
+        /* DEAD CODE - ships 3-9 (NCA, F5, C9, three D6s) are commented out.
+           Only CA (ship 1) and D7 (ship 2) above are actually live right
+           now - the game currently runs as a 2-ship engagement. This block
+           would need un-commenting (and the matching plotShip() calls
+           below re-enabled) to bring more ships into play.
        shipList[2] = new shipType(3, 'NCA', 12, 10, 60, 7, 13, 6);  // FED NCA
        shipInternals[2] = new shipSystemsType(3, 0, 2, 2, 1, 0, 0, 0, 0, 10, 4, 1, 2, 2, 4, 12, 12, 0, 4, 4, 2, 24, 24, 24, 24, 24, 24, 6);
 
@@ -212,7 +216,8 @@
         function initGame() {
             plotShip(1);
             plotShip(2);
-            /*
+            /* DEAD CODE - matches the disabled ships 3-9 above; would need
+               re-enabling together with that block.
             plotShip(3);
             plotShip(4);
             plotShip(5);
@@ -223,7 +228,9 @@
          */
 
             var str = '';
-            /*
+            /* DEAD CODE - debug scratchpad checking impluseChart[10] against
+               ship speeds, plus a stray duplicate shipType definition.
+               Superseded by the live writeImpulseChart()/oneImpluse().
             a = impluseChart[10];
             // impluseChart[10] = [7, 10, 13, 14, 16, 17, 20, 21, 23, 24, 26, 27, 28, 29, 30, 31, 32];
 
@@ -294,7 +301,12 @@
 
 
         // movement
-        /*
+        /* DEAD CODE - early prototype turnShip(sId, arc) that allowed
+           arbitrary-angle turns and used the old .selShipColor border
+           highlight. Superseded by the live turnShip(sId, t) below, which
+           only allows the correct discrete +/-60 degree turns, and by the
+           hex-highlight system (setSelfHexHighlight/setTargetHexHighlight)
+           for target selection.
         function turnShip(sId, arc) {
             var a = 0;
 var str = '';
@@ -328,7 +340,14 @@ $('#dataDiv').append(str);
         */
 
         // end turn functions
-        /*
+        /* DEAD CODE - an early pixel/thrust-vector based movement prototype
+           (addThrust, xMove/yMove, a pixel-coordinate moveShip(sId) and
+           showStatus()) from before the game settled on discrete hex-grid
+           movement. shipList entries have no xMove/yMove fields today (the
+           live shipType constructor doesn't set them), so nothing here
+           could run even if un-commented without further rework.
+           Superseded entirely by the hex-based turnShip()/moveShip(sId, m)
+           pair further down.
 
         function addThrust(sId, thrust) {
             var a = 0;
@@ -1180,6 +1199,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
 
         // fire direct-fire weapons
+        var currentFirerShieldGroups = []; // range-0 shield groups established so far by the current firer this turn: [{shield, start, arc}, ...]
+
         function fireShips() {
             //alert('fire len=' + fireShipList.length + ' 0=' + fireShipList[0])
             if (fireShipList.length == 0) {
@@ -1190,6 +1211,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 curShipId = fireShipList[0];
                 selTargetShipId = -1;
                 selTargetDroneId = -1;
+                currentFirerShieldGroups = [];
                 setSelfHexHighlight(curShipId);
                 clearTargetHexHighlight();
                 shipFirePopUp();
@@ -1251,7 +1273,9 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             $('#' + str + 'PopUpDiv').css('display', 'block');
         }
 
-        /*
+        /* DEAD CODE - old debug function that built a text summary of which
+           ships move/turn/slip on a given impulse. Superseded by the live
+           oneImpluse()/writeImpulseChart() pipeline.
         function impluseMove(imp) {
             shipList.sort(speedSort);
             var str = '';
@@ -1459,7 +1483,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else if (pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
-                    if (weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
+                    var rangeToTarget = findDist(curShipId, selTargetShipId);
+                    if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
                         str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
                     }
                     else {
@@ -1474,7 +1499,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                         str += ' dimWeapon';
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
-                        if (weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
+                        var droneRange = findDistToDrone(curShipId, selTargetDroneId);
+                        if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
                             str += ' canTargetHighlight" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
                         } else {
                             str += ' dimWeapon';
@@ -1588,6 +1614,20 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             } else {
                 return (angle >= start) || (angle <= (end - 360));
             }
+        }
+
+        // do two arcs (each given as world-frame start angle + span) share
+        // any common direction? Used to decide whether two weapons on the
+        // same ship would plausibly hit the same shield when firing at
+        // range 0, where there's no bearing to derive this from otherwise.
+        // Sampling every 10 degrees is enough given every arc in this game
+        // is defined in multiples of 60.
+        function arcsOverlap(startA, spanA, startB, spanB) {
+            if (spanA >= 360 || spanB >= 360) return true;
+            for (var deg = 0; deg < 360; deg += 10) {
+                if (isAngleInSegment(deg, startA, spanA) && isAngleInSegment(deg, startB, spanB)) return true;
+            }
+            return false;
         }
 
         function weaponInArc(weapon, arc) {
@@ -1707,10 +1747,53 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             var attackerName = shipList[sArrId].name;
             var targetName = '';
+            var targetFacing = 0;
             for (var zz = 0; zz < shipList.length; zz++) {
-                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; }
+                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; targetFacing = shipList[zz].facing; }
             }
-            var shieldNum = shieldFacing(arc);
+
+            // at range 0 there's no meaningful bearing between ships sharing
+            // a hex - dx/dy are both 0, so findFacing() degenerates to a
+            // fixed, arbitrary value based only on the attacker's own
+            // facing, regardless of which weapon is actually firing. So at
+            // range 0, the shield struck is based on this weapon's own
+            // mounted facing (and the target's own facing - see
+            // rangeZeroShieldFacing) instead - and weapons whose arcs
+            // overlap with one already fired this turn join that same
+            // shield, so e.g. firing 2 FA phasers + 2 360 phasers together
+            // lands all four on the same shield, while FA + RA phasers
+            // correctly split across two different shields.
+            var shieldNum;
+            if (h == 0) {
+                var thisWeapon = shipList[sArrId].shipWeapons[wArrId];
+                var thisStart = ((shipList[sArrId].facing + thisWeapon.startP) % 360 + 360) % 360;
+                var thisArc = thisWeapon.arc;
+
+                var joined = false;
+                for (var g = 0; g < currentFirerShieldGroups.length; g++) {
+                    if (arcsOverlap(thisStart, thisArc, currentFirerShieldGroups[g].start, currentFirerShieldGroups[g].arc)) {
+                        shieldNum = currentFirerShieldGroups[g].shield;
+                        joined = true;
+                        break;
+                    }
+                }
+                if (!joined) {
+                    var weaponFacing;
+                    if (thisArc >= 360) {
+                        // omnidirectional weapon with no existing group to join -
+                        // it has no natural center, so default to straight ahead
+                        weaponFacing = shipList[sArrId].facing;
+                    } else {
+                        weaponFacing = thisStart + (thisArc / 2);
+                    }
+                    weaponFacing = ((weaponFacing % 360) + 360) % 360;
+                    shieldNum = rangeZeroShieldFacing(weaponFacing, targetFacing);
+                    currentFirerShieldGroups.push({ shield: shieldNum, start: thisStart, arc: thisArc });
+                }
+            } else {
+                shieldNum = shieldFacing(arc);
+            }
+
             var rollStr = '<div>' + attackerName + ' - ' + targetName + '  ' + weapon.weaponName + ' roll ' + r;
             rollStr += (d > 0) ? (' -- ' + d + ' damage to shield #' + shieldNum) : ' miss';
             rollStr += '</div>';
@@ -1719,20 +1802,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (d > 0) {
                 var bAdded = false;
                 for (var z = 0; z < damageList.length; z++) {
-                    //str += '<div style="color:blue;">dl=' + damageList[z].targetId + ' ts=' + tsId + ' t/f=' + (damageList[z].targetId == tsId);
-                    //str += ' sl=' + damageList[z].shield + ' arc=' + shieldFacing(arc) + ' t/f=' + (damageList[z].shield == shieldFacing(arc)) + '</div>';
-                    if (damageList[z].targetId == tsId && damageList[z].shield == shieldFacing(arc)) {
+                    if (damageList[z].targetId == tsId && damageList[z].shield == shieldNum) {
                         damageList[z].damage += d;
                         bAdded = true;
-
-                        // str += '<div>tS=' + damageList[z].targetId + ' s=' + shieldFacing(arc) + ' a=' + damageList[z].shield + ' d=' + damageList[z].damage + '</div>';
                     }
                 }
                 if (!bAdded) {
-                    var a = shieldFacing(arc);
-                    damageList[damageList.length] = new damageListType(tsId, a, d);
-
-                    //str += '<div>tS=' + tsId + ' a=' + shieldFacing(arc) + ' d=' + d + '  l=' + damageList.length + '</div>';
+                    damageList[damageList.length] = new damageListType(tsId, shieldNum, d);
                 }
             }
 
@@ -1984,7 +2060,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             showShipPopUp(2)
 
-            if (shipList[arrId].excess == 0) {
+            if (shipInternals[arrId].excess <= 0) {
                 alert('ship destroyed');
             }
         }
@@ -2019,7 +2095,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
             }
-            /*
+            /* DEAD CODE - stray scratch fragment (an old findFacing/
+               weaponInArc snippet plus duplicate weaponEntryType/weaponType
+               constructor definitions from the pre-refactor weapon system).
+               Sits between this function's real logic and its `return
+               bDamage;` below - comments don't break control flow, so that
+               return statement IS live and this function does work
+               correctly despite the fragment sitting in the middle.
              *
              *
                 var arc = findFacing(curShipId, selTargetShipId);
@@ -2054,7 +2136,11 @@ function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc,
         }
 
 
-        /*
+        /* DEAD CODE - old damageShield(wtId, range) function and an
+           eval-based shield-damage snippet that incorrectly wrote to
+           shipList[z].shieldN (ships don't have shield fields - only
+           shipInternals entries do). Superseded by the live
+           fireWeapon()/applyDamage()/damageShip() pipeline.
         function damageShield(wtId, range) {
             var d = 0;
             var s = 0;
@@ -2182,7 +2268,11 @@ $('#dataDiv').append(w);
         }
 
 
-        /*
+        /* DEAD CODE - leftover fragments from the very first weapon-table
+           system (positional weaponType/weaponDamageType constructors),
+           from before it was replaced by data/weapons.json + js/weapons.js.
+           Fully superseded - see weaponEntryType/weaponList near the top
+           of the file for the live equivalents.
         function damageListType(targetId, shield, damage) {
         function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap ) {
         function weaponEntryType(shipWeaponId, weaponTypeId, startP, arc, startP2, arc2) {
@@ -2246,6 +2336,34 @@ $('#dataDiv').append(w);
             if (arc > 210 && arc <= 270) s = 5;
             if (arc > 270 && arc <= 330) s = 6;
             return s;
+        }
+
+        // range-0 shield calculation: unlike normal-range fire, at range 0
+        // there's no meaningful bearing between two ships sharing a hex, so
+        // the shield hit has to be derived from the relationship between
+        // the weapon's own world-frame facing and the TARGET's own facing
+        // (shields rotate with the target's heading, same as normal-range
+        // fire, but here we have to compute it explicitly instead of
+        // getting it "for free" from a real bearing).
+        //
+        // Works in 60-degree steps (0-5) rather than continuous degrees:
+        // shield = (weaponWorldSteps - targetFacingSteps + 4), wrapped into
+        // the 1-6 range. The "+4" constant (rather than the more intuitive
+        // "+1", i.e. dead-astern-of-target = front-facing weapon) was found
+        // by solving against two known test cases; if a future case doesn't
+        // match, this constant is the first place to check.
+        function stepsFromFacing(deg) {
+            return Math.round(deg / 60) % 6;
+        }
+        function wrapShield1to6(n) {
+            while (n < 1) n += 6;
+            while (n > 6) n -= 6;
+            return n;
+        }
+        function rangeZeroShieldFacing(weaponWorldFacing, targetFacing) {
+            var weaponSteps = stepsFromFacing(weaponWorldFacing);
+            var targetSteps = stepsFromFacing(targetFacing);
+            return wrapShield1to6(weaponSteps - targetSteps + 4);
         }
 
         function findFacing(selShip, tarShip) {
