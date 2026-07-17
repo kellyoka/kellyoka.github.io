@@ -254,7 +254,7 @@
             makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
             makeDraggableElement(document.getElementById('fireShipPopUpDiv'));
             makeDraggableElement(document.getElementById('weaponInfoPopUpDiv'));
-            makeDraggableElement(document.getElementById('turnDetailsPopUpDiv'));
+            //makeDraggableElement(document.getElementById('turnDetailsPopUpDiv')); // now anchored below the impulse chart, no longer independently draggable
 
 
             makeDraggableElement(document.getElementById('gamePopUpDiv'));
@@ -904,11 +904,27 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (bImpulseChartCollapsed) {
                 $('#impluseChartDiv').hide();
                 $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-down"></i>');
+                // deliberately NOT repositioning turnDetailsPopUpDiv here -
+                // it stays put when the chart collapses, per the requested
+                // behavior, rather than sliding up to hug the shorter popup
             } else {
                 $('#impluseChartDiv').show();
                 $('#impulseToggleDiv').html('<i class="fa-light fa-chevron-up"></i>');
+                repositionTurnDetails();
             }
         }
+
+        // positions turnDetailsPopUpDiv directly below the impulse popup's
+        // current bottom edge. Only called while the chart is expanded and
+        // visible, so collapsing it (via the arrow) never moves this popup -
+        // it stays anchored to where the chart last was when expanded.
+        function repositionTurnDetails() {
+            if (bImpulseChartCollapsed) return;
+            var $impulsePopup = $('#implusePopUpDiv');
+            var top = $impulsePopup.position().top + $impulsePopup.outerHeight();
+            $('#turnDetailsPopUpDiv').css('top', top + 'px');
+        }
+
         function writeImpulseChart() {
             shipList.sort(speedSort);
             var a;
@@ -943,6 +959,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '</div>'
             $('#impluseChartDiv').html(str);
             updateImpulseStatusBar();
+            repositionTurnDetails();
 
             // keep the current impulse scrolled into view
             var $chart = $('#impluseChartDiv');
@@ -2616,6 +2633,14 @@ $('#dataDiv').append(w);
             top: 0px;
             left: 0px;
             right: auto;
+        }
+
+        #turnDetailsPopUpDiv {
+            position: absolute;
+            left: 0px;
+            right: auto;
+            top: 400px; /* fallback until repositionTurnDetails() runs */
+            width: 340px;
         }
 
         #impluseChartDiv {
