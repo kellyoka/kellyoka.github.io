@@ -663,6 +663,63 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
 
 
+        // --- seeking weapon (drone) map markers ---
+        function seekingWeaponPixelPos(xCord, yCord) {
+            var x = ((xCord - 1) * 37.5) + 13;
+            var y = ((yCord - 1) * 43.3) + ((xCord % 2 == 1) ? 0 : 22) + 16;
+            return { x: x, y: y };
+        }
+
+        function plotSeekingWeapon(drone) {
+            var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
+            var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="Drone #' + drone.id + '"></div>';
+            $('#shipLayer').append(str);
+        }
+
+        function updateSeekingWeaponPosition(drone) {
+            var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
+            $('#drone' + drone.id).css({ left: p.x + 'px', top: p.y + 'px' });
+        }
+
+        function removeSeekingWeaponMarker(drone) {
+            $('#drone' + drone.id).remove();
+        }
+
+        function removeActiveDrone(drone) {
+            drone.bDestroyed = true;
+            removeSeekingWeaponMarker(drone);
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == drone.id) { activeDrones.splice(i, 1); break; }
+            }
+        }
+
+        // launches a drone: creates a tracked seeking weapon at the
+        // launching ship's position, heading toward the target
+        function launchDrone(sArrId, tsId, weapon) {
+            var launcher = shipList[sArrId];
+            var drone = new seekingWeaponType(
+                seekingWeaponIdCounter++,
+                launcher.userId,
+                tsId,
+                launcher.xCord,
+                launcher.yCord,
+                launcher.facing,
+                droneStats.speed,
+                droneStats.hitPoints,
+                droneStats.damage,
+                droneStats.turns,
+                4
+            );
+            activeDrones.push(drone);
+            plotSeekingWeapon(drone);
+
+            var targetName = '';
+            for (var zz = 0; zz < shipList.length; zz++) {
+                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; }
+            }
+            $('#dataDiv').append('<div>' + launcher.name + ' launches drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + '</div>');
+        }
+
         function plotShip(sId) {
             var f = 0; var x = 0; var y = 0;
 
@@ -794,6 +851,29 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         var fireShipList = new Array();
         var damageList = new Array();
 
+        // --- seeking weapons (drones for now) ---
+        var activeDrones = new Array(); // persists across impulses/turns until impact or expiry
+        var seekingWeaponIdCounter = 1;
+
+        // lean v1 stats - ignoring drone rack storage/reloads and arming
+        // distance for now, per the current scope
+        var droneStats = { speed: 12, turns: 2, hitPoints: 4, damage: 12 };
+
+        function seekingWeaponType(id, ownerShipId, targetShipId, xCord, yCord, facing, speed, hitPoints, damage, turnsRemaining, weaponClassId) {
+            this.id = id;
+            this.ownerShipId = ownerShipId;
+            this.targetShipId = targetShipId;
+            this.xCord = xCord;
+            this.yCord = yCord;
+            this.facing = facing;
+            this.speed = speed;
+            this.hitPoints = hitPoints; // not yet consumed by anything (no point-defense implemented yet)
+            this.damage = damage;
+            this.turnsRemaining = turnsRemaining;
+            this.weaponClassId = weaponClassId; // 4 = drone
+            this.bDestroyed = false;
+        }
+
 
         function oneImpluse() {
             // clear and setup all arrays
@@ -810,6 +890,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 fireShipList[fireShipList.length] = shipList[x].userId;
                 if (aS.includes(shipList[x].speed)) {
                     moveShipList[moveShipList.length] = shipList[x].userId;
+                }
+            }
+            for (var x = 0; x < activeDrones.length; x++) {
+                if (aS.includes(activeDrones[x].speed)) {
+                    seekingList[seekingList.length] = activeDrones[x].id;
                 }
             }
             $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">Turn ' + turnNumber + ' &middot; Impulse: ' + impulse + '</div>');
@@ -829,20 +914,137 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
         // move seeking weapons
         function moveSeeking() {
-            // cycle through seeking weapons list and move them then pop them off the array
-            if (seekingList.length == 0) {
-                resolveSeeking();
-            } else {
-                setPhase('Seeking Weapons');
-                shipSeekingWeapons(seekingList[0]);
+            // process the whole per-impulse queue in one pass - no popup
+            // needed since v1 drone movement is fully automatic (always
+            // turns toward its target as hard as it can)
+            if (seekingList.length > 0) setPhase('Seeking Weapons');
+            while (seekingList.length > 0) {
+                moveSeekingWeapon(seekingList[0]);
+                seekingList.shift();
             }
+            resolveSeeking();
+        }
+
+        // moves one seeking weapon one hex toward its target's current position
+        function moveSeekingWeapon(id) {
+            var drone = null;
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == id) { drone = activeDrones[i]; }
+            }
+            if (!drone || drone.bDestroyed) return;
+
+            var targetArrId = -1;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == drone.targetShipId) { targetArrId = z; }
+            }
+            if (targetArrId == -1) return; // target no longer exists
+
+            var target = shipList[targetArrId];
+            var bearing = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord);
+            var dir = nearestHexDirection(bearing);
+            var next = hexNeighbor(drone.xCord, drone.yCord, dir);
+
+            drone.xCord = next.x;
+            drone.yCord = next.y;
+            drone.facing = dir;
+            updateSeekingWeaponPosition(drone);
+        }
+
+        // world-frame bearing (0=up, 60, 120, 180, 240, 300) from one hex
+        // to another - same trig as findFacing() but without subtracting a
+        // reference facing, since here we want an absolute direction to
+        // snap to the nearest hex neighbor rather than an arc-relative angle
+        function bearingBetweenCoords(x1, y1, x2, y2) {
+            var dx = (x2 - x1);
+            var dy = (y2 - y1);
+            var mx = dx * 0.866;
+            var my = -dy;
+            if ((x1 % 2 == 0) && ((x2 % 2) == 1)) my += 0.5;
+            if ((x1 % 2 == 1) && ((x2 % 2) == 0)) my -= 0.5;
+            var angle = Math.round(Math.atan2(my, mx) * (180 / Math.PI) * 100) / 100;
+            if (angle > 90) angle = 450 - angle; else angle = 90 - angle;
+            if (angle >= 360) angle -= 360;
+            if (angle < 0) angle += 360;
+            return angle;
+        }
+
+        function nearestHexDirection(angle) {
+            var dirs = [0, 60, 120, 180, 240, 300];
+            var best = 0, bestDiff = 361;
+            for (var i = 0; i < dirs.length; i++) {
+                var diff = Math.abs(angle - dirs[i]);
+                if (diff > 180) diff = 360 - diff;
+                if (diff < bestDiff) { bestDiff = diff; best = dirs[i]; }
+            }
+            return best;
+        }
+
+        // one hex step in a given facing direction - same neighbor math
+        // moveShip() uses, but standalone so it works for anything with
+        // raw x/y coordinates, not just entries in shipList
+        function hexNeighbor(x, y, facing) {
+            var a = 1;
+            if (facing == 60) a = 2;
+            if (facing == 120) a = 3;
+            if (facing == 180) a = 4;
+            if (facing == 240) a = 5;
+            if (facing == 300) a = 6;
+
+            var nx = x, ny = y;
+            if (a == 1) { ny = y - 1; }
+            else if (a == 2) { nx = x + 1; ny = (x % 2 == 0) ? y : (y - 1); }
+            else if (a == 3) { nx = x + 1; ny = (x % 2 == 0) ? (y + 1) : y; }
+            else if (a == 4) { ny = y + 1; }
+            else if (a == 5) { nx = x - 1; ny = (x % 2 == 0) ? (y + 1) : y; }
+            else if (a == 6) { nx = x - 1; ny = (x % 2 == 0) ? y : (y - 1); }
+            return { x: nx, y: ny };
         }
         // resolve seeking weapons
         function resolveSeeking() {
             // check to see if seeking weapons are in the same hex as target
+            for (var i = activeDrones.length - 1; i >= 0; i--) {
+                var drone = activeDrones[i];
+                if (drone.bDestroyed) continue;
 
-            //go through all seeking weapons and check the target
-            // if yes do damage and remove from the list
+                var targetArrId = -1;
+                for (var z = 0; z < shipList.length; z++) {
+                    if (shipList[z].userId == drone.targetShipId) { targetArrId = z; }
+                }
+                if (targetArrId == -1) continue;
+                var target = shipList[targetArrId];
+
+                if (drone.xCord == target.xCord && drone.yCord == target.yCord) {
+                    // impact - resolve which shield it hits the same way
+                    // direct-fire weapons do: bearing from the attacking
+                    // entity (here, the drone) to the target, relative to
+                    // the attacker's own facing (mirrors how fireWeapon()
+                    // derives `arc` via findFacing(attacker, target)), then
+                    // feed into the shared damageList/applyDamage pipeline
+                    // so shields/armor/internals resolve identically to a
+                    // direct weapon hit
+                    var arc = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord) - drone.facing;
+                    if (arc < 0) arc += 360;
+                    if (arc >= 360) arc -= 360;
+                    var shieldHit = shieldFacing(arc);
+
+                    var ownerName = '';
+                    for (var zz = 0; zz < shipList.length; zz++) {
+                        if (shipList[zz].userId == drone.ownerShipId) { ownerName = shipList[zz].name; }
+                    }
+                    $('#dataDiv').append('<div>' + ownerName + ' drone #' + drone.id + ' impacts ' + target.name + ' -- ' + drone.damage + ' damage to shield #' + shieldHit + '</div>');
+
+                    var bAdded = false;
+                    for (var z = 0; z < damageList.length; z++) {
+                        if (damageList[z].targetId == drone.targetShipId && damageList[z].shield == shieldHit) {
+                            damageList[z].damage += drone.damage;
+                            bAdded = true;
+                        }
+                    }
+                    if (!bAdded) damageList[damageList.length] = new damageListType(drone.targetShipId, shieldHit, drone.damage);
+
+                    removeActiveDrone(drone);
+                }
+            }
 
             // when done go to cloak --> tractor beams --> launch seeking weapons
             fireSeekingWeapons();
@@ -884,12 +1086,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 endImpluse();
             else {
                 setPhase('Damage');
-                $('#turnDetailsDiv').append('<div style="padding-top:4px;">apply damage - length: ' + damageList.length + ' d=' + damageList[0].damage + '</div>');
-                var str = '';
-                for (var x = 0; x < damageList.length; x++) {
-                    str += '<div>ship=' + damageList[x].targetId + ' shield=' + damageList[x].shield + ' d=' + damageList[x].damage + '</div>';
-                }
-                $('#dataDiv').append(str);
                 applyDamage();
             }
         }
@@ -918,6 +1114,16 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     shipList[s].shipWeapons[w].impFired = 0;
                 }
             }
+
+            // expire seeking weapons whose endurance has run out
+            for (var i = activeDrones.length - 1; i >= 0; i--) {
+                activeDrones[i].turnsRemaining--;
+                if (activeDrones[i].turnsRemaining <= 0) {
+                    $('#dataDiv').append('<div>Drone #' + activeDrones[i].id + ' runs out of endurance and self-destructs</div>');
+                    removeActiveDrone(activeDrones[i]);
+                }
+            }
+
             $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">--- Turn ' + turnNumber + ' begins ---</div>');
             writeImpulseChart();
             oneImpluse();
@@ -1329,6 +1535,15 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     weapon = weaponList[y];
                 }
             }
+
+            if (wClass == 4) {
+                // seeking weapon (drone): launch a tracked object instead of
+                // resolving an instant hit
+                launchDrone(sArrId, tsId, weapon);
+                shipFirePopUp();
+                return;
+            }
+
             var h = findDist(curShipId, tsId);
             var r = 0;
             var d = 0;
@@ -1965,6 +2180,18 @@ $('#dataDiv').append(w);
             .shipDiv img {
                 height: 18px;
             }
+
+        .droneDiv {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            margin: 4px;
+            border-radius: 50%;
+            background-color: black;
+            border: 2px solid yellow;
+            z-index: 4;
+            pointer-events: none;
+        }
 
         .selShipColor {
             border: 1px solid red;
