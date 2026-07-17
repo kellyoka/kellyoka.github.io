@@ -247,6 +247,7 @@
 
             makeDraggableElement(document.getElementById('dataDiv'));
             makeDraggableElement(document.getElementById('targetShipPopUpDiv'));
+            makeDraggableElement(document.getElementById('hexPickerPopUpDiv'));
             //makeDraggableElement(document.getElementById('implusePopUpDiv')); // pinned to top-left, no longer draggable
             makeDraggableElement(document.getElementById('windowsTabDiv'));
             makeDraggableElement(document.getElementById('moveShipPopUpDiv'));
@@ -398,6 +399,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         // weapons functions
         var selTargetShipId = -1;
+        var selTargetDroneId = -1;
         var selTShield = 0;
         var selTRange = 0;
         function shipClick(sId) {
@@ -445,6 +447,68 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             $('.weaponArc').remove();
             shipFirePopUp(sId);
         }
+        // select a drone as the firing target instead of a ship
+        function droneClick(droneId) {
+            var drone = null;
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == droneId) { drone = activeDrones[i]; }
+            }
+            if (!drone || drone.bDestroyed) return;
+
+            selTargetDroneId = droneId;
+            selTargetShipId = -1;
+
+            setTargetHexHighlightAtCoords(drone.xCord, drone.yCord);
+
+            var ownerName = '';
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == drone.ownerShipId) { ownerName = shipList[z].name; }
+            }
+
+            var str = '<div style="float:left;">Target: Drone #' + drone.id + '</div>';
+            str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div>Launched by: ' + ownerName + '</div>';
+            str += '<div>Hit Points: ' + drone.hitPoints + ' / ' + droneStats.hitPoints + '</div>';
+            str += '<div>Distance to target: ' + findDistToDrone(curShipId, droneId) + '</div>';
+            $('#targetShipPopUpDiv').html(str).css('display', 'block');
+
+            $('.weaponArc').remove();
+            shipFirePopUp();
+        }
+
+        function findDistToDrone(sId, droneId) {
+            var x1, y1, x2, y2;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { x1 = shipList[z].xCord; y1 = shipList[z].yCord; }
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == droneId) { x2 = activeDrones[i].xCord; y2 = activeDrones[i].yCord; }
+            }
+            var dx = Math.abs(x1 - x2);
+            var dy = Math.abs(y1 - y2);
+            var d = dx;
+            var a = dy - Math.floor(dx / 2);
+            if (((x1 % 2) == 0) && ((x2 % 2) == 1) && (y1 < y2)) a--;
+            if (((x1 % 2) == 1) && ((x2 % 2) == 0) && (y1 > y2)) a--;
+            if (a > 0) d += a;
+            return d;
+        }
+
+        function findFacingToDrone(sId, droneId) {
+            var x1, y1, f1, x2, y2;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { x1 = shipList[z].xCord; y1 = shipList[z].yCord; f1 = shipList[z].facing; }
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == droneId) { x2 = activeDrones[i].xCord; y2 = activeDrones[i].yCord; }
+            }
+            var angle = bearingBetweenCoords(x1, y1, x2, y2) - f1;
+            if (angle < 0) angle += 360;
+            if (angle >= 360) angle -= 360;
+            return angle;
+        }
+
         function writeShields(sId) {
             var a = 0;
             var c = '';
@@ -672,7 +736,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         function plotSeekingWeapon(drone) {
             var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
-            var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="Drone #' + drone.id + '"></div>';
+            var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="Drone #' + drone.id + '" onclick="hexEntityClick(\'drone\', ' + drone.id + ');"></div>';
             $('#shipLayer').append(str);
         }
 
@@ -755,15 +819,20 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             return null;
         }
 
+        function positionHexHighlightAtCoords(elId, xCord, yCord, extraDx) {
+            var c = hexCenterPixel(xCord, yCord);
+            $('#' + elId).css({ left: (c.x - 18 + (extraDx || 0)) + 'px', top: (c.y - 19) + 'px' }).show();
+        }
+
         function positionHexHighlight(elId, sId, extraDx) {
             var coords = getShipCoords(sId);
             if (!coords) return;
-            var c = hexCenterPixel(coords.x, coords.y);
-            $('#' + elId).css({ left: (c.x - 18 + (extraDx || 0)) + 'px', top: (c.y - 19) + 'px' }).show();
+            positionHexHighlightAtCoords(elId, coords.x, coords.y, extraDx);
         }
 
         function setSelfHexHighlight(sId) { positionHexHighlight('selfHexHighlightDiv', sId, -1); }
         function setTargetHexHighlight(sId) { positionHexHighlight('targetHexHighlightDiv', sId); }
+        function setTargetHexHighlightAtCoords(xCord, yCord) { positionHexHighlightAtCoords('targetHexHighlightDiv', xCord, yCord); }
         function clearSelfHexHighlight() { $('#selfHexHighlightDiv').hide(); }
         function clearTargetHexHighlight() { $('#targetHexHighlightDiv').hide(); }
         function clearFireHexHighlights() { clearSelfHexHighlight(); clearTargetHexHighlight(); }
@@ -1075,6 +1144,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 setPhase('Fire');
                 curShipId = fireShipList[0];
                 selTargetShipId = -1;
+                selTargetDroneId = -1;
                 setSelfHexHighlight(curShipId);
                 clearTargetHexHighlight();
                 shipFirePopUp();
@@ -1324,12 +1394,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '<div class="button" style="float:right;padding: 2px 8px;" onclick="doneFire();">Done</div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Phaser Cap: ' + shipList[arrId].phaserCap + '</div>';
+            if (selTargetDroneId != -1) {
+                str += '<div>Target: Drone #' + selTargetDroneId + '</div>';
+            }
             for (var z = 0; z < shipList[arrId].shipWeapons.length; z++) {
+                var thisWClass = 0;
                 str += '<div id="weaponArc' + curShipId + '-' + z + '" class="weaponFireDiv" onclick="showWeaponArc(' + curShipId + ',' + z + ');">';
                 for (var y = 0; y < weaponList.length; y++) {
                     if (weaponList[y].weaponTypeId == shipList[arrId].shipWeapons[z].weaponTypeId) {
                         str += weaponList[y].weaponName + '&nbsp;' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
                         pCost = ((weaponList[y].weaponClassId) ? weaponList[y].powerCost : 0);
+                        thisWClass = weaponList[y].weaponClassId;
                     }
                 }
                 str += '</div>';
@@ -1344,6 +1419,21 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                     else {
                         str += ' dimWeapon';
+                    }
+                }
+                else if (selTargetDroneId != -1) {
+                    // only direct-fire weapons (phasers/disruptors) can
+                    // engage a drone - seeking weapons targeting a drone
+                    // isn't modeled
+                    if (thisWClass != 1 && thisWClass != 2) {
+                        str += ' dimWeapon';
+                    } else {
+                        var dArc = findFacingToDrone(curShipId, selTargetDroneId);
+                        if (weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
+                            str += '" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
+                        } else {
+                            str += ' dimWeapon';
+                        }
                     }
                 }
                 else str += ' dimWeapon';
@@ -1604,6 +1694,64 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             shipFirePopUp();
             //str += '<div style="padding-bottom:10px">curShipId=' + curShipId + ' w=' + wArrId + ' ' + damageList.length + '</div>';
             //$('#dataDiv').append(str);
+        }
+
+        // fire a direct-fire weapon (phaser/disruptor) at a drone instead of
+        // a ship. Drones have no shields, so damage applies straight to
+        // hit points instead of going through the shield/armor/DAC pipeline.
+        function fireWeaponAtDrone(sArrId, wArrId, droneId, arc) {
+            var wClass = 0;
+            var weapon = null;
+            shipList[sArrId].shipWeapons[wArrId].bFired = true;
+            shipList[sArrId].shipWeapons[wArrId].impFired = impulse;
+            for (var y = 0; y < weaponList.length; y++) {
+                if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
+                    if (weaponList[y].weaponClassId == 1)
+                        shipList[sArrId].phaserCap -= weaponList[y].powerCost;
+                    wClass = weaponList[y].weaponClassId;
+                    weapon = weaponList[y];
+                }
+            }
+
+            var drone = null;
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].id == droneId) { drone = activeDrones[i]; }
+            }
+            if (!drone || drone.bDestroyed) { shipFirePopUp(); return; }
+
+            var h = findDistToDrone(curShipId, droneId);
+            var r = 0;
+            var d = 0;
+            if (wClass == 1) {
+                r = rollD6();
+                var hits = getDamage(weapon, h);
+                d = hits[r - 1];
+            } else if (wClass == 2) {
+                r = rollD6();
+                var hits = getDamage(weapon, h);
+                if (hits[0] >= r) { d = hits[1]; }
+            }
+
+            var attackerName = shipList[sArrId].name;
+            var rollStr = '<div>' + attackerName + ' - Drone #' + drone.id + '  ' + weapon.weaponName + ' roll ' + r;
+            if (d > 0) {
+                drone.hitPoints -= d;
+                rollStr += ' -- ' + d + ' damage to drone (HP ' + Math.max(drone.hitPoints, 0) + '/' + droneStats.hitPoints + ')';
+            } else {
+                rollStr += ' miss';
+            }
+            rollStr += '</div>';
+            $('#dataDiv').append(rollStr);
+
+            if (drone.hitPoints <= 0) {
+                $('#dataDiv').append('<div>Drone #' + drone.id + ' destroyed</div>');
+                removeActiveDrone(drone);
+                selTargetDroneId = -1;
+                clearTargetHexHighlight();
+                $('#targetShipPopUpDiv').css('display', 'none');
+            }
+
+            shipFirePopUp();
         }
 
         function doneFire() {
@@ -2097,6 +2245,64 @@ $('#dataDiv').append(w);
             return n;
         }
 
+        // --- picking a target when multiple ships/drones share a hex ---
+
+        // every ship and active (non-destroyed) drone sitting at a given hex
+        function getEntitiesAtHex(xCord, yCord) {
+            var entities = [];
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].xCord == xCord && shipList[z].yCord == yCord) {
+                    entities.push({ type: 'ship', id: shipList[z].userId, label: shipList[z].name + ' [' + shipList[z].userId + ']' });
+                }
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (!activeDrones[i].bDestroyed && activeDrones[i].xCord == xCord && activeDrones[i].yCord == yCord) {
+                    entities.push({ type: 'drone', id: activeDrones[i].id, label: 'Drone #' + activeDrones[i].id });
+                }
+            }
+            return entities;
+        }
+
+        // single entry point for clicking a ship icon or drone marker.
+        // If only one thing occupies that hex, behaves exactly as before
+        // (no extra step for the common case). If more than one thing is
+        // stacked there, shows a small picker instead of blindly acting on
+        // whichever marker happened to be on top / clickable.
+        function hexEntityClick(type, id) {
+            var xCord, yCord;
+            if (type == 'ship') {
+                for (var z = 0; z < shipList.length; z++) {
+                    if (shipList[z].userId == id) { xCord = shipList[z].xCord; yCord = shipList[z].yCord; }
+                }
+            } else {
+                for (var i = 0; i < activeDrones.length; i++) {
+                    if (activeDrones[i].id == id) { xCord = activeDrones[i].xCord; yCord = activeDrones[i].yCord; }
+                }
+            }
+
+            var entities = getEntitiesAtHex(xCord, yCord);
+            if (entities.length <= 1) {
+                selectHexEntity(type, id);
+                return;
+            }
+
+            var str = '<div style="float:left;">Select target:</div>';
+            str += '<div style="float:right;" onclick="closePopup(\'hexPicker\');"><i class="fa-light fa-circle-xmark"></i></div>';
+            str += '<div style="clear:both;"></div>';
+            for (var i = 0; i < entities.length; i++) {
+                str += '<div class="button" style="margin:4px 0;" onclick="closePopup(\'hexPicker\');selectHexEntity(\'' + entities[i].type + '\',' + entities[i].id + ');">' + entities[i].label + '</div>';
+            }
+            $('#hexPickerPopUpDiv').html(str).css('display', 'block');
+        }
+
+        // dispatches to the same handlers that used to be wired directly
+        // to the marker's onclick, once we know which single entity was
+        // actually meant
+        function selectHexEntity(type, id) {
+            if (type == 'ship') { shipData(id); }
+            else { droneClick(id); }
+        }
+
         function shipData(sId) {
             if (sId != curShipId)
                 shipClick(sId);
@@ -2190,7 +2396,7 @@ $('#dataDiv').append(w);
             background-color: black;
             border: 2px solid yellow;
             z-index: 4;
-            pointer-events: none;
+            cursor: pointer;
         }
 
         .selShipColor {
@@ -2634,16 +2840,16 @@ $('#dataDiv').append(w);
         <div id="shipLayer" style="position:absolute;z-index:2;width:1200px;height:810px;">
             <div id="selfHexHighlightDiv" class="hexHighlightDiv selfHexHighlight"></div>
             <div id="targetHexHighlightDiv" class="hexHighlightDiv targetHexHighlight"></div>
-            <div id="ship1" class="shipDiv" onclick="shipData(1);"><img src="images/sfb/ship.svg" /></div>
-            <div id="ship2" class="shipDiv" style="background-color:black;" onclick="shipData(2);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship1" class="shipDiv" onclick="hexEntityClick('ship', 1);"><img src="images/sfb/ship.svg" /></div>
+            <div id="ship2" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 2);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
 
-            <div id="ship3" class="shipDiv" style="background-color:black;" onclick="shipData(3);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship4" class="shipDiv" style="background-color:black;" onclick="shipData(4);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship5" class="shipDiv" style="background-color:black;" onclick="shipData(5);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship6" class="shipDiv" style="background-color:black;" onclick="shipData(6);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship7" class="shipDiv" style="background-color:black;" onclick="shipData(7);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship8" class="shipDiv" style="background-color:black;" onclick="shipData(8);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
-            <div id="ship9" class="shipDiv" style="background-color:black;" onclick="shipData(9);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship3" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 3);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship4" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 4);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship5" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 5);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship6" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 6);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship7" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 7);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship8" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 8);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
+            <div id="ship9" class="shipDiv" style="background-color:black;" onclick="hexEntityClick('ship', 9);"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>
             <!--           -->
         </div>
         <div id="shipInfoDiv"></div>
@@ -2654,6 +2860,7 @@ $('#dataDiv').append(w);
         </div>
 
         <div id="targetShipPopUpDiv" class="popUpDiv" style="width:200px;display:none;"></div>
+        <div id="hexPickerPopUpDiv" class="popUpDiv" style="width:180px;display:none;"></div>
         <div id="implusePopUpDiv" class="popUpDiv">
             <div style="position:relative;">
                 <div class="titlePopupDiv" onclick="highlightShip(0);">Impulse Chart</div>
