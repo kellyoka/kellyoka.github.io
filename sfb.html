@@ -1835,11 +1835,12 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     d = d - s;
                     eval('shipInternals[arrId].shield' + shield + ' = 0');
                     if (shipInternals[arrId].armor >= d) {
-                        shipInternals[arrId].armor = shipList[arrId].armor - d;
+                        shipInternals[arrId].armor = shipInternals[arrId].armor - d;
+                        d = 0;
                     }
                     else {
-                        shipInternals[arrId].armor = 0;
                         d = d - shipInternals[arrId].armor;
+                        shipInternals[arrId].armor = 0;
                     }
 
                     $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' overloaded - ' + d + ' damage carries through</div>');
