@@ -734,19 +734,63 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             return { x: x, y: y };
         }
 
+        // --- stack-count badges: small number in the corner of an icon
+        // when more than one ship/drone shares its hex ---
+        function updateStackBadges() {
+            var hexCounts = {};
+            function hexKey(x, y) { return x + '_' + y; }
+
+            for (var z = 0; z < shipList.length; z++) {
+                var k = hexKey(shipList[z].xCord, shipList[z].yCord);
+                hexCounts[k] = (hexCounts[k] || 0) + 1;
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].bDestroyed) continue;
+                var k2 = hexKey(activeDrones[i].xCord, activeDrones[i].yCord);
+                hexCounts[k2] = (hexCounts[k2] || 0) + 1;
+            }
+
+            for (var z = 0; z < shipList.length; z++) {
+                var count = hexCounts[hexKey(shipList[z].xCord, shipList[z].yCord)] || 1;
+                setStackBadge('ship' + shipList[z].userId, count);
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                if (activeDrones[i].bDestroyed) continue;
+                var count2 = hexCounts[hexKey(activeDrones[i].xCord, activeDrones[i].yCord)] || 1;
+                setStackBadge('drone' + activeDrones[i].id, count2);
+            }
+        }
+
+        function setStackBadge(elId, count) {
+            var $el = $('#' + elId);
+            var $badge = $el.find('.stackBadge');
+            if (count > 1) {
+                if ($badge.length == 0) {
+                    $el.append('<div class="stackBadge">' + count + '</div>');
+                } else {
+                    $badge.text(count);
+                }
+            } else {
+                $badge.remove();
+            }
+        }
+
         function plotSeekingWeapon(drone) {
             var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
             var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="Drone #' + drone.id + '" onclick="hexEntityClick(\'drone\', ' + drone.id + ');"></div>';
             $('#shipLayer').append(str);
+            updateStackBadges();
         }
 
         function updateSeekingWeaponPosition(drone) {
             var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
             $('#drone' + drone.id).css({ left: p.x + 'px', top: p.y + 'px' });
+            updateStackBadges();
         }
 
         function removeSeekingWeaponMarker(drone) {
             $('#drone' + drone.id).remove();
+            updateStackBadges();
         }
 
         function removeActiveDrone(drone) {
@@ -802,6 +846,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 '-moz-transform': 'rotate(' + f + 'deg)',
                 'transform': 'rotate(' + f + 'deg)'
             });
+            updateStackBadges();
         }
 
         // pixel center of a hex, in the same coordinate space plotShip() uses
@@ -1415,7 +1460,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
                     if (weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
-                        str += '" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
+                        str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
                     }
                     else {
                         str += ' dimWeapon';
@@ -1430,7 +1475,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
                         if (weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
-                            str += '" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
+                            str += ' canTargetHighlight" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
                         } else {
                             str += ' dimWeapon';
                         }
@@ -2399,6 +2444,23 @@ $('#dataDiv').append(w);
             cursor: pointer;
         }
 
+        .stackBadge {
+            position: absolute;
+            bottom: -3px;
+            right: -3px;
+            min-width: 12px;
+            height: 12px;
+            line-height: 12px;
+            font-size: 9px;
+            font-weight: bold;
+            text-align: center;
+            background-color: red;
+            color: white;
+            border-radius: 6px;
+            z-index: 20;
+            pointer-events: none;
+        }
+
         .selShipColor {
             border: 1px solid red;
         }
@@ -2471,6 +2533,10 @@ $('#dataDiv').append(w);
 
         .destroyedWeapon {
             background-color: tomato;
+        }
+
+        .canTargetHighlight {
+            background-color: rgba(60, 200, 60, 0.25);
         }
 
         .weaponInfoIconDiv {
