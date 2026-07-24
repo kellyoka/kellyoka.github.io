@@ -7,18 +7,129 @@
     "powerCost": 1,
     "fireRate": 1,
     "damageTable": [
-      { "range": 0,  "hits": [9, 8, 7, 6, 5, 4] },
-      { "range": 1,  "hits": [8, 7, 5, 4, 4, 4] },
-      { "range": 2,  "hits": [7, 6, 5, 4, 4, 3] },
-      { "range": 3,  "hits": [6, 5, 4, 4, 4, 3] },
-      { "range": 4,  "hits": [5, 5, 4, 4, 3, 2] },
-      { "range": 5,  "hits": [5, 4, 4, 3, 3, 2] },
-      { "range": 8,  "hits": [4, 3, 3, 2, 1, 0] },
-      { "range": 15, "hits": [3, 2, 1, 0, 0, 0] },
-      { "range": 25, "hits": [2, 1, 0, 0, 0, 0] },
-      { "range": 50, "hits": [1, 1, 0, 0, 0, 0] },
-      { "range": 75, "hits": [1, 0, 0, 0, 0, 0] }
-    ]
+      {
+        "range": 0,
+        "hits": [
+          9,
+          8,
+          7,
+          6,
+          5,
+          4
+        ]
+      },
+      {
+        "range": 1,
+        "hits": [
+          8,
+          7,
+          5,
+          4,
+          4,
+          4
+        ]
+      },
+      {
+        "range": 2,
+        "hits": [
+          7,
+          6,
+          5,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "range": 3,
+        "hits": [
+          6,
+          5,
+          4,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "range": 4,
+        "hits": [
+          5,
+          5,
+          4,
+          4,
+          3,
+          2
+        ]
+      },
+      {
+        "range": 5,
+        "hits": [
+          5,
+          4,
+          4,
+          3,
+          3,
+          2
+        ]
+      },
+      {
+        "range": 8,
+        "hits": [
+          4,
+          3,
+          3,
+          2,
+          1,
+          0
+        ]
+      },
+      {
+        "range": 15,
+        "hits": [
+          3,
+          2,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 25,
+        "hits": [
+          2,
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 50,
+        "hits": [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 75,
+        "hits": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "minRange": 0
   },
   {
     "weaponTypeId": 2,
@@ -28,15 +139,96 @@
     "powerCost": 1,
     "fireRate": 1,
     "damageTable": [
-      { "range": 0,  "hits": [6, 6, 6, 5, 5, 5] },
-      { "range": 1,  "hits": [5, 5, 4, 4, 4, 3] },
-      { "range": 2,  "hits": [5, 4, 4, 4, 3, 3] },
-      { "range": 3,  "hits": [4, 4, 4, 3, 3, 3] },
-      { "range": 8,  "hits": [3, 2, 1, 1, 0, 0] },
-      { "range": 15, "hits": [2, 1, 1, 0, 0, 0] },
-      { "range": 30, "hits": [1, 1, 0, 0, 0, 0] },
-      { "range": 50, "hits": [1, 0, 0, 0, 0, 0] }
-    ]
+      {
+        "range": 0,
+        "hits": [
+          6,
+          6,
+          6,
+          5,
+          5,
+          5
+        ]
+      },
+      {
+        "range": 1,
+        "hits": [
+          5,
+          5,
+          4,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "range": 2,
+        "hits": [
+          5,
+          4,
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "range": 3,
+        "hits": [
+          4,
+          4,
+          4,
+          3,
+          3,
+          3
+        ]
+      },
+      {
+        "range": 8,
+        "hits": [
+          3,
+          2,
+          1,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 15,
+        "hits": [
+          2,
+          1,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 30,
+        "hits": [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 50,
+        "hits": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "minRange": 0
   },
   {
     "weaponTypeId": 3,
@@ -46,13 +238,74 @@
     "powerCost": 0.5,
     "fireRate": 1,
     "damageTable": [
-      { "range": 0,  "hits": [4, 4, 4, 4, 4, 3] },
-      { "range": 1,  "hits": [4, 4, 4, 4, 3, 3] },
-      { "range": 2,  "hits": [4, 4, 4, 3, 2, 1] },
-      { "range": 3,  "hits": [3, 2, 1, 0, 0, 0] },
-      { "range": 8,  "hits": [1, 1, 0, 0, 0, 0] },
-      { "range": 15, "hits": [1, 0, 0, 0, 0, 0] }
-    ]
+      {
+        "range": 0,
+        "hits": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          3
+        ]
+      },
+      {
+        "range": 1,
+        "hits": [
+          4,
+          4,
+          4,
+          4,
+          3,
+          3
+        ]
+      },
+      {
+        "range": 2,
+        "hits": [
+          4,
+          4,
+          4,
+          3,
+          2,
+          1
+        ]
+      },
+      {
+        "range": 3,
+        "hits": [
+          3,
+          2,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 8,
+        "hits": [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "range": 15,
+        "hits": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "minRange": 0
   },
   {
     "weaponTypeId": 4,
@@ -61,7 +314,8 @@
     "effRange": 13,
     "powerCost": 1,
     "fireRate": 4,
-    "extends": "Phaser 3"
+    "extends": "Phaser 3",
+    "minRange": 0
   },
   {
     "weaponTypeId": 10,
@@ -71,15 +325,72 @@
     "powerCost": 2,
     "fireRate": 1,
     "damageTable": [
-      { "range": 0,  "hits": [6, 0, 10] },
-      { "range": 1,  "hits": [5, 5, 10] },
-      { "range": 2,  "hits": [5, 4, 8] },
-      { "range": 4,  "hits": [4, 4, 8] },
-      { "range": 8,  "hits": [4, 3, 6] },
-      { "range": 15, "hits": [4, 3, 0] },
-      { "range": 22, "hits": [3, 2, 0] },
-      { "range": 30, "hits": [2, 2, 0] }
-    ]
+      {
+        "range": 0,
+        "hits": [
+          6,
+          0,
+          10
+        ]
+      },
+      {
+        "range": 1,
+        "hits": [
+          5,
+          5,
+          10
+        ]
+      },
+      {
+        "range": 2,
+        "hits": [
+          5,
+          4,
+          8
+        ]
+      },
+      {
+        "range": 4,
+        "hits": [
+          4,
+          4,
+          8
+        ]
+      },
+      {
+        "range": 8,
+        "hits": [
+          4,
+          3,
+          6
+        ]
+      },
+      {
+        "range": 15,
+        "hits": [
+          4,
+          3,
+          0
+        ]
+      },
+      {
+        "range": 22,
+        "hits": [
+          3,
+          2,
+          0
+        ]
+      },
+      {
+        "range": 30,
+        "hits": [
+          2,
+          2,
+          0
+        ]
+      }
+    ],
+    "minRange": 0
   },
   {
     "weaponTypeId": 11,
@@ -90,10 +401,23 @@
     "fireRate": 1,
     "extends": "Disruptor",
     "overrides": {
-      "15": [4, 3, 6],
-      "22": [4, 2, 4],
-      "30": [2, 2, 4]
-    }
+      "15": [
+        4,
+        3,
+        6
+      ],
+      "22": [
+        4,
+        2,
+        4
+      ],
+      "30": [
+        2,
+        2,
+        4
+      ]
+    },
+    "minRange": 0
   },
   {
     "weaponTypeId": 12,
@@ -104,10 +428,23 @@
     "fireRate": 1,
     "extends": "Disruptor",
     "overrides": {
-      "15": [4, 3, 6],
-      "22": [3, 2, 4],
-      "30": [3, 2, 4]
-    }
+      "15": [
+        4,
+        3,
+        6
+      ],
+      "22": [
+        3,
+        2,
+        4
+      ],
+      "30": [
+        3,
+        2,
+        4
+      ]
+    },
+    "minRange": 0
   },
   {
     "weaponTypeId": 13,
@@ -117,13 +454,50 @@
     "powerCost": 2,
     "fireRate": 2,
     "damageTable": [
-      { "range": 1,  "hits": [0, 8] },
-      { "range": 2,  "hits": [5, 8] },
-      { "range": 4,  "hits": [4, 8] },
-      { "range": 8,  "hits": [3, 8] },
-      { "range": 12, "hits": [2, 8] },
-      { "range": 30, "hits": [1, 8] }
-    ]
+      {
+        "range": 1,
+        "hits": [
+          0,
+          8
+        ]
+      },
+      {
+        "range": 2,
+        "hits": [
+          5,
+          8
+        ]
+      },
+      {
+        "range": 4,
+        "hits": [
+          4,
+          8
+        ]
+      },
+      {
+        "range": 8,
+        "hits": [
+          3,
+          8
+        ]
+      },
+      {
+        "range": 12,
+        "hits": [
+          2,
+          8
+        ]
+      },
+      {
+        "range": 30,
+        "hits": [
+          1,
+          8
+        ]
+      }
+    ],
+    "minRange": 2
   },
   {
     "weaponTypeId": 20,
@@ -132,7 +506,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 3,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 21,
@@ -141,7 +516,8 @@
     "effRange": 30,
     "powerCost": 2,
     "fireRate": 3,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 22,
@@ -150,7 +526,8 @@
     "effRange": 30,
     "powerCost": 1,
     "fireRate": 3,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 23,
@@ -159,7 +536,8 @@
     "effRange": 30,
     "powerCost": 0,
     "fireRate": 3,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 30,
@@ -168,7 +546,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 1,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 31,
@@ -177,7 +556,8 @@
     "effRange": 30,
     "powerCost": 6,
     "fireRate": 1,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 32,
@@ -186,7 +566,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 1,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 33,
@@ -195,7 +576,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 0.3,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 34,
@@ -204,7 +586,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 4,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 35,
@@ -213,7 +596,8 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 0.5,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   },
   {
     "weaponTypeId": 36,
@@ -222,6 +606,7 @@
     "effRange": 30,
     "powerCost": 4,
     "fireRate": 1,
-    "damageTable": []
+    "damageTable": [],
+    "minRange": 0
   }
 ]

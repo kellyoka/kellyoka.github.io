@@ -46,6 +46,7 @@ function resolveWeapon(entry) {
         weaponClassId: entry.weaponClassId,
         weaponName: entry.weaponName,
         effRange: entry.effRange,
+        minRange: entry.minRange || 0,
         powerCost: entry.powerCost,
         fireRate: entry.fireRate,
         damageTable

@@ -25,6 +25,7 @@
             this.speed = speed;
             this.sideSlip = true;
             this.phaserCap = phaserCap;
+            this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
             this.shipWeapons = [];
         }
         var shipList = [];
@@ -56,6 +57,7 @@
             this.extraArcs = extraArcs || [];
             this.bFired = false;
             this.impFired = 0;
+            this.lastFiredAbsImpulse = null; // absolute (cross-turn) impulse count when last fired - drives the 8-impulse recycle rule
             this.bDestroyed = false;
         }
 
@@ -256,14 +258,11 @@
             makeDraggableElement(document.getElementById('targetShipPopUpDiv'));
             makeDraggableElement(document.getElementById('hexPickerPopUpDiv'));
             //makeDraggableElement(document.getElementById('implusePopUpDiv')); // pinned to top-left, no longer draggable
-            makeDraggableElement(document.getElementById('windowsTabDiv'));
             makeDraggableElement(document.getElementById('moveShipPopUpDiv'));
             makeDraggableElement(document.getElementById('shipInternalsPopUpDiv'));
             makeDraggableElement(document.getElementById('fireShipPopUpDiv'));
             makeDraggableElement(document.getElementById('weaponInfoPopUpDiv'));
-
-
-            makeDraggableElement(document.getElementById('gamePopUpDiv'));
+            makeDraggableElement(document.getElementById('energyAllocPopUpDiv'));
 
             if (typeof setupGameArea === 'function') {
                 setupGameArea();
@@ -276,7 +275,7 @@
 
             //applyDamage();
 
-            oneImpluse();
+            startEnergyAllocation();
             //showShipPopUp(2)
             //damageWeapon(sId, wClass, shield);
             //damageWeapon(2, 1, 0);
@@ -1250,6 +1249,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     shipList[s].shipWeapons[w].bFired = false;
                     shipList[s].shipWeapons[w].impFired = 0;
                 }
+                // phaserCap no longer auto-recharges - it's set entirely by
+                // energy allocation now (see startEnergyAllocation() below)
             }
 
             // expire seeking weapons whose endurance has run out
@@ -1263,11 +1264,12 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">--- Turn ' + turnNumber + ' begins ---</div>');
             writeImpulseChart();
-            oneImpluse();
+            startEnergyAllocation();
         }
 
         function closePopup(str) {
             $('#' + str + 'PopUpDiv').css('display', 'none');
+            if (str == 'hexPicker') { $('#hexPickerBackdrop').css('display', 'none'); }
         }
         function openPopUp(str) {
             $('#' + str + 'PopUpDiv').css('display', 'block');
@@ -1468,23 +1470,31 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             }
             for (var z = 0; z < shipList[arrId].shipWeapons.length; z++) {
                 var thisWClass = 0;
+                var thisMinRange = 0;
+                var thisMaxRange = 0;
                 str += '<div id="weaponArc' + curShipId + '-' + z + '" class="weaponFireDiv" onclick="showWeaponArc(' + curShipId + ',' + z + ');">';
                 for (var y = 0; y < weaponList.length; y++) {
                     if (weaponList[y].weaponTypeId == shipList[arrId].shipWeapons[z].weaponTypeId) {
                         str += weaponList[y].weaponName + '&nbsp;' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
                         pCost = ((weaponList[y].weaponClassId) ? weaponList[y].powerCost : 0);
                         thisWClass = weaponList[y].weaponClassId;
+                        thisMinRange = weaponList[y].minRange || 0;
+                        thisMaxRange = weaponList[y].effRange;
                     }
                 }
                 str += '</div>';
                 str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
+                var isReady = weaponReady(shipList[arrId].shipWeapons[z]);
                 if (shipList[arrId].shipWeapons[z].bDestroyed) { str += ' dimWeapon destroyedWeapon'; }
-                else if (shipList[arrId].shipWeapons[z].bFired) { str += ' dimWeapon'; }
+                else if (!isReady) { str += ' dimWeapon'; }
                 else if (pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
                     var rangeToTarget = findDist(curShipId, selTargetShipId);
-                    if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
+                    if (rangeToTarget < thisMinRange || rangeToTarget > thisMaxRange) {
+                        str += ' dimWeapon';
+                    }
+                    else if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
                         str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
                     }
                     else {
@@ -1500,7 +1510,10 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
                         var droneRange = findDistToDrone(curShipId, selTargetDroneId);
-                        if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
+                        if (droneRange < thisMinRange || droneRange > thisMaxRange) {
+                            str += ' dimWeapon';
+                        }
+                        else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
                             str += ' canTargetHighlight" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
                         } else {
                             str += ' dimWeapon';
@@ -1509,7 +1522,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 }
                 else str += ' dimWeapon';
                 str += '" style="width:60px;">Fire</div>';
-                str += '<div style="float:left;padding-left:10px;line-height:30px;">' + ((shipList[arrId].shipWeapons[z].bFired) ? 'fired' : 'ready') + '</div>';
+                var readyLabel = 'ready';
+                if (shipList[arrId].shipWeapons[z].bFired) {
+                    readyLabel = 'fired';
+                } else if (!isReady) {
+                    // only reachable when the weapon fired late enough last
+                    // turn (impulse 25+) that the 8-impulse rule is still
+                    // holding it back into this turn
+                    var readyAt = absoluteImpulseToTurnImpulse(shipList[arrId].shipWeapons[z].lastFiredAbsImpulse + WEAPON_RECYCLE_IMPULSES);
+                    readyLabel = 'recharge impulse ' + readyAt.impulse;
+                }
+                str += '<div style="float:left;padding-left:10px;line-height:30px;">' + readyLabel + '</div>';
                 str += '<div class="weaponInfoIconDiv' + ((selTargetShipId != -1) ? '' : ' weaponInfoIconDisabled') + '" title="Damage chart at current range" onclick="' + ((selTargetShipId != -1) ? ('showWeaponDamageInfo(' + curShipId + ',' + z + ');') : '') + '"><i class="fa-light fa-circle-info"></i></div>';
                 //str += '&nbsp;a=' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
                 str += '<div style="clear:both;"></div>';
@@ -1661,10 +1684,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var range = findDist(sId, selTargetShipId);
 
             var str = '<div style="font-weight:bold;">' + weapon.weaponName + '</div>';
-            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + ')</div>';
+            var minRangeNote = (weapon.minRange > 0) ? (', min ' + weapon.minRange) : '';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + minRangeNote + ')</div>';
 
             if (!weapon.damageTable || weapon.damageTable.length == 0) {
                 str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
+            } else if (range < (weapon.minRange || 0)) {
+                str += '<div style="color:#900;">Target is inside minimum range (' + weapon.minRange + ') - cannot fire.</div>';
             } else {
                 var hits = null;
                 try { hits = getDamage(weapon, range); } catch (e) { hits = null; }
@@ -1702,6 +1728,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var weapon = null;
             shipList[sArrId].shipWeapons[wArrId].bFired = true;
             shipList[sArrId].shipWeapons[wArrId].impFired = impulse;
+            shipList[sArrId].shipWeapons[wArrId].lastFiredAbsImpulse = currentAbsoluteImpulse();
             for (var y = 0; y < weaponList.length; y++) {
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
@@ -1825,6 +1852,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var weapon = null;
             shipList[sArrId].shipWeapons[wArrId].bFired = true;
             shipList[sArrId].shipWeapons[wArrId].impFired = impulse;
+            shipList[sArrId].shipWeapons[wArrId].lastFiredAbsImpulse = currentAbsoluteImpulse();
             for (var y = 0; y < weaponList.length; y++) {
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
@@ -2328,6 +2356,181 @@ $('#dataDiv').append(w);
             return d;
         }
 
+        // --- weapon recycle time: fixed 8-impulse cooldown between shots,
+        // separate from and independent of each weapon's fireRate value.
+        // Applies to every weapon class including seeking weapons (drones)
+        // and disruptors. The one exception is Phaser-G (weaponTypeId 4):
+        // it's tracked as a single hit-location/mount, but operationally
+        // behaves like 4 independent Phaser-3s, so it doesn't share their
+        // recycle restriction.
+        var PHASER_G_WEAPON_TYPE_ID = 4;
+        var WEAPON_RECYCLE_IMPULSES = 8;
+        var IMPULSES_PER_TURN = 32;
+
+        // --- energy allocation ---
+        // once per turn, before movement begins. Power sources: warp
+        // engines (rWarp+lWarp+cWarp), impulse (imp), APR (apr), battery
+        // (bty) - each undamaged box supplies 1 point of power. Speed can
+        // only be funded by warp (any amount) + impulse (capped at 1 point);
+        // everything else (shields, weapons) can draw from any source, so
+        // once speed is chosen the remaining pool is unrestricted.
+        var energyAllocList = [];
+
+        function startEnergyAllocation() {
+            energyAllocList = [];
+            for (var x = 0; x < shipList.length; x++) {
+                energyAllocList.push(shipList[x].userId);
+            }
+            setPhase('Energy Allocation');
+            allocateNextShip();
+        }
+
+        function allocateNextShip() {
+            if (energyAllocList.length == 0) {
+                oneImpluse();
+                return;
+            }
+            showEnergyAllocPopUp(energyAllocList[0]);
+        }
+
+        function findShipArrId(sId) {
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) return z;
+            }
+            return -1;
+        }
+        function findInternalsArrId(sId) {
+            for (var z = 0; z < shipInternals.length; z++) {
+                if (shipInternals[z].userId == sId) return z;
+            }
+            return -1;
+        }
+
+        function addShieldPoints(iArrId, shieldNum, gain) {
+            if (gain == 0) return;
+            if (shieldNum == 1) shipInternals[iArrId].shield1 += gain;
+            else if (shieldNum == 2) shipInternals[iArrId].shield2 += gain;
+            else if (shieldNum == 3) shipInternals[iArrId].shield3 += gain;
+            else if (shieldNum == 4) shipInternals[iArrId].shield4 += gain;
+            else if (shieldNum == 5) shipInternals[iArrId].shield5 += gain;
+            else if (shieldNum == 6) shipInternals[iArrId].shield6 += gain;
+        }
+
+        function showEnergyAllocPopUp(sId) {
+            var arrId = findShipArrId(sId);
+            var iArrId = findInternalsArrId(sId);
+
+            var warpAvail = shipInternals[iArrId].rWarp + shipInternals[iArrId].lWarp + shipInternals[iArrId].cWarp;
+            var impAvail = shipInternals[iArrId].imp;
+            var aprAvail = shipInternals[iArrId].apr;
+            var btyAvail = shipInternals[iArrId].bty;
+            var totalAvail = warpAvail + impAvail + aprAvail + btyAvail;
+            var maxSpeed = warpAvail + Math.min(1, impAvail);
+
+            var str = '<div style="font-weight:bold;">Energy Allocation: ' + shipList[arrId].name + ' id=' + sId + '</div>';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Warp ' + warpAvail + ' &middot; Impulse ' + impAvail + ' &middot; APR ' + aprAvail + ' &middot; Battery ' + btyAvail + ' &middot; Total ' + totalAvail + '</div>';
+
+            str += '<div style="padding-top:4px;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only): ';
+            str += '<input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+
+            for (var s = 1; s <= 6; s++) {
+                str += '<div>Shield ' + s + ' power (2/pt): ';
+                str += '<input type="number" id="eaShield' + s + '" min="0" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();">';
+                str += ' <span id="eaShield' + s + 'Pts" style="color:#666;">(+0 pts)</span></div>';
+            }
+
+            str += '<div>Weapons (phaser capacitor): <input type="number" id="eaWeapons" min="0" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+
+            str += '<div style="padding-top:8px;font-weight:600;">Remaining: <span id="eaRemaining">' + totalAvail + '</span></div>';
+            str += '<div class="button" style="margin-top:8px;display:inline-block;" onclick="confirmEnergyAllocation(' + sId + ',' + totalAvail + ',' + maxSpeed + ');">Confirm</div>';
+
+            $('#energyAllocPopUpDiv').data('totalAvail', totalAvail).html(str).css('display', 'block');
+            updateEnergyAllocTotal();
+        }
+
+        function updateEnergyAllocTotal() {
+            var totalAvail = $('#energyAllocPopUpDiv').data('totalAvail') || 0;
+            var speed = parseInt($('#eaSpeed').val()) || 0;
+            var weapons = parseInt($('#eaWeapons').val()) || 0;
+            var shieldsTotal = 0;
+            for (var s = 1; s <= 6; s++) {
+                var v = parseInt($('#eaShield' + s).val()) || 0;
+                shieldsTotal += v;
+                $('#eaShield' + s + 'Pts').text('(+' + Math.floor(v / 2) + ' pts)');
+            }
+            var used = speed + weapons + shieldsTotal;
+            var remaining = totalAvail - used;
+            $('#eaRemaining').text(remaining).css('color', remaining < 0 ? '#900' : (remaining == 0 ? '#090' : '#000'));
+        }
+
+        function confirmEnergyAllocation(sId, totalAvail, maxSpeed) {
+            var arrId = findShipArrId(sId);
+            var iArrId = findInternalsArrId(sId);
+
+            var speed = parseInt($('#eaSpeed').val()) || 0;
+            var weapons = parseInt($('#eaWeapons').val()) || 0;
+            var shieldPower = [];
+            var shieldsTotal = 0;
+            for (var s = 1; s <= 6; s++) {
+                var v = parseInt($('#eaShield' + s).val()) || 0;
+                shieldPower.push(v);
+                shieldsTotal += v;
+            }
+            var used = speed + weapons + shieldsTotal;
+
+            if (speed > maxSpeed) {
+                alert('Speed (' + speed + ') exceeds the max allowed from warp + impulse (' + maxSpeed + ')');
+                return;
+            }
+            if (used > totalAvail) {
+                alert('Allocated power (' + used + ') exceeds available power (' + totalAvail + ')');
+                return;
+            }
+
+            shipList[arrId].speed = speed;
+            shipList[arrId].phaserCap = weapons;
+            var shieldPtsGained = 0;
+            for (var s = 1; s <= 6; s++) {
+                var gain = Math.floor(shieldPower[s - 1] / 2);
+                addShieldPoints(iArrId, s, gain);
+                shieldPtsGained += gain;
+            }
+
+            $('#dataDiv').append('<div>' + shipList[arrId].name + ' allocates energy: speed ' + speed + ', weapons ' + weapons + ', shields +' + shieldPtsGained + ' pts total (' + (totalAvail - used) + ' unused)</div>');
+
+            $('#energyAllocPopUpDiv').css('display', 'none');
+            energyAllocList.shift();
+            allocateNextShip();
+        }
+
+
+        function currentAbsoluteImpulse() {
+            return (turnNumber - 1) * IMPULSES_PER_TURN + impulse;
+        }
+
+        // converts an absolute impulse count back into {turn, impulse} for
+        // display purposes (e.g. "ready again on turn 2, impulse 6")
+        function absoluteImpulseToTurnImpulse(absImpulse) {
+            var turn = Math.floor((absImpulse - 1) / IMPULSES_PER_TURN) + 1;
+            var imp = ((absImpulse - 1) % IMPULSES_PER_TURN) + 1;
+            return { turn: turn, impulse: imp };
+        }
+
+        function weaponReady(weaponEntry) {
+            if (weaponEntry.bDestroyed) return false;
+            // once per turn always applies, to every weapon including Phaser-G
+            if (weaponEntry.bFired) return false;
+            // Phaser-G is exempt from the extra cross-turn-boundary delay below,
+            // but still subject to the once-per-turn check above
+            if (weaponEntry.weaponTypeId == PHASER_G_WEAPON_TYPE_ID) return true;
+            if (weaponEntry.lastFiredAbsImpulse == null) return true;
+            // this only actually restricts anything when the weapon fired late
+            // enough last turn (impulse 25+) that 8 impulses hadn't yet passed
+            // by the time the turn rolled over - it exists purely to stop
+            // firing at the very end of one turn and the very start of the next
+            return (currentAbsoluteImpulse() - weaponEntry.lastFiredAbsImpulse) >= WEAPON_RECYCLE_IMPULSES;
+        }
+
         function shieldFacing(arc) {
             var s = 1;
             if (arc > 30 && arc <= 90) s = 2;
@@ -2450,6 +2653,7 @@ $('#dataDiv').append(w);
                 return;
             }
 
+            $('#hexPickerBackdrop').css('display', 'block');
             var str = '<div style="float:left;">Select target:</div>';
             str += '<div style="float:right;" onclick="closePopup(\'hexPicker\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
@@ -2738,6 +2942,24 @@ $('#dataDiv').append(w);
             max-height: unset;
         }
 
+        #hexPickerPopUpDiv {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            right: auto;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+        }
+
+        #hexPickerBackdrop {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.35);
+            z-index: 999;
+        }
+
 
         #impluseChartDiv {
             padding: 8px 10px 10px;
@@ -2791,6 +3013,10 @@ $('#dataDiv').append(w);
 
         .phaseMove {
             background-color: #DCEEFF;
+        }
+
+        .phaseEnergyAllocation {
+            background-color: #E4D9FF;
         }
 
         .phaseSeekingWeapons {
@@ -3045,12 +3271,8 @@ $('#dataDiv').append(w);
         </div>
         <div id="shipInfoDiv"></div>
 
-        <div id="windowsTabDiv" class="popUpDiv" style="padding: 0px;">
-            <div id="impluseOpenDiv" class="openTab" onclick="openPopUp('impluse');">IMP</div>
-            <div style="clear:both;"></div>
-        </div>
-
         <div id="targetShipPopUpDiv" class="popUpDiv" style="width:200px;display:none;"></div>
+        <div id="hexPickerBackdrop" onclick="closePopup('hexPicker');"></div>
         <div id="hexPickerPopUpDiv" class="popUpDiv" style="width:180px;display:none;"></div>
         <div id="implusePopUpDiv" class="popUpDiv">
             <div style="position:relative;">
@@ -3073,6 +3295,7 @@ $('#dataDiv').append(w);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
+        <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:260px;border:1px solid #4a90d9;display:none;"></div>
 
 
         <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
