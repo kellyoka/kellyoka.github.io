@@ -2527,18 +2527,26 @@ $('#dataDiv').append(w);
             var phaserCapHeadroom = phaserCapMax - phaserCapCurrent;
 
             var str = '<div style="font-weight:bold;">Energy Allocation: ' + ship.name + ' id=' + sId + '</div>';
-            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Generated: Warp ' + warpAvail + ' &middot; Impulse ' + impAvail + ' &middot; Reactor ' + aprAvail + ' = ' + generated + '</div>';
+            str += '<div style="color:#666;padding-bottom:6px;">Generated: Warp ' + warpAvail + ' &middot; Impulse ' + impAvail + ' &middot; Reactor ' + aprAvail + ' = ' + generated + '</div>';
+            str += '<div class="dividerLine"></div>';
 
-            str += '<div style="border-top:1px solid #ddd;padding-top:4px;">Battery: ' + batteryStored + ' / ' + batteryMax + ' stored</div>';
-            str += '<div>Discharge this turn (adds to available power): <input type="number" id="eaBattDischarge" min="0" max="' + batteryStored + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
-            str += '<div>Recharge this turn (costs power, max ' + batteryHeadroom + '): <input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div>Battery: ' + batteryStored + ' / ' + batteryMax + ' stored</div>';
+            str += '<div>Discharge this turn (adds to available power): <input type="number" id="eaBattDischarge" min="0" max="' + batteryStored + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
 
-            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">Life Support: ' + LIFE_SUPPORT_COST + ' (fixed) &middot; Active Fire Control: ' + FIRE_CONTROL_COST + ' (fixed)</div>';
+            str += '<div class="dividerLine"></div>';
+            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">Life Support: ' + LIFE_SUPPORT_COST + ' &middot; Active Fire Control: ' + FIRE_CONTROL_COST + '</div>';
 
+            var shieldsCurrentlyActive = internals.shieldsActive;
+            str += '<div><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Active shields(' + SHIELD_ACTIVATION_COST + ') - unchecking drops all shields to 0';
+            if (!shieldsCurrentlyActive) { str += '<div style="color:#900;font-size:11px;">Shields currently DOWN - re-checking will restore ' + internals.savedShield1 + '/' + internals.savedShield2 + '/' + internals.savedShield3 + '/' + internals.savedShield4 + '/' + internals.savedShield5 + '/' + internals.savedShield6 + '</div>'; }
+            str += '</div>';
+
+            str += '<div class="dividerLine"></div>';
             str += '<div style="padding-top:4px;">Phaser Capacitor: ' + phaserCapCurrent + ' / ' + phaserCapMax + ' - add this turn: ';
-            str += '<input type="number" id="eaPhaserAdd" min="0" max="' + phaserCapHeadroom + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<input type="number" id="eaPhaserAdd" min="0" max="' + phaserCapHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
 
-            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' each to arm):</div>';
+            str += '<div class="dividerLine"></div>';
+            str += '<div>Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' each to arm):</div>';
             for (var z = 0; z < ship.shipWeapons.length; z++) {
                 var wEntry = ship.shipWeapons[z];
                 var wClass = 0, wName = '';
@@ -2555,16 +2563,13 @@ $('#dataDiv').append(w);
                 }
             }
 
-            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">';
-            var shieldsCurrentlyActive = internals.shieldsActive;
-            str += '<label><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Keep shields active (' + SHIELD_ACTIVATION_COST + ') - unchecking drops all shields to 0</label>';
-            if (!shieldsCurrentlyActive) { str += '<div style="color:#900;font-size:11px;">Shields currently DOWN - re-checking will restore ' + internals.savedShield1 + '/' + internals.savedShield2 + '/' + internals.savedShield3 + '/' + internals.savedShield4 + '/' + internals.savedShield5 + '/' + internals.savedShield6 + '</div>'; }
-            str += '</div>';
-
+            str += '<div class="dividerLine"></div>';
             str += '<div style="padding-top:4px;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only): ';
-            str += '<input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div>Recharge this turn (costs power, max ' + batteryHeadroom + '): <input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
 
-            str += '<div style="border-top:1px solid #ddd;padding-top:8px;margin-top:4px;font-weight:600;">Available: <span id="eaAvailable"></span> &middot; Used: <span id="eaUsed"></span> &middot; Remaining: <span id="eaRemaining"></span></div>';
+            str += '<div class="dividerLine" style="margin-bottom:8px;"></div>';
+            str += '<div style="font-weight:600;">Available: <span id="eaAvailable"></span> &middot; Used: <span id="eaUsed"></span> &middot; Remaining: <span id="eaRemaining"></span></div>';
             str += '<div class="button" style="margin-top:8px;display:inline-block;" onclick="confirmEnergyAllocation(' + sId + ',' + maxSpeed + ');">Confirm</div>';
 
             $('#energyAllocPopUpDiv').data('sId', sId).html(str).css('display', 'block');
@@ -3324,6 +3329,12 @@ $('#dataDiv').append(w);
             background-color: #EFEFEF;
             cursor: pointer;
         }
+        .dividerLine {
+            margin: 4px 0px;
+            width: 100%;
+            height: 1px;
+            background-color: #DDD;
+        }
 
         .posShipMove {
             position: absolute;
@@ -3481,7 +3492,7 @@ $('#dataDiv').append(w);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
-        <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:260px;border:1px solid #4a90d9;display:none;"></div>
+        <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:360px;border:1px solid #4a90d9;display:none;"></div>
 
 
         <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
