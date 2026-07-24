@@ -59,6 +59,7 @@
             this.impFired = 0;
             this.lastFiredAbsImpulse = null; // absolute (cross-turn) impulse count when last fired - drives the 8-impulse recycle rule
             this.bDestroyed = false;
+            this.bArmed = false; // heavy weapons (disruptors/photon/plasma) need 2 power to arm via energy allocation; stays armed across turns until fired
         }
 
         function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
@@ -122,6 +123,20 @@
             this.sensor = [];
             this.scanner = [];
             this.damageCon = [];
+            this.batteryStored = bty; // persistent charge reservoir - starts full, carries over between turns via energy allocation
+
+            // shield activation memory: when shields are dropped (0 power
+            // paid for line 11), current values are snapshotted here so
+            // reactivating later restores them (reflecting any damage they
+            // already had), rather than resetting to 0 forever or jumping
+            // back to full strength
+            this.shieldsActive = true;
+            this.savedShield1 = shield1;
+            this.savedShield2 = shield2;
+            this.savedShield3 = shield3;
+            this.savedShield4 = shield4;
+            this.savedShield5 = shield5;
+            this.savedShield6 = shield6;
         }
         var shipInternals = [];
 
@@ -1485,9 +1500,12 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 str += '</div>';
                 str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
                 var isReady = weaponReady(shipList[arrId].shipWeapons[z]);
+                var needsArm = isHeavyWeaponClass(thisWClass);
+                var isArmed = shipList[arrId].shipWeapons[z].bArmed;
                 if (shipList[arrId].shipWeapons[z].bDestroyed) { str += ' dimWeapon destroyedWeapon'; }
                 else if (!isReady) { str += ' dimWeapon'; }
-                else if (pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
+                else if (thisWClass == 1 && pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
+                else if (needsArm && !isArmed) { str += ' dimWeapon'; }
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
                     var rangeToTarget = findDist(curShipId, selTargetShipId);
@@ -1531,6 +1549,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     // holding it back into this turn
                     var readyAt = absoluteImpulseToTurnImpulse(shipList[arrId].shipWeapons[z].lastFiredAbsImpulse + WEAPON_RECYCLE_IMPULSES);
                     readyLabel = 'recharge impulse ' + readyAt.impulse;
+                } else if (needsArm && !isArmed) {
+                    readyLabel = 'not armed';
                 }
                 str += '<div style="float:left;padding-left:10px;line-height:30px;">' + readyLabel + '</div>';
                 str += '<div class="weaponInfoIconDiv' + ((selTargetShipId != -1) ? '' : ' weaponInfoIconDisabled') + '" title="Damage chart at current range" onclick="' + ((selTargetShipId != -1) ? ('showWeaponDamageInfo(' + curShipId + ',' + z + ');') : '') + '"><i class="fa-light fa-circle-info"></i></div>';
@@ -1733,6 +1753,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
                         shipList[sArrId].phaserCap -= weaponList[y].powerCost;
+                    if (isHeavyWeaponClass(weaponList[y].weaponClassId))
+                        shipList[sArrId].shipWeapons[wArrId].bArmed = false; // firing consumes the arming - needs re-arming next turn
                     wClass = weaponList[y].weaponClassId;
                     weapon = weaponList[y];
                 }
@@ -1857,6 +1879,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
                         shipList[sArrId].phaserCap -= weaponList[y].powerCost;
+                    if (isHeavyWeaponClass(weaponList[y].weaponClassId))
+                        shipList[sArrId].shipWeapons[wArrId].bArmed = false;
                     wClass = weaponList[y].weaponClassId;
                     weapon = weaponList[y];
                 }
@@ -2368,13 +2392,34 @@ $('#dataDiv').append(w);
         var IMPULSES_PER_TURN = 32;
 
         // --- energy allocation ---
-        // once per turn, before movement begins. Power sources: warp
-        // engines (rWarp+lWarp+cWarp), impulse (imp), APR (apr), battery
-        // (bty) - each undamaged box supplies 1 point of power. Speed can
-        // only be funded by warp (any amount) + impulse (capped at 1 point);
-        // everything else (shields, weapons) can draw from any source, so
-        // once speed is chosen the remaining pool is unrestricted.
+        // once per turn, before movement begins. Modeled on the actual SFB
+        // Energy Allocation Form:
+        //   lines 1-3  warp/impulse/reactor generate fresh power each turn
+        //   lines 5-6  battery is a PERSISTENT reservoir (doesn't reset -
+        //              you choose how much stored charge to discharge this
+        //              turn, and separately how much to recharge it by)
+        //   line 7-8   life support + active fire control: fixed cost, 1
+        //              each for now, paid automatically off the top
+        //   line 9     phaser capacitor is ALSO persistent - unused charge
+        //              carries forward turn to turn, capped at maxPhaserCap
+        //   line 10    heavy weapons (disruptors/photon/plasma - NOT
+        //              phasers, NOT drones) need 2 power to arm, and once
+        //              armed stay armed across turns until fired
+        //   line 11    shields: flat 2 power to stay active at all; paying
+        //              0 drops all 6 shields to 0 immediately
+        //   line 14    movement: 1 power/speed point, funded only by warp
+        //              (any amount) + impulse (capped at 1 point) - same
+        //              restriction as before
+        //   line 16    battery recharge: spend generated power this turn to
+        //              refill the battery reservoir for future turns
+        // Lines 12-13 (reinforcement), 15 (damage control), 17 (tractor),
+        // 18 (transporters), 19 (ECM/ECCM/labs/wild weasel/cloaking) are
+        // explicitly out of scope for now.
         var energyAllocList = [];
+        var HEAVY_WEAPON_ARM_COST = 2;
+        var SHIELD_ACTIVATION_COST = 2;
+        var LIFE_SUPPORT_COST = 1;
+        var FIRE_CONTROL_COST = 1;
 
         function startEnergyAllocation() {
             energyAllocList = [];
@@ -2416,87 +2461,228 @@ $('#dataDiv').append(w);
             else if (shieldNum == 6) shipInternals[iArrId].shield6 += gain;
         }
 
+        // drops all 6 shields to 0, but only snapshots their current values
+        // the first time (if already dropped, don't overwrite the saved
+        // snapshot with zeros)
+        function dropShields(iArrId) {
+            var internals = shipInternals[iArrId];
+            if (internals.shieldsActive) {
+                internals.savedShield1 = internals.shield1;
+                internals.savedShield2 = internals.shield2;
+                internals.savedShield3 = internals.shield3;
+                internals.savedShield4 = internals.shield4;
+                internals.savedShield5 = internals.shield5;
+                internals.savedShield6 = internals.shield6;
+                internals.shield1 = 0;
+                internals.shield2 = 0;
+                internals.shield3 = 0;
+                internals.shield4 = 0;
+                internals.shield5 = 0;
+                internals.shield6 = 0;
+            }
+            internals.shieldsActive = false;
+        }
+
+        // restores shields to whatever they were right before they were
+        // dropped (reflecting damage taken before the drop, not a reset to
+        // full strength). No-op if shields were already active.
+        function restoreShields(iArrId) {
+            var internals = shipInternals[iArrId];
+            if (!internals.shieldsActive) {
+                internals.shield1 = internals.savedShield1;
+                internals.shield2 = internals.savedShield2;
+                internals.shield3 = internals.savedShield3;
+                internals.shield4 = internals.savedShield4;
+                internals.shield5 = internals.savedShield5;
+                internals.shield6 = internals.savedShield6;
+            }
+            internals.shieldsActive = true;
+        }
+
+        // heavy weapons = disruptors/photon (weaponClassId 2) and plasma
+        // (weaponClassId 3) - NOT phasers (1, funded via phaser capacitor
+        // instead) and NOT drones (4, not modeled as needing arming here)
+        function isHeavyWeaponClass(wClass) {
+            return wClass == 2 || wClass == 3;
+        }
+
         function showEnergyAllocPopUp(sId) {
             var arrId = findShipArrId(sId);
             var iArrId = findInternalsArrId(sId);
+            var ship = shipList[arrId];
+            var internals = shipInternals[iArrId];
 
-            var warpAvail = shipInternals[iArrId].rWarp + shipInternals[iArrId].lWarp + shipInternals[iArrId].cWarp;
-            var impAvail = shipInternals[iArrId].imp;
-            var aprAvail = shipInternals[iArrId].apr;
-            var btyAvail = shipInternals[iArrId].bty;
-            var totalAvail = warpAvail + impAvail + aprAvail + btyAvail;
+            var warpAvail = internals.rWarp + internals.lWarp + internals.cWarp;
+            var impAvail = internals.imp;
+            var aprAvail = internals.apr;
+            var generated = warpAvail + impAvail + aprAvail;
             var maxSpeed = warpAvail + Math.min(1, impAvail);
 
-            var str = '<div style="font-weight:bold;">Energy Allocation: ' + shipList[arrId].name + ' id=' + sId + '</div>';
-            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Warp ' + warpAvail + ' &middot; Impulse ' + impAvail + ' &middot; APR ' + aprAvail + ' &middot; Battery ' + btyAvail + ' &middot; Total ' + totalAvail + '</div>';
+            var batteryMax = internals.mBty;
+            var batteryStored = internals.batteryStored;
+            var batteryHeadroom = batteryMax - batteryStored;
+
+            var phaserCapMax = ship.maxPhaserCap;
+            var phaserCapCurrent = ship.phaserCap;
+            var phaserCapHeadroom = phaserCapMax - phaserCapCurrent;
+
+            var str = '<div style="font-weight:bold;">Energy Allocation: ' + ship.name + ' id=' + sId + '</div>';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Generated: Warp ' + warpAvail + ' &middot; Impulse ' + impAvail + ' &middot; Reactor ' + aprAvail + ' = ' + generated + '</div>';
+
+            str += '<div style="border-top:1px solid #ddd;padding-top:4px;">Battery: ' + batteryStored + ' / ' + batteryMax + ' stored</div>';
+            str += '<div>Discharge this turn (adds to available power): <input type="number" id="eaBattDischarge" min="0" max="' + batteryStored + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div>Recharge this turn (costs power, max ' + batteryHeadroom + '): <input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+
+            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">Life Support: ' + LIFE_SUPPORT_COST + ' (fixed) &middot; Active Fire Control: ' + FIRE_CONTROL_COST + ' (fixed)</div>';
+
+            str += '<div style="padding-top:4px;">Phaser Capacitor: ' + phaserCapCurrent + ' / ' + phaserCapMax + ' - add this turn: ';
+            str += '<input type="number" id="eaPhaserAdd" min="0" max="' + phaserCapHeadroom + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
+
+            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' each to arm):</div>';
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var wEntry = ship.shipWeapons[z];
+                var wClass = 0, wName = '';
+                for (var y = 0; y < weaponList.length; y++) {
+                    if (weaponList[y].weaponTypeId == wEntry.weaponTypeId) { wClass = weaponList[y].weaponClassId; wName = weaponList[y].weaponName; }
+                }
+                if (!isHeavyWeaponClass(wClass)) continue;
+                if (wEntry.bDestroyed) {
+                    str += '<div style="color:#999;">' + wName + ' [' + z + '] - destroyed</div>';
+                } else if (wEntry.bArmed) {
+                    str += '<div>' + wName + ' [' + z + '] - armed (stays armed until fired)</div>';
+                } else {
+                    str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + z + ']</label></div>';
+                }
+            }
+
+            str += '<div style="border-top:1px solid #ddd;padding-top:4px;margin-top:4px;">';
+            var shieldsCurrentlyActive = internals.shieldsActive;
+            str += '<label><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Keep shields active (' + SHIELD_ACTIVATION_COST + ') - unchecking drops all shields to 0</label>';
+            if (!shieldsCurrentlyActive) { str += '<div style="color:#900;font-size:11px;">Shields currently DOWN - re-checking will restore ' + internals.savedShield1 + '/' + internals.savedShield2 + '/' + internals.savedShield3 + '/' + internals.savedShield4 + '/' + internals.savedShield5 + '/' + internals.savedShield6 + '</div>'; }
+            str += '</div>';
 
             str += '<div style="padding-top:4px;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only): ';
             str += '<input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
 
-            for (var s = 1; s <= 6; s++) {
-                str += '<div>Shield ' + s + ' power (2/pt): ';
-                str += '<input type="number" id="eaShield' + s + '" min="0" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();">';
-                str += ' <span id="eaShield' + s + 'Pts" style="color:#666;">(+0 pts)</span></div>';
-            }
+            str += '<div style="border-top:1px solid #ddd;padding-top:8px;margin-top:4px;font-weight:600;">Available: <span id="eaAvailable"></span> &middot; Used: <span id="eaUsed"></span> &middot; Remaining: <span id="eaRemaining"></span></div>';
+            str += '<div class="button" style="margin-top:8px;display:inline-block;" onclick="confirmEnergyAllocation(' + sId + ',' + maxSpeed + ');">Confirm</div>';
 
-            str += '<div>Weapons (phaser capacitor): <input type="number" id="eaWeapons" min="0" value="0" style="width:50px;" oninput="updateEnergyAllocTotal();"></div>';
-
-            str += '<div style="padding-top:8px;font-weight:600;">Remaining: <span id="eaRemaining">' + totalAvail + '</span></div>';
-            str += '<div class="button" style="margin-top:8px;display:inline-block;" onclick="confirmEnergyAllocation(' + sId + ',' + totalAvail + ',' + maxSpeed + ');">Confirm</div>';
-
-            $('#energyAllocPopUpDiv').data('totalAvail', totalAvail).html(str).css('display', 'block');
+            $('#energyAllocPopUpDiv').data('sId', sId).html(str).css('display', 'block');
             updateEnergyAllocTotal();
         }
 
-        function updateEnergyAllocTotal() {
-            var totalAvail = $('#energyAllocPopUpDiv').data('totalAvail') || 0;
-            var speed = parseInt($('#eaSpeed').val()) || 0;
-            var weapons = parseInt($('#eaWeapons').val()) || 0;
-            var shieldsTotal = 0;
-            for (var s = 1; s <= 6; s++) {
-                var v = parseInt($('#eaShield' + s).val()) || 0;
-                shieldsTotal += v;
-                $('#eaShield' + s + 'Pts').text('(+' + Math.floor(v / 2) + ' pts)');
+        // reads every heavy-weapon checkbox currently in the popup and
+        // returns how many are newly being armed this turn (already-armed
+        // weapons don't have a checkbox at all, so they cost nothing here)
+        function countNewlyArmedWeapons(sId) {
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var count = 0;
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var $cb = $('#eaArm' + z);
+                if ($cb.length && $cb.is(':checked')) count++;
             }
-            var used = speed + weapons + shieldsTotal;
-            var remaining = totalAvail - used;
+            return count;
+        }
+
+        function updateEnergyAllocTotal() {
+            var $popup = $('#energyAllocPopUpDiv');
+            var sId = $popup.data('sId');
+
+            var arrId = findShipArrId(sId);
+            var iArrId = findInternalsArrId(sId);
+            var warpAvail = shipInternals[iArrId].rWarp + shipInternals[iArrId].lWarp + shipInternals[iArrId].cWarp;
+            var impAvail = shipInternals[iArrId].imp;
+            var aprAvail = shipInternals[iArrId].apr;
+            var generated = warpAvail + impAvail + aprAvail;
+
+            var discharge = parseInt($('#eaBattDischarge').val()) || 0;
+            var recharge = parseInt($('#eaBattRecharge').val()) || 0;
+            var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
+            var speed = parseInt($('#eaSpeed').val()) || 0;
+            var shieldsActive = $('#eaShieldsActive').is(':checked');
+            var newlyArmed = countNewlyArmedWeapons(sId);
+
+            var available = generated + discharge;
+            var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
+                + (newlyArmed * HEAVY_WEAPON_ARM_COST)
+                + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
+            var remaining = available - used;
+
+            $('#eaAvailable').text(available);
+            $('#eaUsed').text(used);
             $('#eaRemaining').text(remaining).css('color', remaining < 0 ? '#900' : (remaining == 0 ? '#090' : '#000'));
         }
 
-        function confirmEnergyAllocation(sId, totalAvail, maxSpeed) {
+        function confirmEnergyAllocation(sId, maxSpeed) {
             var arrId = findShipArrId(sId);
             var iArrId = findInternalsArrId(sId);
+            var ship = shipList[arrId];
+            var internals = shipInternals[iArrId];
 
+            var warpAvail = internals.rWarp + internals.lWarp + internals.cWarp;
+            var impAvail = internals.imp;
+            var aprAvail = internals.apr;
+            var generated = warpAvail + impAvail + aprAvail;
+
+            var discharge = parseInt($('#eaBattDischarge').val()) || 0;
+            var recharge = parseInt($('#eaBattRecharge').val()) || 0;
+            var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
-            var weapons = parseInt($('#eaWeapons').val()) || 0;
-            var shieldPower = [];
-            var shieldsTotal = 0;
-            for (var s = 1; s <= 6; s++) {
-                var v = parseInt($('#eaShield' + s).val()) || 0;
-                shieldPower.push(v);
-                shieldsTotal += v;
-            }
-            var used = speed + weapons + shieldsTotal;
+            var shieldsActive = $('#eaShieldsActive').is(':checked');
 
+            if (discharge > internals.batteryStored) {
+                alert('Cannot discharge more than stored battery charge (' + internals.batteryStored + ')');
+                return;
+            }
+            if (recharge > (internals.mBty - internals.batteryStored)) {
+                alert('Recharge exceeds battery headroom (' + (internals.mBty - internals.batteryStored) + ')');
+                return;
+            }
+            if (phaserAdd > (ship.maxPhaserCap - ship.phaserCap)) {
+                alert('Phaser capacitor add exceeds headroom (' + (ship.maxPhaserCap - ship.phaserCap) + ')');
+                return;
+            }
             if (speed > maxSpeed) {
                 alert('Speed (' + speed + ') exceeds the max allowed from warp + impulse (' + maxSpeed + ')');
                 return;
             }
-            if (used > totalAvail) {
-                alert('Allocated power (' + used + ') exceeds available power (' + totalAvail + ')');
+
+            // collect which heavy weapons are being newly armed this turn
+            var newlyArmedIdx = [];
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var $cb = $('#eaArm' + z);
+                if ($cb.length && $cb.is(':checked')) newlyArmedIdx.push(z);
+            }
+
+            var available = generated + discharge;
+            var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
+                + (newlyArmedIdx.length * HEAVY_WEAPON_ARM_COST)
+                + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
+
+            if (used > available) {
+                alert('Allocated power (' + used + ') exceeds available power (' + available + ')');
                 return;
             }
 
-            shipList[arrId].speed = speed;
-            shipList[arrId].phaserCap = weapons;
-            var shieldPtsGained = 0;
-            for (var s = 1; s <= 6; s++) {
-                var gain = Math.floor(shieldPower[s - 1] / 2);
-                addShieldPoints(iArrId, s, gain);
-                shieldPtsGained += gain;
+            // apply everything
+            internals.batteryStored = internals.batteryStored - discharge + recharge;
+            ship.phaserCap = ship.phaserCap + phaserAdd;
+            ship.speed = speed;
+            for (var i = 0; i < newlyArmedIdx.length; i++) {
+                ship.shipWeapons[newlyArmedIdx[i]].bArmed = true;
+            }
+            if (shieldsActive) {
+                restoreShields(iArrId);
+            } else {
+                dropShields(iArrId);
             }
 
-            $('#dataDiv').append('<div>' + shipList[arrId].name + ' allocates energy: speed ' + speed + ', weapons ' + weapons + ', shields +' + shieldPtsGained + ' pts total (' + (totalAvail - used) + ' unused)</div>');
+            var logMsg = ship.name + ' allocates energy: speed ' + speed + ', phaser cap +' + phaserAdd + ' (now ' + ship.phaserCap + '/' + ship.maxPhaserCap + ')';
+            logMsg += ', shields ' + (shieldsActive ? 'active' : 'DROPPED');
+            if (newlyArmedIdx.length > 0) logMsg += ', armed ' + newlyArmedIdx.length + ' heavy weapon(s)';
+            logMsg += ', battery ' + internals.batteryStored + '/' + internals.mBty;
+            $('#dataDiv').append('<div>' + logMsg + '</div>');
 
             $('#energyAllocPopUpDiv').css('display', 'none');
             energyAllocList.shift();
