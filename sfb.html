@@ -831,6 +831,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             for (var i = 0; i < activeDrones.length; i++) {
                 if (activeDrones[i].id == drone.id) { activeDrones.splice(i, 1); break; }
             }
+            writeImpulseChart();
         }
 
         // launches a drone: creates a tracked seeking weapon at the
@@ -858,6 +859,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; }
             }
             $('#dataDiv').append('<div>' + launcher.name + ' launches drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + '</div>');
+            writeImpulseChart();
         }
 
         function plotShip(sId) {
@@ -963,6 +965,18 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                         shipsStr += '<div style="clear:both;"></div></div>';
                     }
                 }
+                for (var d = 0; d < activeDrones.length; d++) {
+                    if (activeDrones[d].bDestroyed) continue;
+                    if (a.includes(activeDrones[d].speed)) {
+                        shipCount++;
+                        var droneDoneThisImpulse = (x == impulse) && !seekingList.includes(activeDrones[d].id);
+                        shipsStr += '<div class="impDrone' + activeDrones[d].id + ' impulseShipDiv impulseDroneDiv' + (droneDoneThisImpulse ? ' impulseShipDone' : '') + '" onclick="highlightDrone(' + activeDrones[d].id + ');">';
+                        shipsStr += '<div style="float:left;">Drone</div>';
+                        shipsStr += '<div class="impulseShipIDDiv">[' + activeDrones[d].id + ']</div>';
+                        shipsStr += '<div class="impulseShipSpeedDiv">&nbsp;' + activeDrones[d].speed + '</div>';
+                        shipsStr += '<div style="clear:both;"></div></div>';
+                    }
+                }
 
                 str += '<div class="impulseRowDiv ' + rowState + (shipCount == 0 ? ' emptyImpulseRow' : '') + '" id="impulseRow' + x + '">';
                 str += '<div class="impulseCellDiv">';
@@ -987,9 +1001,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
         function highlightShip(sId) {
             $('.shipDiv').removeClass('impulseShipColor');
+            $('.droneDiv').removeClass('impulseShipColor');
             $('#ship' + sId).addClass('impulseShipColor');
             $('.impulseShipDiv').removeClass('impulseShipColor');
             $('.impShip' + sId).addClass('impulseShipColor');
+        }
+        function highlightDrone(id) {
+            $('.shipDiv').removeClass('impulseShipColor');
+            $('.droneDiv').removeClass('impulseShipColor');
+            $('#drone' + id).addClass('impulseShipColor');
+            $('.impulseShipDiv').removeClass('impulseShipColor');
+            $('.impDrone' + id).addClass('impulseShipColor');
         }
 
         var moveShipList = new Array();
@@ -2432,6 +2454,7 @@ $('#dataDiv').append(w);
 
         function allocateNextShip() {
             if (energyAllocList.length == 0) {
+                writeImpulseChart(); // refresh with this turn's newly-allocated speeds before movement starts
                 oneImpluse();
                 return;
             }
@@ -2533,15 +2556,18 @@ $('#dataDiv').append(w);
             str += '<div>Battery: ' + batteryStored + ' / ' + batteryMax + ' stored</div>';
             str += '<div style="float:left;">Discharge this turn (adds to available power):</div>';
             str += '<div style="float:right;"><input type="number" id="eaBattDischarge" min="0" max="' + batteryStored + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
-            str += '<div style="clear:both;"></div>'; 
+            str += '<div style="clear:both;"></div>';
 
             str += '<div class="dividerLine"></div>';
-            str += '<div style="float:left;">Life Support: ' + LIFE_SUPPORT_COST + '</div>'; 
-            str += '<div style="float:right;"?>Active Fire Control: ' + FIRE_CONTROL_COST + '</div>';
-            str += '<div style="clear:both;"></div>'; 
+            str += '<div style="float:left;">Life Support: ' + LIFE_SUPPORT_COST + '</div>';
+            str += '<div style="float:left;padding-left:20px;">Active Fire Control: ' + FIRE_CONTROL_COST + '</div>';
+            str += '<div style="float:right;width:35px;text-align:center;">' + (LIFE_SUPPORT_COST + FIRE_CONTROL_COST) + '</div>';
+            str += '<div style="clear:both;"></div>';
 
             var shieldsCurrentlyActive = internals.shieldsActive;
-            str += '<div><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Active shields(' + SHIELD_ACTIVATION_COST + ') - unchecking drops shields</div>';
+            str += '<div style="float:left;"><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Active shields(' + SHIELD_ACTIVATION_COST + ') - unchecking drops shields</div>';
+            str += '<div id="displayShieldCost" style="float:right;width:35px;text-align:center;">' + (shieldsCurrentlyActive ? SHIELD_ACTIVATION_COST : 0) + '</div>';
+            str += '<div style="clear:both;"></div>';
             if (!shieldsCurrentlyActive) { str += '<div style="color:#900;font-size:11px;">Shields currently DOWN - re-checking will restore ' + internals.savedShield1 + '/' + internals.savedShield2 + '/' + internals.savedShield3 + '/' + internals.savedShield4 + '/' + internals.savedShield5 + '/' + internals.savedShield6 + '</div>'; }
             str += '</div>';
 
@@ -2554,31 +2580,31 @@ $('#dataDiv').append(w);
             str += '<div>Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' each to arm):</div>';
             for (var z = 0; z < ship.shipWeapons.length; z++) {
                 var wEntry = ship.shipWeapons[z];
-                var wClass = 0, wName = '';
+                var wClass = 0, wName = '', displayNumber = z + 1;
                 for (var y = 0; y < weaponList.length; y++) {
                     if (weaponList[y].weaponTypeId == wEntry.weaponTypeId) { wClass = weaponList[y].weaponClassId; wName = weaponList[y].weaponName; }
                 }
                 if (!isHeavyWeaponClass(wClass)) continue;
                 if (wEntry.bDestroyed) {
-                    str += '<div style="color:#999;">' + wName + ' [' + z + '] - destroyed</div>';
+                    str += '<div style="color:#999;">' + wName + ' [' + displayNumber + '] - destroyed</div>';
                 } else if (wEntry.bArmed) {
-                    str += '<div>' + wName + ' [' + z + '] - armed (stays armed until fired)</div>';
+                    str += '<div>' + wName + ' [' + displayNumber + '] - armed (stays armed until fired)</div>';
                 } else {
-                    str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + z + ']</label></div>';
+                    str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + displayNumber + ']</label></div>';
                 }
             }
 
             str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only):</div>';
-            str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + Math.min(ship.speed, maxSpeed) + '" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;padding:2px;"></div>';
-            str += '<div style="float:left;">Recharge this turn (costs power, max ' + batteryHeadroom + '):</div>';
+            str += '<div style="float:left;">Recharge batteries (max ' + batteryHeadroom + '):</div>';
             str += '<div style="float:right;"><input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
 
             str += '<div class="dividerLine" style="margin-bottom:8px;"></div>';
             str += '<div style="font-weight:600;">Available: <span id="eaAvailable"></span> &middot; Used: <span id="eaUsed"></span> &middot; Remaining: <span id="eaRemaining"></span></div>';
-            str += '<div class="button" style="margin-top:8px;display:inline-block;" onclick="confirmEnergyAllocation(' + sId + ',' + maxSpeed + ');">Confirm</div>';
+            str += '<div class="button" style="margin:8px 0px 0px 0px;float:none;padding:5px 10px;" onclick="confirmEnergyAllocation(' + sId + ',' + maxSpeed + ');">Confirm</div>';
 
             $('#energyAllocPopUpDiv').data('sId', sId).html(str).css('display', 'block');
             updateEnergyAllocTotal();
@@ -2615,6 +2641,8 @@ $('#dataDiv').append(w);
             var speed = parseInt($('#eaSpeed').val()) || 0;
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newlyArmed = countNewlyArmedWeapons(sId);
+
+            $('#displayShieldCost').html((shieldsActive ? SHIELD_ACTIVATION_COST : 0));
 
             var available = generated + discharge;
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
@@ -3299,6 +3327,12 @@ $('#dataDiv').append(w);
             padding: 0px 3px;
             border: 1px solid white;
             cursor: pointer;
+        }
+
+        .impulseDroneDiv {
+            background-color: #FFF6D9;
+            border: 1px solid #E8C97A;
+            border-radius: 3px;
         }
 
         .impulseShipDone {
