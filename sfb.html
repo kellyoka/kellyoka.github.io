@@ -60,6 +60,11 @@
             this.lastFiredAbsImpulse = null; // absolute (cross-turn) impulse count when last fired - drives the 8-impulse recycle rule
             this.bDestroyed = false;
             this.bArmed = false; // heavy weapons (disruptors/photon/plasma) need 2 power to arm via energy allocation; stays armed across turns until fired
+            this.loadType = null; // null | 'normal' | 'overload'
+            // photon-specific multi-round loading state (disruptors use bArmed/loadType directly instead)
+            this.loadRounds = 0; // 0/1/2 - rounds of loading power invested so far
+            this.investedPower = 0; // cumulative warp power invested during loading (4 = normal, 5-8 = overload)
+            this.armedTurnNumber = null; // turn number it became fully armed (loadRounds hit 2) - used for the maintenance grace period
         }
 
         function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
@@ -659,6 +664,29 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         turnMode[7] = [4, 8, 12, 17, 24, 32];
         turnMode[8] = [3, 6, 10, 14, 20, 29, 32];
         turnMode[9] = [3, 5, 9, 13, 17, 23, 29, 32];
+
+        // turnModeArr is a list of increasing max-speed thresholds; index z
+        // (0-based) means "this ship needs z+1 hexes moved since its last
+        // turn before it can turn again" for any speed up to turnModeArr[z].
+        // Returns that hex count for the given speed.
+        function hexesNeededToTurn(turnModeArr, speed) {
+            for (var z = 0; z < turnModeArr.length; z++) {
+                if (turnModeArr[z] >= speed) return z + 1;
+            }
+            return turnModeArr.length;
+        }
+
+        // can a ship turn right now, and if not, how many more hexes does
+        // it need to move first?
+        function shipTurnStatus(ship) {
+            var hexesNeeded = hexesNeededToTurn(turnMode[ship.turnMode], ship.speed);
+            var hexesRemaining = hexesNeeded - ship.turnMarker;
+            return {
+                hexesNeeded: hexesNeeded,
+                canTurn: hexesRemaining <= 0,
+                hexesRemaining: Math.max(hexesRemaining, 0)
+            };
+        }
 
 
 
@@ -1334,42 +1362,34 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         function shipMovePopUp(sId) {
             var arrId1 = -1;
-            var tM = 0;
-            var bTurn = false;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) { arrId1 = z; }
             }
+            var ship = shipList[arrId1];
+            var turnStatus = shipTurnStatus(ship);
+            var bTurn = turnStatus.canTurn;
+
             var str = '<div style="padding-bottom:10px;"><b>Move Ship</b></div>';
-            str += '<div>Ship: ' + shipList[arrId1].name + ' id=' + sId + '</div>';
-            str += '<div>speed: ' + shipList[arrId1].speed + '</div>';
+            str += '<div>Ship: ' + ship.name + ' id=' + sId + '</div>';
+            str += '<div>Speed: ' + ship.speed + '</div>';
+            str += '<div>Turn Mode: ' + ship.turnMode + ' #H=' + turnStatus.hexesNeeded + '</div>';
+            str += '<div>Turn: ' + (bTurn ? 'true' : (turnStatus.hexesRemaining + ' hexes')) + '</div>';
+            str += '<div>Side Slip: ' + ship.sideSlip + '</div>';
+            str += '<div style="padding-bottom:10px;">Facing: ' + ship.facing + '</div>';
 
-            for (var z = (turnMode[shipList[arrId1].turnMode].length - 1); z >= 0; z--) {
-                //str += '<div>z=' + z + ' a=' + turnMode[shipList[arrId1].turnMode][z] + ' s=' + shipList[arrId1].speed + ' t/f=' + (turnMode[shipList[arrId1].turnMode][z] >= shipList[arrId1].speed) + '</div>';
-                if (turnMode[shipList[arrId1].turnMode][z] >= shipList[arrId1].speed) {
-                    tM = (z + 1);
-                }
-            }
-            str += '<div>turnMode: ' + shipList[arrId1].turnMode + ' #H=' + tM + '</div>';
-            str += '<div>turnMarker: ' + shipList[arrId1].turnMarker + '</div>';
-            str += '<div>sideSlip: ' + shipList[arrId1].sideSlip + '</div>';
-            str += '<div style="padding-bottom:10px;">facing: ' + shipList[arrId1].facing + '</div>';
-
-            if (tM <= shipList[arrId1].turnMarker) {
-                bTurn = true;
-            }
-            if (shipList[arrId1].sideSlip)
+            if (ship.sideSlip)
                 str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', -1);" onmouseover="potentialMove(' + sId + ',-1,0);" onmouseout="clearPotentialMove();">sL</div>';
             if (bTurn)
                 str += '<div class="button" style="width:20px;" onclick="turnShip(' + sId + ',-1);" onmouseover="potentialMove(' + sId + ',-1,-1);" onmouseout="clearPotentialMove();">L</div>';
             str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', 0);" onmouseover="potentialMove(' + sId + ',0,0);" onmouseout="clearPotentialMove();">F</div>';
             if (bTurn)
                 str += '<div class="button" style="width:20px;" onclick="turnShip(' + sId + ',1);" onmouseover="potentialMove(' + sId + ',1,1);" onmouseout="clearPotentialMove();">R</div>';
-            if (shipList[arrId1].sideSlip)
+            if (ship.sideSlip)
                 str += '<div class="button" style="width:20px;" onclick="moveShip(' + sId + ', 1);" onmouseover="potentialMove(' + sId + ',1,0);" onmouseout="clearPotentialMove();">sR</div>';
 
             str += '<div style="clear:both;"></div>';
 
-            $('#turnDetailsDiv').append('<div>Move Ship: ' + shipList[arrId1].name + ' id=' + sId + ' ');
+            $('#turnDetailsDiv').append('<div>Move Ship: ' + ship.name + ' id=' + sId + ' ');
             $('#moveShipPopUpDiv').html(str).css('display', 'block');
         }
         function turnShip(sId, t) {
@@ -1531,7 +1551,12 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
                     var rangeToTarget = findDist(curShipId, selTargetShipId);
-                    if (rangeToTarget < thisMinRange || rangeToTarget > thisMaxRange) {
+                    var thisWeaponEntry = shipList[arrId].shipWeapons[z];
+                    var isOverloadedDisruptor = isDisruptorWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
+                    var isOverloadedPhoton = isPhotonWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
+                    var effMinRange = (isOverloadedDisruptor || isOverloadedPhoton) ? 0 : thisMinRange;
+                    var effMaxRange = isOverloadedDisruptor ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhoton ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
+                    if (rangeToTarget < effMinRange || rangeToTarget > effMaxRange) {
                         str += ' dimWeapon';
                     }
                     else if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
@@ -1563,14 +1588,16 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else str += ' dimWeapon';
                 str += '" style="width:60px;">Fire</div>';
                 var readyLabel = 'ready';
-                if (shipList[arrId].shipWeapons[z].bFired) {
+                if (shipList[arrId].shipWeapons[z].bDestroyed) {
+                    readyLabel = 'destroyed';
+                } else if (shipList[arrId].shipWeapons[z].bFired) {
                     readyLabel = 'fired';
                 } else if (!isReady) {
                     // only reachable when the weapon fired late enough last
                     // turn (impulse 25+) that the 8-impulse rule is still
                     // holding it back into this turn
                     var readyAt = absoluteImpulseToTurnImpulse(shipList[arrId].shipWeapons[z].lastFiredAbsImpulse + WEAPON_RECYCLE_IMPULSES);
-                    readyLabel = 'recharge impulse ' + readyAt.impulse;
+                    readyLabel = 'recharge ' + readyAt.impulse;
                 } else if (needsArm && !isArmed) {
                     readyLabel = 'not armed';
                 }
@@ -1775,8 +1802,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
                         shipList[sArrId].phaserCap -= weaponList[y].powerCost;
-                    if (isHeavyWeaponClass(weaponList[y].weaponClassId))
+                    if (isHeavyWeaponClass(weaponList[y].weaponClassId)) {
                         shipList[sArrId].shipWeapons[wArrId].bArmed = false; // firing consumes the arming - needs re-arming next turn
+                        shipList[sArrId].shipWeapons[wArrId].loadType = null;
+                        shipList[sArrId].shipWeapons[wArrId].loadRounds = 0;
+                        shipList[sArrId].shipWeapons[wArrId].investedPower = 0;
+                        shipList[sArrId].shipWeapons[wArrId].armedTurnNumber = null;
+                    }
                     wClass = weaponList[y].weaponClassId;
                     weapon = weaponList[y];
                 }
@@ -1805,13 +1837,22 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 //str += '<div>h=' + h + ' r=' + r + ' d=' + d + '</div>';
             }
             if (wClass == 2) {
-                // disruptors/photons: hits[0] is the to-hit threshold,
-                // hits[1] is the damage dealt if the roll is <= threshold
+                // disruptors/photons: hits[0] is the to-hit threshold.
+                // Disruptors: hits[1] normal damage, hits[2] overload damage
+                // (already present in the data). Photon: damage is always
+                // investedPower*2 - this naturally reproduces the normal
+                // case too, since normal load is always exactly 4 power
+                // (4*2=8, matching the existing fixed damage value).
                 r = rollD6();
                 var hits = getDamage(weapon, h);
+                var thisWeaponEntry = shipList[sArrId].shipWeapons[wArrId];
+                var isOverload = (thisWeaponEntry.loadType == 'overload');
                 if (hits[0] >= r) {
-                    d = hits[1];
-                    // overload here
+                    if (isPhotonWeaponTypeId(weapon.weaponTypeId)) {
+                        d = thisWeaponEntry.investedPower * 2;
+                    } else {
+                        d = isOverload ? (hits[2] || 0) : hits[1];
+                    }
                 }
                 //str += '<div>h=' + h + ' r=' + r + ' d=' + d + '</div>';
             }
@@ -1835,10 +1876,19 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             // lands all four on the same shield, while FA + RA phasers
             // correctly split across two different shields.
             var shieldNum;
+            var weaponFacing = null;
             if (h == 0) {
                 var thisWeapon = shipList[sArrId].shipWeapons[wArrId];
                 var thisStart = ((shipList[sArrId].facing + thisWeapon.startP) % 360 + 360) % 360;
                 var thisArc = thisWeapon.arc;
+
+                if (thisArc >= 360) {
+                    // omnidirectional weapon - no natural center, default to straight ahead
+                    weaponFacing = shipList[sArrId].facing;
+                } else {
+                    weaponFacing = thisStart + (thisArc / 2);
+                }
+                weaponFacing = ((weaponFacing % 360) + 360) % 360;
 
                 var joined = false;
                 for (var g = 0; g < currentFirerShieldGroups.length; g++) {
@@ -1849,15 +1899,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
                 if (!joined) {
-                    var weaponFacing;
-                    if (thisArc >= 360) {
-                        // omnidirectional weapon with no existing group to join -
-                        // it has no natural center, so default to straight ahead
-                        weaponFacing = shipList[sArrId].facing;
-                    } else {
-                        weaponFacing = thisStart + (thisArc / 2);
-                    }
-                    weaponFacing = ((weaponFacing % 360) + 360) % 360;
                     shieldNum = rangeZeroShieldFacing(weaponFacing, targetFacing);
                     currentFirerShieldGroups.push({ shield: shieldNum, start: thisStart, arc: thisArc });
                 }
@@ -1881,6 +1922,36 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (!bAdded) {
                     damageList[damageList.length] = new damageListType(tsId, shieldNum, d);
                 }
+
+                // overloaded heavy weapons take feedback damage on certain
+                // close-range shots - "as if the target fired back". For
+                // disruptors: range 0 only, flat 2 damage. For photon:
+                // ranges 0-1, damage = investedPower - 4 (1 to 4).
+                var feedbackDamage = 0;
+                var thisEntry = shipList[sArrId].shipWeapons[wArrId];
+                if (h == 0 && isDisruptorWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload') {
+                    feedbackDamage = DISRUPTOR_OVERLOAD_FEEDBACK_DAMAGE;
+                } else if ((h == 0 || h == 1) && isPhotonWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload') {
+                    feedbackDamage = thisEntry.investedPower - PHOTON_NORMAL_TOTAL;
+                }
+                if (feedbackDamage > 0) {
+                    // feedback shield: as if the target fired back at the
+                    // firer using its own dead-ahead facing - not based on
+                    // the original weapon or the firer's own facing at all
+                    var feedbackShield = rangeZeroShieldFacing(targetFacing, shipList[sArrId].facing);
+                    var firerId = shipList[sArrId].userId;
+                    $('#dataDiv').append('<div>' + attackerName + '\'s overloaded ' + weapon.weaponName + ' feeds back ' + feedbackDamage + ' damage to its own shield #' + feedbackShield + '</div>');
+                    var bAddedFeedback = false;
+                    for (var z = 0; z < damageList.length; z++) {
+                        if (damageList[z].targetId == firerId && damageList[z].shield == feedbackShield) {
+                            damageList[z].damage += feedbackDamage;
+                            bAddedFeedback = true;
+                        }
+                    }
+                    if (!bAddedFeedback) {
+                        damageList[damageList.length] = new damageListType(firerId, feedbackShield, feedbackDamage);
+                    }
+                }
             }
 
             shipFirePopUp();
@@ -1901,8 +1972,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (weaponList[y].weaponTypeId == shipList[sArrId].shipWeapons[wArrId].weaponTypeId) {
                     if (weaponList[y].weaponClassId == 1)
                         shipList[sArrId].phaserCap -= weaponList[y].powerCost;
-                    if (isHeavyWeaponClass(weaponList[y].weaponClassId))
+                    if (isHeavyWeaponClass(weaponList[y].weaponClassId)) {
                         shipList[sArrId].shipWeapons[wArrId].bArmed = false;
+                        shipList[sArrId].shipWeapons[wArrId].loadType = null;
+                        shipList[sArrId].shipWeapons[wArrId].loadRounds = 0;
+                        shipList[sArrId].shipWeapons[wArrId].investedPower = 0;
+                        shipList[sArrId].shipWeapons[wArrId].armedTurnNumber = null;
+                    }
                     wClass = weaponList[y].weaponClassId;
                     weapon = weaponList[y];
                 }
@@ -2529,6 +2605,35 @@ $('#dataDiv').append(w);
             return wClass == 2 || wClass == 3;
         }
 
+        // weaponTypeIds 10/11/12 = Disruptor/UIM/DERFACS. Photon (13) and
+        // Plasma (20-23) also share weaponClassId 2/3 but aren't disruptors -
+        // their overload mechanics are different (and photon's isn't built
+        // yet), so this distinguishes which "heavy weapon" sub-rules apply.
+        var DISRUPTOR_WEAPON_TYPE_IDS = [10, 11, 12];
+        function isDisruptorWeaponTypeId(weaponTypeId) {
+            return DISRUPTOR_WEAPON_TYPE_IDS.includes(weaponTypeId);
+        }
+        var DISRUPTOR_OVERLOAD_MAX_RANGE = 8;
+        var DISRUPTOR_OVERLOAD_FEEDBACK_DAMAGE = 2;
+
+        // photon: loaded over 2 rounds using warp power specifically, min
+        // 2/max 6 per round, max 8 total. 4 total = normal (8 dmg, matches
+        // existing data exactly since 4*2=8); 5-8 = overload, damage =
+        // investedPower*2, same hit-chance chart but capped at range 8, and
+        // can fire at ranges 0/1 (blocked for normal) with feedback damage
+        // = investedPower - 4, only when fired at those newly-unlocked
+        // ranges (0/1), same shield-facing convention as disruptor feedback.
+        var PHOTON_WEAPON_TYPE_ID = 13;
+        var PHOTON_ROUND_MIN = 2;
+        var PHOTON_ROUND_MAX = 6;
+        var PHOTON_TOTAL_MAX = 8;
+        var PHOTON_NORMAL_TOTAL = 4;
+        var PHOTON_MAINTENANCE_COST = 1;
+        var PHOTON_OVERLOAD_MAX_RANGE = 8;
+        function isPhotonWeaponTypeId(weaponTypeId) {
+            return weaponTypeId == PHOTON_WEAPON_TYPE_ID;
+        }
+
         function showEnergyAllocPopUp(sId) {
             var arrId = findShipArrId(sId);
             var iArrId = findInternalsArrId(sId);
@@ -2577,7 +2682,7 @@ $('#dataDiv').append(w);
             str += '<div style="clear:both;"></div>';
 
             str += '<div class="dividerLine"></div>';
-            str += '<div>Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' each to arm):</div>';
+            str += '<div>Heavy Weapons (' + HEAVY_WEAPON_ARM_COST + ' normal / ' + (HEAVY_WEAPON_ARM_COST * 2) + ' overload to arm):</div>';
             for (var z = 0; z < ship.shipWeapons.length; z++) {
                 var wEntry = ship.shipWeapons[z];
                 var wClass = 0, wName = '', displayNumber = z + 1;
@@ -2587,8 +2692,28 @@ $('#dataDiv').append(w);
                 if (!isHeavyWeaponClass(wClass)) continue;
                 if (wEntry.bDestroyed) {
                     str += '<div style="color:#999;">' + wName + ' [' + displayNumber + '] - destroyed</div>';
+                } else if (isPhotonWeaponTypeId(wEntry.weaponTypeId)) {
+                    if (wEntry.loadRounds == 0) {
+                        str += '<div>' + wName + ' [' + displayNumber + '] - load round 1 (warp only, ' + PHOTON_ROUND_MIN + '-' + PHOTON_ROUND_MAX + 'pt): ';
+                        str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + PHOTON_ROUND_MAX + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                    } else if (wEntry.loadRounds == 1) {
+                        var maxRound2 = Math.min(PHOTON_ROUND_MAX, PHOTON_TOTAL_MAX - wEntry.investedPower);
+                        str += '<div>' + wName + ' [' + displayNumber + '] - load round 2 (warp only, ' + wEntry.investedPower + 'pt so far, ' + PHOTON_ROUND_MIN + '-' + maxRound2 + 'pt more): ';
+                        str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + maxRound2 + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                    } else if (wEntry.armedTurnNumber == turnNumber) {
+                        str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ready to fire this turn</div>';
+                    } else {
+                        str += '<div><label><input type="checkbox" id="eaMaintain' + z + '" checked onclick="updateEnergyAllocTotal();"> Maintain ' + wName + ' [' + displayNumber + '] charge (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ' + PHOTON_MAINTENANCE_COST + 'pt, or it discharges</label></div>';
+                    }
                 } else if (wEntry.bArmed) {
-                    str += '<div>' + wName + ' [' + displayNumber + '] - armed (stays armed until fired)</div>';
+                    str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', stays armed until fired)</div>';
+                } else if (isDisruptorWeaponTypeId(wEntry.weaponTypeId)) {
+                    str += '<div>' + wName + ' [' + displayNumber + ']: ';
+                    str += '<select id="eaArmType' + z + '" onchange="updateEnergyAllocTotal();">';
+                    str += '<option value="none">Don\'t arm</option>';
+                    str += '<option value="normal">Normal (' + HEAVY_WEAPON_ARM_COST + 'pt)</option>';
+                    str += '<option value="overload">Overload (' + (HEAVY_WEAPON_ARM_COST * 2) + 'pt)</option>';
+                    str += '</select></div>';
                 } else {
                     str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + displayNumber + ']</label></div>';
                 }
@@ -2613,15 +2738,64 @@ $('#dataDiv').append(w);
         // reads every heavy-weapon checkbox currently in the popup and
         // returns how many are newly being armed this turn (already-armed
         // weapons don't have a checkbox at all, so they cost nothing here)
-        function countNewlyArmedWeapons(sId) {
+        function computeNewArming(sId) {
             var arrId = findShipArrId(sId);
             var ship = shipList[arrId];
-            var count = 0;
+            var result = { totalCost: 0, entries: [] }; // entries: [{index, loadType}]
             for (var z = 0; z < ship.shipWeapons.length; z++) {
-                var $cb = $('#eaArm' + z);
-                if ($cb.length && $cb.is(':checked')) count++;
+                var $select = $('#eaArmType' + z);
+                if ($select.length) {
+                    var val = $select.val();
+                    if (val == 'normal') {
+                        result.totalCost += HEAVY_WEAPON_ARM_COST;
+                        result.entries.push({ index: z, loadType: 'normal' });
+                    } else if (val == 'overload') {
+                        result.totalCost += HEAVY_WEAPON_ARM_COST * 2;
+                        result.entries.push({ index: z, loadType: 'overload' });
+                    }
+                } else {
+                    var $cb = $('#eaArm' + z);
+                    if ($cb.length && $cb.is(':checked')) {
+                        result.totalCost += HEAVY_WEAPON_ARM_COST;
+                        result.entries.push({ index: z, loadType: 'normal' });
+                    }
+                }
             }
-            return count;
+            return result;
+        }
+
+        // gathers photon round-loading inputs and maintenance checkboxes.
+        // totalCost is added to the overall "used" power tally; warpCost is
+        // separately validated against warp headroom specifically, since
+        // photon loading (unlike disruptor arming) must come from warp.
+        function computePhotonLoadingInputs(sId) {
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var result = { totalCost: 0, warpCost: 0, entries: [] }; // entries: [{index, kind:'round'|'maintain'|'discharge', amount}]
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var wEntry = ship.shipWeapons[z];
+                if (wEntry.bDestroyed || !isPhotonWeaponTypeId(wEntry.weaponTypeId)) continue;
+                if (wEntry.loadRounds < 2) {
+                    var $inp = $('#eaPhotonRound' + z);
+                    if ($inp.length) {
+                        var v = parseInt($inp.val()) || 0;
+                        if (v > 0) {
+                            result.totalCost += v;
+                            result.warpCost += v;
+                            result.entries.push({ index: z, kind: 'round', amount: v });
+                        }
+                    }
+                } else if (wEntry.armedTurnNumber != turnNumber) {
+                    var $cb = $('#eaMaintain' + z);
+                    if ($cb.length && $cb.is(':checked')) {
+                        result.totalCost += PHOTON_MAINTENANCE_COST;
+                        result.entries.push({ index: z, kind: 'maintain' });
+                    } else {
+                        result.entries.push({ index: z, kind: 'discharge' });
+                    }
+                }
+            }
+            return result;
         }
 
         function updateEnergyAllocTotal() {
@@ -2640,13 +2814,15 @@ $('#dataDiv').append(w);
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
             var shieldsActive = $('#eaShieldsActive').is(':checked');
-            var newlyArmed = countNewlyArmedWeapons(sId);
+            var newArming = computeNewArming(sId);
+            var photonLoading = computePhotonLoadingInputs(sId);
 
             $('#displayShieldCost').html((shieldsActive ? SHIELD_ACTIVATION_COST : 0));
 
             var available = generated + discharge;
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
-                + (newlyArmed * HEAVY_WEAPON_ARM_COST)
+                + newArming.totalCost
+                + photonLoading.totalCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
             var remaining = available - used;
 
@@ -2689,16 +2865,37 @@ $('#dataDiv').append(w);
                 return;
             }
 
-            // collect which heavy weapons are being newly armed this turn
-            var newlyArmedIdx = [];
-            for (var z = 0; z < ship.shipWeapons.length; z++) {
-                var $cb = $('#eaArm' + z);
-                if ($cb.length && $cb.is(':checked')) newlyArmedIdx.push(z);
+            // collect which heavy weapons are being newly armed this turn (and how)
+            var newArming = computeNewArming(sId);
+            var photonLoading = computePhotonLoadingInputs(sId);
+
+            // validate each photon round input against its per-round min/max
+            for (var i = 0; i < photonLoading.entries.length; i++) {
+                var entry = photonLoading.entries[i];
+                if (entry.kind != 'round') continue;
+                var wEntry = ship.shipWeapons[entry.index];
+                var maxThisRound = (wEntry.loadRounds == 0) ? PHOTON_ROUND_MAX : Math.min(PHOTON_ROUND_MAX, PHOTON_TOTAL_MAX - wEntry.investedPower);
+                if (entry.amount < PHOTON_ROUND_MIN || entry.amount > maxThisRound) {
+                    alert('Photon loading amount must be between ' + PHOTON_ROUND_MIN + ' and ' + maxThisRound + ' this round');
+                    return;
+                }
+            }
+
+            // photon loading must come from warp specifically. Speed draws
+            // from warp too (beyond the 1pt impulse allowance), so we
+            // assume the free impulse point covers speed first and warp
+            // covers the rest, to check remaining warp headroom.
+            var warpUsedForSpeed = Math.max(0, speed - Math.min(1, impAvail));
+            var warpRemaining = warpAvail - warpUsedForSpeed;
+            if (photonLoading.warpCost > warpRemaining) {
+                alert('Photon loading requires warp power specifically - only ' + warpRemaining + ' warp remaining after speed');
+                return;
             }
 
             var available = generated + discharge;
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
-                + (newlyArmedIdx.length * HEAVY_WEAPON_ARM_COST)
+                + newArming.totalCost
+                + photonLoading.totalCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
 
             if (used > available) {
@@ -2710,8 +2907,9 @@ $('#dataDiv').append(w);
             internals.batteryStored = internals.batteryStored - discharge + recharge;
             ship.phaserCap = ship.phaserCap + phaserAdd;
             ship.speed = speed;
-            for (var i = 0; i < newlyArmedIdx.length; i++) {
-                ship.shipWeapons[newlyArmedIdx[i]].bArmed = true;
+            for (var i = 0; i < newArming.entries.length; i++) {
+                ship.shipWeapons[newArming.entries[i].index].bArmed = true;
+                ship.shipWeapons[newArming.entries[i].index].loadType = newArming.entries[i].loadType;
             }
             if (shieldsActive) {
                 restoreShields(iArrId);
@@ -2719,9 +2917,37 @@ $('#dataDiv').append(w);
                 dropShields(iArrId);
             }
 
+            var photonDischarged = 0, photonAdvanced = 0, photonMaintained = 0;
+            for (var i = 0; i < photonLoading.entries.length; i++) {
+                var entry = photonLoading.entries[i];
+                var wEntry = ship.shipWeapons[entry.index];
+                if (entry.kind == 'round') {
+                    wEntry.investedPower += entry.amount;
+                    wEntry.loadRounds += 1;
+                    photonAdvanced++;
+                    if (wEntry.loadRounds == 2) {
+                        wEntry.bArmed = true;
+                        wEntry.armedTurnNumber = turnNumber;
+                        wEntry.loadType = (wEntry.investedPower > PHOTON_NORMAL_TOTAL) ? 'overload' : 'normal';
+                    }
+                } else if (entry.kind == 'maintain') {
+                    photonMaintained++;
+                } else if (entry.kind == 'discharge') {
+                    wEntry.loadRounds = 0;
+                    wEntry.investedPower = 0;
+                    wEntry.bArmed = false;
+                    wEntry.loadType = null;
+                    wEntry.armedTurnNumber = null;
+                    photonDischarged++;
+                }
+            }
+
             var logMsg = ship.name + ' allocates energy: speed ' + speed + ', phaser cap +' + phaserAdd + ' (now ' + ship.phaserCap + '/' + ship.maxPhaserCap + ')';
             logMsg += ', shields ' + (shieldsActive ? 'active' : 'DROPPED');
-            if (newlyArmedIdx.length > 0) logMsg += ', armed ' + newlyArmedIdx.length + ' heavy weapon(s)';
+            if (newArming.entries.length > 0) logMsg += ', armed ' + newArming.entries.length + ' heavy weapon(s)';
+            if (photonAdvanced > 0) logMsg += ', advanced ' + photonAdvanced + ' photon load(s)';
+            if (photonMaintained > 0) logMsg += ', maintained ' + photonMaintained + ' photon charge(s)';
+            if (photonDischarged > 0) logMsg += ', ' + photonDischarged + ' photon(s) DISCHARGED (no maintenance paid)';
             logMsg += ', battery ' + internals.batteryStored + '/' + internals.mBty;
             $('#dataDiv').append('<div>' + logMsg + '</div>');
 
