@@ -1166,6 +1166,15 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (targetArrId == -1) return; // target no longer exists
 
             var target = shipList[targetArrId];
+
+            // already on the target's hex (e.g. the target moved onto us
+            // this impulse) - don't move away chasing a degenerate
+            // zero-distance bearing (atan2(0,0) always resolves to a fixed
+            // direction, which would otherwise deterministically walk the
+            // drone off the target before resolveSeeking() can register
+            // the hit). Just stay put.
+            if (drone.xCord == target.xCord && drone.yCord == target.yCord) return;
+
             var bearing = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord);
             var dir = nearestHexDirection(bearing);
             var next = hexNeighbor(drone.xCord, drone.yCord, dir);
