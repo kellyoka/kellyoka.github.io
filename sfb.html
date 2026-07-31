@@ -142,6 +142,19 @@
             this.savedShield4 = shield4;
             this.savedShield5 = shield5;
             this.savedShield6 = shield6;
+
+            // shield reinforcement: neither type carries over between turns
+            // (reset to 0 in endTurn()). General absorbs a hit from any
+            // facing, 2 power per point. Specific only absorbs hits to its
+            // own facing, 1 power per point, and can't be bought for a
+            // facing whose shield is currently at 0.
+            this.generalReinforcement = 0;
+            this.specificShield1 = 0;
+            this.specificShield2 = 0;
+            this.specificShield3 = 0;
+            this.specificShield4 = 0;
+            this.specificShield5 = 0;
+            this.specificShield6 = 0;
         }
         var shipInternals = [];
 
@@ -686,6 +699,22 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 canTurn: hexesRemaining <= 0,
                 hexesRemaining: Math.max(hexesRemaining, 0)
             };
+        }
+
+        // builds a readable speed-bracket string from a turnMode array, e.g.
+        // [5,10,15,21,28,32] -> "[1-5][6-10][11-15][16-21][22-28][29+]" -
+        // each bracket is the range of speeds that need that many hexes
+        // (bracket 1 = 1 hex between turns, bracket 2 = 2 hexes, etc.)
+        function turnBracketsDisplay(turnModeArr) {
+            var parts = [];
+            var prevThreshold = 1; // speed 1 needs only 1 hex between turns, which is trivially satisfied every impulse at that speed - skip listing it, brackets start at 2
+            for (var z = 0; z < turnModeArr.length; z++) {
+                var lo = prevThreshold + 1;
+                var hi = turnModeArr[z];
+                parts.push((z == turnModeArr.length - 1) ? ('[' + lo + '+]') : ('[' + lo + '-' + hi + ']'));
+                prevThreshold = hi;
+            }
+            return parts.join('');
         }
 
 
@@ -1311,11 +1340,32 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             impulse = 1;
             for (var s = 0; s < shipList.length; s++) {
                 for (var w = 0; w < shipList[s].shipWeapons.length; w++) {
-                    shipList[s].shipWeapons[w].bFired = false;
-                    shipList[s].shipWeapons[w].impFired = 0;
+                    var wEntry = shipList[s].shipWeapons[w];
+                    // disruptors can't hold a charge between turns - if it's
+                    // still armed at end of turn, it never fired, so it
+                    // discharges and must be paid for again next turn.
+                    // (photons are unaffected - their multi-round loading
+                    // and maintenance mechanic is unchanged)
+                    if (wEntry.bArmed && isDisruptorWeaponTypeId(wEntry.weaponTypeId)) {
+                        $('#dataDiv').append('<div>' + shipList[s].name + '\'s disruptor [' + w + '] charge lost - did not fire</div>');
+                        wEntry.bArmed = false;
+                        wEntry.loadType = null;
+                    }
+                    wEntry.bFired = false;
+                    wEntry.impFired = 0;
                 }
                 // phaserCap no longer auto-recharges - it's set entirely by
                 // energy allocation now (see startEnergyAllocation() below)
+
+                // shield reinforcement (general and specific) never carries
+                // over - reset here so nothing lingers between combat
+                // resolving and the next allocation phase setting it fresh
+                for (var iz = 0; iz < shipInternals.length; iz++) {
+                    if (shipInternals[iz].userId == shipList[s].userId) {
+                        shipInternals[iz].generalReinforcement = 0;
+                        for (var sf = 1; sf <= 6; sf++) { shipInternals[iz]['specificShield' + sf] = 0; }
+                    }
+                }
             }
 
             // expire seeking weapons whose endurance has run out
@@ -1701,11 +1751,14 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (!span || span <= 0) return false;
             if (span >= 360) return true;
             var end = start + span;
-            if (end <= 360) {
-                return (angle >= start && angle <= end);
-            } else {
-                return (angle >= start) || (angle <= (end - 360));
-            }
+            // check both the raw angle and angle+360, since 0 and 360 are
+            // the same physical direction - without this, a segment that
+            // ends exactly at 360 (e.g. a "LF L" mount spanning 240-360)
+            // would incorrectly reject a target at bearing 0 (dead ahead),
+            // even though 0 is exactly the direction that segment reaches.
+            if (angle >= start && angle <= end) return true;
+            if ((angle + 360) >= start && (angle + 360) <= end) return true;
+            return false;
         }
 
         // do two arcs (each given as world-frame start angle + span) share
@@ -2045,21 +2098,46 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 for (var z = 0; z < shipInternals.length; z++) {
                     if (shipInternals[z].userId == damageList[0].targetId) { arrId = z; }
                 }
-                eval('s = shipInternals[arrId].shield' + shield);
 
                 var targetName = '';
                 for (var zz = 0; zz < shipList.length; zz++) {
                     if (shipList[zz].userId == damageList[0].targetId) { targetName = shipList[zz].name; }
                 }
+
+                // 1) general reinforcement absorbs first - any facing
+                if (d > 0 && shipInternals[arrId].generalReinforcement > 0) {
+                    var usedGeneral = Math.min(d, shipInternals[arrId].generalReinforcement);
+                    shipInternals[arrId].generalReinforcement -= usedGeneral;
+                    d -= usedGeneral;
+                    $('#dataDiv').append('<div>' + targetName + ' general reinforcement absorbs ' + usedGeneral + ' (' + shipInternals[arrId].generalReinforcement + ' left)</div>');
+                }
+
+                // 2) specific reinforcement for this facing absorbs next
+                if (d > 0) {
+                    var specificField = 'specificShield' + shield;
+                    if (shipInternals[arrId][specificField] > 0) {
+                        var usedSpecific = Math.min(d, shipInternals[arrId][specificField]);
+                        shipInternals[arrId][specificField] -= usedSpecific;
+                        d -= usedSpecific;
+                        $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' specific reinforcement absorbs ' + usedSpecific + ' (' + shipInternals[arrId][specificField] + ' left)</div>');
+                    }
+                }
+
+                // 3) the shield's own value absorbs next
+                eval('s = shipInternals[arrId].shield' + shield);
                 $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' absorbs up to ' + s + ' (incoming ' + d + ')</div>');
 
-                if (s >= d) {
+                if (d <= 0) {
+                    // fully absorbed by reinforcement, shield untouched
+                }
+                else if (s >= d) {
                     s = s - d;
                     eval('shipInternals[arrId].shield' + shield + ' = ' + s);
                 }
                 else {
                     d = d - s;
                     eval('shipInternals[arrId].shield' + shield + ' = 0');
+                    // 4) armor
                     if (shipInternals[arrId].armor >= d) {
                         shipInternals[arrId].armor = shipInternals[arrId].armor - d;
                         d = 0;
@@ -2071,6 +2149,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
                     $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' overloaded - ' + d + ' damage carries through</div>');
 
+                    // 5) internal damage
                     if (d > 0) {
                         damageShip(damageList[0].targetId, damageList[0].shield, d);
                         // alert(damageList[x].targetId + ' ' + damageList[x].arc + ' ' + d)
@@ -2516,6 +2595,8 @@ $('#dataDiv').append(w);
         var energyAllocList = [];
         var HEAVY_WEAPON_ARM_COST = 2;
         var SHIELD_ACTIVATION_COST = 2;
+        var GENERAL_REINFORCEMENT_COST = 2; // power per point, absorbs a hit from any facing
+        var SPECIFIC_REINFORCEMENT_COST = 1; // power per point, only absorbs hits to its own facing
         var LIFE_SUPPORT_COST = 1;
         var FIRE_CONTROL_COST = 1;
 
@@ -2677,6 +2758,23 @@ $('#dataDiv').append(w);
             str += '</div>';
 
             str += '<div class="dividerLine"></div>';
+            str += '<div style="float:left;">General Reinforcement (' + GENERAL_REINFORCEMENT_COST + 'pt/pt, any facing):</div>';
+            str += '<div style="float:right;"><input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div style="clear:both;"></div>';
+
+            str += '<div>Specific Reinforcement (1pt/pt, per facing - can\'t reinforce a facing at 0):</div>';
+            for (var s = 1; s <= 6; s++) {
+                var curShieldVal = internals['shield' + s];
+                str += '<div style="float:left;">Shield #' + s + ' (' + curShieldVal + '):</div>';
+                if (curShieldVal > 0) {
+                    str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                } else {
+                    str += '<div style="float:right;color:#999;">n/a</div>';
+                }
+                str += '<div style="clear:both;"></div>';
+            }
+
+            str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">Phaser Capacitor: ' + phaserCapCurrent + ' / ' + phaserCapMax + ' - add this turn:</div>';
             str += '<div style="float:right;"><input type="number" id="eaPhaserAdd" min="0" max="' + phaserCapHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
@@ -2706,7 +2804,8 @@ $('#dataDiv').append(w);
                         str += '<div><label><input type="checkbox" id="eaMaintain' + z + '" checked onclick="updateEnergyAllocTotal();"> Maintain ' + wName + ' [' + displayNumber + '] charge (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ' + PHOTON_MAINTENANCE_COST + 'pt, or it discharges</label></div>';
                     }
                 } else if (wEntry.bArmed) {
-                    str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', stays armed until fired)</div>';
+                    var armedNote = isDisruptorWeaponTypeId(wEntry.weaponTypeId) ? 'fire this turn or the charge is lost' : 'stays armed until fired';
+                    str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + armedNote + ')</div>';
                 } else if (isDisruptorWeaponTypeId(wEntry.weaponTypeId)) {
                     str += '<div>' + wName + ' [' + displayNumber + ']: ';
                     str += '<select id="eaArmType' + z + '" onchange="updateEnergyAllocTotal();">';
@@ -2723,6 +2822,7 @@ $('#dataDiv').append(w);
             str += '<div style="float:left;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only):</div>';
             str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + Math.min(ship.speed, maxSpeed) + '" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;padding:2px;"></div>';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:2px;">Turn every: ' + turnBracketsDisplay(turnMode[ship.turnMode]) + '</div>';
             str += '<div style="float:left;">Recharge batteries (max ' + batteryHeadroom + '):</div>';
             str += '<div style="float:right;"><input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
@@ -2816,6 +2916,12 @@ $('#dataDiv').append(w);
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
+            var generalReinforce = parseInt($('#eaGeneralReinforce').val()) || 0;
+            var specificReinforceCost = 0;
+            for (var s = 1; s <= 6; s++) {
+                var $inp = $('#eaSpecificReinforce' + s);
+                if ($inp.length) specificReinforceCost += (parseInt($inp.val()) || 0) * SPECIFIC_REINFORCEMENT_COST;
+            }
 
             $('#displayShieldCost').html((shieldsActive ? SHIELD_ACTIVATION_COST : 0));
 
@@ -2823,6 +2929,8 @@ $('#dataDiv').append(w);
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
                 + newArming.totalCost
                 + photonLoading.totalCost
+                + (generalReinforce * GENERAL_REINFORCEMENT_COST)
+                + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
             var remaining = available - used;
 
@@ -2847,6 +2955,20 @@ $('#dataDiv').append(w);
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
             var shieldsActive = $('#eaShieldsActive').is(':checked');
+            var generalReinforce = parseInt($('#eaGeneralReinforce').val()) || 0;
+            var specificReinforce = [0, 0, 0, 0, 0, 0, 0]; // 1-indexed, [0] unused
+            for (var s = 1; s <= 6; s++) {
+                var $inp = $('#eaSpecificReinforce' + s);
+                if ($inp.length) {
+                    var v = parseInt($inp.val()) || 0;
+                    if (v > 0 && internals['shield' + s] <= 0) {
+                        alert('Cannot specifically reinforce shield #' + s + ' - it is currently at 0');
+                        return;
+                    }
+                    specificReinforce[s] = v;
+                }
+            }
+            var specificReinforceCost = specificReinforce.reduce(function (a, b) { return a + b; }, 0) * SPECIFIC_REINFORCEMENT_COST;
 
             if (discharge > internals.batteryStored) {
                 alert('Cannot discharge more than stored battery charge (' + internals.batteryStored + ')');
@@ -2896,6 +3018,8 @@ $('#dataDiv').append(w);
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
                 + newArming.totalCost
                 + photonLoading.totalCost
+                + (generalReinforce * GENERAL_REINFORCEMENT_COST)
+                + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
 
             if (used > available) {
@@ -2907,6 +3031,10 @@ $('#dataDiv').append(w);
             internals.batteryStored = internals.batteryStored - discharge + recharge;
             ship.phaserCap = ship.phaserCap + phaserAdd;
             ship.speed = speed;
+            internals.generalReinforcement = generalReinforce; // doesn't carry over - always a fresh value, not additive
+            for (var s = 1; s <= 6; s++) {
+                internals['specificShield' + s] = specificReinforce[s]; // same - fresh each turn
+            }
             for (var i = 0; i < newArming.entries.length; i++) {
                 ship.shipWeapons[newArming.entries[i].index].bArmed = true;
                 ship.shipWeapons[newArming.entries[i].index].loadType = newArming.entries[i].loadType;
@@ -2944,6 +3072,10 @@ $('#dataDiv').append(w);
 
             var logMsg = ship.name + ' allocates energy: speed ' + speed + ', phaser cap +' + phaserAdd + ' (now ' + ship.phaserCap + '/' + ship.maxPhaserCap + ')';
             logMsg += ', shields ' + (shieldsActive ? 'active' : 'DROPPED');
+            if (generalReinforce > 0) logMsg += ', general reinforcement ' + generalReinforce;
+            var specificParts = [];
+            for (var s = 1; s <= 6; s++) { if (specificReinforce[s] > 0) specificParts.push('#' + s + '+' + specificReinforce[s]); }
+            if (specificParts.length > 0) logMsg += ', specific reinforcement ' + specificParts.join(' ');
             if (newArming.entries.length > 0) logMsg += ', armed ' + newArming.entries.length + ' heavy weapon(s)';
             if (photonAdvanced > 0) logMsg += ', advanced ' + photonAdvanced + ' photon load(s)';
             if (photonMaintained > 0) logMsg += ', maintained ' + photonMaintained + ' photon charge(s)';
