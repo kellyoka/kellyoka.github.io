@@ -1241,14 +1241,14 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
                 if (drone.xCord == target.xCord && drone.yCord == target.yCord) {
                     // impact - resolve which shield it hits the same way
-                    // direct-fire weapons do: bearing from the attacking
-                    // entity (here, the drone) to the target, relative to
-                    // the attacker's own facing (mirrors how fireWeapon()
-                    // derives `arc` via findFacing(attacker, target)), then
-                    // feed into the shared damageList/applyDamage pipeline
-                    // so shields/armor/internals resolve identically to a
+                    // direct-fire weapons do: bearing from the TARGET to
+                    // the drone, relative to the TARGET's own facing (not
+                    // the drone's facing - that was a bug here, inherited
+                    // from fireWeapon() before it was fixed), then feed
+                    // into the shared damageList/applyDamage pipeline so
+                    // shields/armor/internals resolve identically to a
                     // direct weapon hit
-                    var arc = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord) - drone.facing;
+                    var arc = bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord) - target.facing;
                     if (arc < 0) arc += 360;
                     if (arc >= 360) arc -= 360;
                     var shieldHit = shieldFacing(arc);
@@ -1956,7 +1956,15 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     currentFirerShieldGroups.push({ shield: shieldNum, start: thisStart, arc: thisArc });
                 }
             } else {
-                shieldNum = shieldFacing(arc);
+                // shield facing must be computed from the TARGET's own
+                // perspective (bearing from target to firer, relative to
+                // the target's own facing) - NOT the attacker-relative
+                // "arc" value, which is only valid for checking whether
+                // the target is within this weapon's firing arc. Using
+                // "arc" here was a bug: it silently matched shipClick()'s
+                // "Enemy hit shield" figure instead of "I hit shield".
+                var shieldFacingBearing = findFacing(tsId, shipList[sArrId].userId);
+                shieldNum = shieldFacing(shieldFacingBearing);
             }
 
             var rollStr = '<div>' + attackerName + ' - ' + targetName + '  ' + weapon.weaponName + ' roll ' + r;
