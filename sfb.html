@@ -714,7 +714,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 parts.push((z == turnModeArr.length - 1) ? ('[' + lo + '+]') : ('[' + lo + '-' + hi + ']'));
                 prevThreshold = hi;
             }
-            return parts.join('');
+            return parts.join(' ');
         }
 
 
@@ -2758,18 +2758,18 @@ $('#dataDiv').append(w);
             str += '</div>';
 
             str += '<div class="dividerLine"></div>';
-            str += '<div style="float:left;">General Reinforcement (' + GENERAL_REINFORCEMENT_COST + 'pt/pt, any facing):</div>';
-            str += '<div style="float:right;"><input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div style="float:left;">General Reinforcement (' + GENERAL_REINFORCEMENT_COST + 'pt/pt):</div>';
+            str += '<div style="float:right;"><input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"> <span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span></div>';
             str += '<div style="clear:both;"></div>';
 
-            str += '<div>Specific Reinforcement (1pt/pt, per facing - can\'t reinforce a facing at 0):</div>';
+            str += '<div>Specific Reinforcement (1pt/pt):</div>';
             for (var s = 1; s <= 6; s++) {
                 var curShieldVal = internals['shield' + s];
                 str += '<div style="float:left;">Shield #' + s + ' (' + curShieldVal + '):</div>';
                 if (curShieldVal > 0) {
                     str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
                 } else {
-                    str += '<div style="float:right;color:#999;">n/a</div>';
+                    str += '<div style="float:right;color:#999;line-height:21px;">n/a</div>';
                 }
                 str += '<div style="clear:both;"></div>';
             }
@@ -2796,7 +2796,7 @@ $('#dataDiv').append(w);
                         str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + PHOTON_ROUND_MAX + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
                     } else if (wEntry.loadRounds == 1) {
                         var maxRound2 = Math.min(PHOTON_ROUND_MAX, PHOTON_TOTAL_MAX - wEntry.investedPower);
-                        str += '<div>' + wName + ' [' + displayNumber + '] - load round 2 (warp only, ' + wEntry.investedPower + 'pt so far, ' + PHOTON_ROUND_MIN + '-' + maxRound2 + 'pt more): ';
+                        str += '<div>' + wName + ' [' + displayNumber + '] - load r2 (warp only, [' + wEntry.investedPower + '], ' + PHOTON_ROUND_MIN + '-' + maxRound2 + 'pts more): ';
                         str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + maxRound2 + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
                     } else if (wEntry.armedTurnNumber == turnNumber) {
                         str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ready to fire this turn</div>';
@@ -2821,8 +2821,8 @@ $('#dataDiv').append(w);
             str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only):</div>';
             str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + Math.min(ship.speed, maxSpeed) + '" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
-            str += '<div style="clear:both;padding:2px;"></div>';
-            str += '<div style="font-size:11px;color:#666;padding-bottom:2px;">Turn every: ' + turnBracketsDisplay(turnMode[ship.turnMode]) + '</div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Turn mode: ' + turnBracketsDisplay(turnMode[ship.turnMode]) + '</div>';
             str += '<div style="float:left;">Recharge batteries (max ' + batteryHeadroom + '):</div>';
             str += '<div style="float:right;"><input type="number" id="eaBattRecharge" min="0" max="' + batteryHeadroom + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
@@ -2916,7 +2916,8 @@ $('#dataDiv').append(w);
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
-            var generalReinforce = parseInt($('#eaGeneralReinforce').val()) || 0;
+            var generalReinforcePower = parseInt($('#eaGeneralReinforce').val()) || 0;
+            $('#eaGeneralReinforcePts').text('(+' + Math.floor(generalReinforcePower / GENERAL_REINFORCEMENT_COST) + ' pts)');
             var specificReinforceCost = 0;
             for (var s = 1; s <= 6; s++) {
                 var $inp = $('#eaSpecificReinforce' + s);
@@ -2929,7 +2930,7 @@ $('#dataDiv').append(w);
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
                 + newArming.totalCost
                 + photonLoading.totalCost
-                + (generalReinforce * GENERAL_REINFORCEMENT_COST)
+                + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
             var remaining = available - used;
@@ -2955,7 +2956,7 @@ $('#dataDiv').append(w);
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
             var shieldsActive = $('#eaShieldsActive').is(':checked');
-            var generalReinforce = parseInt($('#eaGeneralReinforce').val()) || 0;
+            var generalReinforcePower = parseInt($('#eaGeneralReinforce').val()) || 0;
             var specificReinforce = [0, 0, 0, 0, 0, 0, 0]; // 1-indexed, [0] unused
             for (var s = 1; s <= 6; s++) {
                 var $inp = $('#eaSpecificReinforce' + s);
@@ -3018,7 +3019,7 @@ $('#dataDiv').append(w);
             var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
                 + newArming.totalCost
                 + photonLoading.totalCost
-                + (generalReinforce * GENERAL_REINFORCEMENT_COST)
+                + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
 
@@ -3031,7 +3032,7 @@ $('#dataDiv').append(w);
             internals.batteryStored = internals.batteryStored - discharge + recharge;
             ship.phaserCap = ship.phaserCap + phaserAdd;
             ship.speed = speed;
-            internals.generalReinforcement = generalReinforce; // doesn't carry over - always a fresh value, not additive
+            internals.generalReinforcement = Math.floor(generalReinforcePower / GENERAL_REINFORCEMENT_COST); // doesn't carry over - always a fresh value, not additive
             for (var s = 1; s <= 6; s++) {
                 internals['specificShield' + s] = specificReinforce[s]; // same - fresh each turn
             }
@@ -3072,7 +3073,7 @@ $('#dataDiv').append(w);
 
             var logMsg = ship.name + ' allocates energy: speed ' + speed + ', phaser cap +' + phaserAdd + ' (now ' + ship.phaserCap + '/' + ship.maxPhaserCap + ')';
             logMsg += ', shields ' + (shieldsActive ? 'active' : 'DROPPED');
-            if (generalReinforce > 0) logMsg += ', general reinforcement ' + generalReinforce;
+            if (generalReinforcePower > 0) logMsg += ', general reinforcement +' + internals.generalReinforcement + ' pts (' + generalReinforcePower + ' power)';
             var specificParts = [];
             for (var s = 1; s <= 6; s++) { if (specificReinforce[s] > 0) specificParts.push('#' + s + '+' + specificReinforce[s]); }
             if (specificParts.length > 0) logMsg += ', specific reinforcement ' + specificParts.join(' ');
@@ -3892,7 +3893,7 @@ $('#dataDiv').append(w);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
-        <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:360px;border:1px solid #4a90d9;max-height:450px;display:none;"></div>
+        <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:360px;border:1px solid #4a90d9;max-height:650px;display:none;"></div>
 
 
         <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
