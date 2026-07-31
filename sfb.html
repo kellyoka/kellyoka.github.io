@@ -912,9 +912,21 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             plotSeekingWeapon(drone);
 
             var targetName = '';
+            var targetArrIdForBearing = -1;
             for (var zz = 0; zz < shipList.length; zz++) {
-                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; }
+                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; targetArrIdForBearing = zz; }
             }
+            if (targetArrIdForBearing != -1) {
+                var t = shipList[targetArrIdForBearing];
+                // if launched into the target's own hex (point-blank), this
+                // is degenerate too - fall back to the launcher's own
+                // facing as a reasonable stand-in, same convention used for
+                // range-0 direct fire
+                drone.approachBearingToTarget = (t.xCord == drone.xCord && t.yCord == drone.yCord)
+                    ? launcher.facing
+                    : bearingBetweenCoords(t.xCord, t.yCord, drone.xCord, drone.yCord);
+            }
+
             $('#dataDiv').append('<div>' + launcher.name + ' launches drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + '</div>');
             writeImpulseChart();
         }
@@ -1098,6 +1110,13 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             this.turnsRemaining = turnsRemaining;
             this.weaponClassId = weaponClassId; // 4 = drone
             this.bDestroyed = false;
+            // bearing from the target to this drone's position, captured
+            // just before each move (including the launch position). Used
+            // for the shield-hit calc on impact, since by the time a
+            // collision is detected the drone and target are necessarily
+            // in the same hex, making a live position-based bearing
+            // meaningless (always degenerate).
+            this.approachBearingToTarget = null;
         }
 
 
@@ -1176,6 +1195,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (drone.xCord == target.xCord && drone.yCord == target.yCord) return;
 
             var bearing = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord);
+            // capture this position's bearing to the target BEFORE moving -
+            // if this move lands the drone on the target, resolveSeeking()
+            // needs this (the post-move, same-hex bearing would be
+            // degenerate)
+            drone.approachBearingToTarget = bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord);
             var dir = nearestHexDirection(bearing);
             var next = hexNeighbor(drone.xCord, drone.yCord, dir);
 
@@ -1249,15 +1273,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 var target = shipList[targetArrId];
 
                 if (drone.xCord == target.xCord && drone.yCord == target.yCord) {
-                    // impact - resolve which shield it hits the same way
-                    // direct-fire weapons do: bearing from the TARGET to
-                    // the drone, relative to the TARGET's own facing (not
-                    // the drone's facing - that was a bug here, inherited
-                    // from fireWeapon() before it was fixed), then feed
-                    // into the shared damageList/applyDamage pipeline so
-                    // shields/armor/internals resolve identically to a
-                    // direct weapon hit
-                    var arc = bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord) - target.facing;
+                    // impact - resolve which shield it hits using the
+                    // bearing captured just BEFORE this collision (see
+                    // approachBearingToTarget). Recomputing it now would be
+                    // meaningless, since a collision means the drone and
+                    // target are, by definition, in the same hex at this
+                    // point - bearingBetweenCoords() on identical
+                    // coordinates always degenerates to a fixed value
+                    // (atan2(0,0)), which was the real bug here even after
+                    // the target-facing fix from last session.
+                    var approachBearing = (drone.approachBearingToTarget != null) ? drone.approachBearingToTarget : bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord);
+                    var arc = approachBearing - target.facing;
                     if (arc < 0) arc += 360;
                     if (arc >= 360) arc -= 360;
                     var shieldHit = shieldFacing(arc);
