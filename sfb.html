@@ -15,7 +15,7 @@
     <script src="js/drone-types.js"></script>
 
     <script type="text/javascript">
-        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap) {
+        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap, sizeClass) {
             this.userId = userId;
             this.name = name;
             this.xCord = xCord;
@@ -27,6 +27,7 @@
             this.sideSlip = true;
             this.phaserCap = phaserCap;
             this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
+            this.sizeClass = sizeClass; // 1 (biggest) - 7 (smallest)
             this.shipWeapons = [];
             // drone ammo: a single shared magazine for the whole ship, not
             // per-rack. Capacity is the sum of every mounted drone rack's
@@ -192,10 +193,10 @@
         var shipInternals = [];
 
 
-        shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8);  // FED CA
+        shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8, 3);  // FED CA
         shipInternals[0] = new shipSystemsType(1, 2, 2, 2, 2, 0, 0, 12, 4, 0, 8, 1, 2, 3, 4, 15, 15, 0, 4, 2, 4, 30, 24, 20, 20, 20, 24, 6);
 
-        shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9);    //KLI D7
+        shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9, 3);    //KLI D7
         shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
         /* DEAD CODE - ships 3-9 (NCA, F5, C9, three D6s) are commented out.
            Only CA (ship 1) and D7 (ship 2) above are actually live right
@@ -245,6 +246,14 @@
         shipList[1].shipWeapons[3] = new weaponEntryType(4, 10, 2, 300, 120, 0, 0);
         shipList[1].shipWeapons[4] = new weaponEntryType(5, 35, 4, 0, 360, 0, 0);
         shipList[1].shipWeapons[5] = new weaponEntryType(6, 35, 4, 0, 360, 0, 0);
+        // custom initial loadout for the D7's drone racks - each Drone F
+        // rack has 4 spaces (weapons.json powerCost). setupDroneLoadouts()
+        // (see below) leaves this alone instead of overwriting it with the
+        // all-Type-I default, since it's not empty. Total spaces used must
+        // not exceed the rack's capacity (4 here): 2 Type-I (1 sp each) + 1
+        // Type-IV (2 sp) = 4.
+        shipList[1].shipWeapons[4].droneInitialLoadout = { 'Type-I': 2, 'Type-IV': 1 };
+        shipList[1].shipWeapons[5].droneInitialLoadout = { 'Type-I': 2, 'Type-IV': 1 };
         shipList[1].shipWeapons[6] = new weaponEntryType(7, 2, 1, 240, 240, 0, 0);
         shipList[1].shipWeapons[7] = new weaponEntryType(8, 2, 1, 240, 240, 0, 0);
         shipList[1].shipWeapons[8] = new weaponEntryType(9, 2, 1, 240, 240, 0, 0);
@@ -382,7 +391,14 @@
                         if (weaponList[y].weaponTypeId != wEntry.weaponTypeId) continue;
                         var capacity = weaponList[y].powerCost;
                         wEntry.droneRackSpaceCapacity = capacity;
-                        wEntry.droneInitialLoadout = { 'Type-I': capacity };
+                        // if a custom loadout was already set on this rack
+                        // (see the ship setup block above, near where
+                        // shipWeapons are defined) leave it alone - only
+                        // fall back to the all-Type-I default if nothing
+                        // was specified
+                        if (Object.keys(wEntry.droneInitialLoadout).length === 0) {
+                            wEntry.droneInitialLoadout = { 'Type-I': capacity };
+                        }
                         wEntry.droneLoadout = {};
                         addLoadoutInto(wEntry.droneLoadout, wEntry.droneInitialLoadout);
                         addLoadoutInto(stockpile, wEntry.droneInitialLoadout);
@@ -1043,10 +1059,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
 
         // launches a drone: creates a tracked seeking weapon at the
-        // launching ship's position, heading toward the target.
-        // chosenTypeName picks which type fires out of a (possibly mixed)
-        // rack loadout - see fireWeapon()'s drone-type dropdown handling.
-        function launchDrone(sArrId, wArrId, tsId, weapon, chosenTypeName) {
+        // launching ship's position, heading toward the target (a ship or
+        // another drone - see targetType/targetId). chosenTypeName picks
+        // which type fires out of a (possibly mixed) rack loadout - see
+        // fireWeapon()'s drone-type dropdown handling.
+        function launchDrone(sArrId, wArrId, targetType, targetId, weapon, chosenTypeName) {
             var launcher = shipList[sArrId];
             var rack = launcher.shipWeapons[wArrId];
             if (!rack.droneLoadout[chosenTypeName] || rack.droneLoadout[chosenTypeName] <= 0) {
@@ -1057,7 +1074,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var drone = new seekingWeaponType(
                 seekingWeaponIdCounter++,
                 launcher.userId,
-                tsId,
+                targetType,
+                targetId,
                 launcher.xCord,
                 launcher.yCord,
                 launcher.facing,
@@ -1072,20 +1090,16 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             plotSeekingWeapon(drone);
             rack.droneLoadout[chosenTypeName] -= 1;
 
-            var targetName = '';
-            var targetArrIdForBearing = -1;
-            for (var zz = 0; zz < shipList.length; zz++) {
-                if (shipList[zz].userId == tsId) { targetName = shipList[zz].name; targetArrIdForBearing = zz; }
-            }
-            if (targetArrIdForBearing != -1) {
-                var t = shipList[targetArrIdForBearing];
+            var target = getSeekingTargetInfo(targetType, targetId);
+            var targetName = target.exists ? target.name : '';
+            if (target.exists) {
                 // if launched into the target's own hex (point-blank), this
                 // is degenerate too - fall back to the launcher's own
                 // facing as a reasonable stand-in, same convention used for
                 // range-0 direct fire
-                drone.approachBearingToTarget = (t.xCord == drone.xCord && t.yCord == drone.yCord)
+                drone.approachBearingToTarget = (target.x == drone.xCord && target.y == drone.yCord)
                     ? launcher.facing
-                    : bearingBetweenCoords(t.xCord, t.yCord, drone.xCord, drone.yCord);
+                    : bearingBetweenCoords(target.x, target.y, drone.xCord, drone.yCord);
             }
 
             $('#dataDiv').append('<div>' + launcher.name + ' launches ' + droneType.name + ' drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + ' - rack ' + droneLoadoutSpaceUsed(rack.droneLoadout) + '/' + rack.droneRackSpaceCapacity + ' sp used</div>');
@@ -1264,10 +1278,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         // actual loaded type.
         var DRONE_RELOAD_AMOUNT = 2; // drones moved from ship stockpile into a rack per turn it's disabled for reload
 
-        function seekingWeaponType(id, ownerShipId, targetShipId, xCord, yCord, facing, speed, hitPoints, damage, turnsRemaining, weaponClassId, droneTypeName) {
+        function seekingWeaponType(id, ownerShipId, targetType, targetId, xCord, yCord, facing, speed, hitPoints, damage, turnsRemaining, weaponClassId, droneTypeName) {
             this.id = id;
             this.ownerShipId = ownerShipId;
-            this.targetShipId = targetShipId;
+            this.targetType = targetType; // 'ship' | 'drone'
+            this.targetId = targetId; // ship userId, or another drone's id
             this.xCord = xCord;
             this.yCord = yCord;
             this.facing = facing;
@@ -1339,6 +1354,40 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             resolveSeeking();
         }
 
+        // looks up a seeking weapon's current target - either a ship
+        // (targetType 'ship', targetId = userId) or another drone
+        // (targetType 'drone', targetId = drone id) - and returns its
+        // position/facing/name in one shape so movement and impact
+        // resolution don't need to care which kind it is.
+        // Type-VI drones deal damage based on the target ship's size class
+        // (1 = biggest, 7 = smallest) instead of a flat amount. Other
+        // drone types are unaffected - see resolveSeeking()'s ship-impact
+        // branch, the only place this is consulted.
+        function getTypeVIDamage(sizeClass) {
+            if (sizeClass >= 6) return 8;
+            if (sizeClass == 5) return 4;
+            return 2; // size class 1-4
+        }
+
+        function getSeekingTargetInfo(targetType, targetId) {
+            if (targetType == 'drone') {
+                for (var i = 0; i < activeDrones.length; i++) {
+                    if (activeDrones[i].id == targetId && !activeDrones[i].bDestroyed) {
+                        var d = activeDrones[i];
+                        return { exists: true, x: d.xCord, y: d.yCord, facing: d.facing, name: (d.droneTypeName || 'Drone') + ' #' + d.id };
+                    }
+                }
+                return { exists: false };
+            }
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == targetId) {
+                    var s = shipList[z];
+                    return { exists: true, x: s.xCord, y: s.yCord, facing: s.facing, name: s.name, sizeClass: s.sizeClass };
+                }
+            }
+            return { exists: false };
+        }
+
         // moves one seeking weapon one hex toward its target's current position
         function moveSeekingWeapon(id) {
             var drone = null;
@@ -1347,13 +1396,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             }
             if (!drone || drone.bDestroyed) return;
 
-            var targetArrId = -1;
-            for (var z = 0; z < shipList.length; z++) {
-                if (shipList[z].userId == drone.targetShipId) { targetArrId = z; }
-            }
-            if (targetArrId == -1) return; // target no longer exists
-
-            var target = shipList[targetArrId];
+            var target = getSeekingTargetInfo(drone.targetType, drone.targetId);
+            if (!target.exists) return; // target no longer exists
 
             // already on the target's hex (e.g. the target moved onto us
             // this impulse) - don't move away chasing a degenerate
@@ -1361,14 +1405,14 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             // direction, which would otherwise deterministically walk the
             // drone off the target before resolveSeeking() can register
             // the hit). Just stay put.
-            if (drone.xCord == target.xCord && drone.yCord == target.yCord) return;
+            if (drone.xCord == target.x && drone.yCord == target.y) return;
 
-            var bearing = bearingBetweenCoords(drone.xCord, drone.yCord, target.xCord, target.yCord);
+            var bearing = bearingBetweenCoords(drone.xCord, drone.yCord, target.x, target.y);
             // capture this position's bearing to the target BEFORE moving -
             // if this move lands the drone on the target, resolveSeeking()
             // needs this (the post-move, same-hex bearing would be
             // degenerate)
-            drone.approachBearingToTarget = bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord);
+            drone.approachBearingToTarget = bearingBetweenCoords(target.x, target.y, drone.xCord, drone.yCord);
             var dir = nearestHexDirection(bearing);
             var next = hexNeighbor(drone.xCord, drone.yCord, dir);
 
@@ -1429,50 +1473,77 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
         // resolve seeking weapons
         function resolveSeeking() {
-            // check to see if seeking weapons are in the same hex as target
-            for (var i = activeDrones.length - 1; i >= 0; i--) {
-                var drone = activeDrones[i];
+            // iterate a snapshot, not the live array - a drone-vs-drone
+            // impact can remove TWO entries (attacker + target) in a
+            // single pass via removeActiveDrone()'s splice, which shifts
+            // activeDrones and would otherwise leave this loop reading a
+            // stale/out-of-bounds index. bDestroyed is still set
+            // synchronously before the splice, so already-resolved drones
+            // (destroyed earlier in this same pass) are still skipped
+            // correctly via the check below.
+            var dronesToCheck = activeDrones.slice();
+            for (var i = dronesToCheck.length - 1; i >= 0; i--) {
+                var drone = dronesToCheck[i];
                 if (drone.bDestroyed) continue;
 
-                var targetArrId = -1;
-                for (var z = 0; z < shipList.length; z++) {
-                    if (shipList[z].userId == drone.targetShipId) { targetArrId = z; }
-                }
-                if (targetArrId == -1) continue;
-                var target = shipList[targetArrId];
+                var target = getSeekingTargetInfo(drone.targetType, drone.targetId);
+                if (!target.exists) continue;
 
-                if (drone.xCord == target.xCord && drone.yCord == target.yCord) {
-                    // impact - resolve which shield it hits using the
-                    // bearing captured just BEFORE this collision (see
-                    // approachBearingToTarget). Recomputing it now would be
-                    // meaningless, since a collision means the drone and
-                    // target are, by definition, in the same hex at this
-                    // point - bearingBetweenCoords() on identical
-                    // coordinates always degenerates to a fixed value
-                    // (atan2(0,0)), which was the real bug here even after
-                    // the target-facing fix from last session.
-                    var approachBearing = (drone.approachBearingToTarget != null) ? drone.approachBearingToTarget : bearingBetweenCoords(target.xCord, target.yCord, drone.xCord, drone.yCord);
-                    var arc = approachBearing - target.facing;
-                    if (arc < 0) arc += 360;
-                    if (arc >= 360) arc -= 360;
-                    var shieldHit = shieldFacing(arc);
-
+                if (drone.xCord == target.x && drone.yCord == target.y) {
                     var ownerName = '';
                     for (var zz = 0; zz < shipList.length; zz++) {
                         if (shipList[zz].userId == drone.ownerShipId) { ownerName = shipList[zz].name; }
                     }
-                    $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + drone.damage + ' damage to shield #' + shieldHit + '</div>');
 
-                    var bAdded = false;
-                    for (var z = 0; z < damageList.length; z++) {
-                        if (damageList[z].targetId == drone.targetShipId && damageList[z].shield == shieldHit) {
-                            damageList[z].damage += drone.damage;
-                            bAdded = true;
+                    if (drone.targetType == 'drone') {
+                        // drone-vs-drone: no shields to resolve through -
+                        // apply damage straight to the target drone's hit
+                        // points, same as direct-fire weapons do via
+                        // fireWeaponAtDrone(). The attacking drone is
+                        // always consumed on impact regardless of outcome.
+                        var targetDrone = null;
+                        for (var td = 0; td < activeDrones.length; td++) {
+                            if (activeDrones[td].id == drone.targetId) { targetDrone = activeDrones[td]; }
                         }
-                    }
-                    if (!bAdded) damageList[damageList.length] = new damageListType(drone.targetShipId, shieldHit, drone.damage);
+                        if (targetDrone) {
+                            targetDrone.hitPoints -= drone.damage;
+                            $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + drone.damage + ' damage (HP ' + Math.max(targetDrone.hitPoints, 0) + '/' + targetDrone.maxHitPoints + ')</div>');
+                            if (targetDrone.hitPoints <= 0) {
+                                $('#dataDiv').append('<div>' + target.name + ' destroyed</div>');
+                                removeActiveDrone(targetDrone);
+                            }
+                        }
+                        removeActiveDrone(drone);
+                    } else {
+                        // impact - resolve which shield it hits using the
+                        // bearing captured just BEFORE this collision (see
+                        // approachBearingToTarget). Recomputing it now would be
+                        // meaningless, since a collision means the drone and
+                        // target are, by definition, in the same hex at this
+                        // point - bearingBetweenCoords() on identical
+                        // coordinates always degenerates to a fixed value
+                        // (atan2(0,0)), which was the real bug here even after
+                        // the target-facing fix from last session.
+                        var approachBearing = (drone.approachBearingToTarget != null) ? drone.approachBearingToTarget : bearingBetweenCoords(target.x, target.y, drone.xCord, drone.yCord);
+                        var arc = approachBearing - target.facing;
+                        if (arc < 0) arc += 360;
+                        if (arc >= 360) arc -= 360;
+                        var shieldHit = shieldFacing(arc);
+                        var impactDamage = (drone.droneTypeName == 'Type-VI') ? getTypeVIDamage(target.sizeClass) : drone.damage;
 
-                    removeActiveDrone(drone);
+                        $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + impactDamage + ' damage to shield #' + shieldHit + '</div>');
+
+                        var bAdded = false;
+                        for (var z = 0; z < damageList.length; z++) {
+                            if (damageList[z].targetId == drone.targetId && damageList[z].shield == shieldHit) {
+                                damageList[z].damage += impactDamage;
+                                bAdded = true;
+                            }
+                        }
+                        if (!bAdded) damageList[damageList.length] = new damageListType(drone.targetId, shieldHit, impactDamage);
+
+                        removeActiveDrone(drone);
+                    }
                 }
             }
 
@@ -1837,31 +1908,45 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
                 else if (selTargetDroneId != -1) {
-                    // only direct-fire weapons (phasers/disruptors) can
-                    // engage a drone - seeking weapons targeting a drone
-                    // isn't modeled
+                    // direct-fire weapons (phasers/disruptors) and drone
+                    // racks can engage a drone; other classes can't
                     // NOTE: heavy weapons vs drones will likely get their own
                     // dedicated rules later - for now this just mirrors the
                     // ship-targeting overload min/max range bypass above so
                     // an overloaded disruptor/photon behaves consistently
                     // regardless of target type.
-                    if (thisWClass != 1 && thisWClass != 2) {
+                    if (thisWClass != 1 && thisWClass != 2 && thisWClass != 4) {
                         str += ' dimWeapon';
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
                         var droneRange = findDistToDrone(curShipId, selTargetDroneId);
-                        var droneWeaponEntry = shipList[arrId].shipWeapons[z];
-                        var isOverloadedDisruptorVsDrone = isDisruptorWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
-                        var isOverloadedPhotonVsDrone = isPhotonWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
-                        var droneEffMinRange = (isOverloadedDisruptorVsDrone || isOverloadedPhotonVsDrone) ? 0 : thisMinRange;
-                        var droneEffMaxRange = isOverloadedDisruptorVsDrone ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhotonVsDrone ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
-                        if (droneRange < droneEffMinRange || droneRange > droneEffMaxRange) {
-                            str += ' dimWeapon';
-                        }
-                        else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
-                            str += ' canTargetHighlight" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
+                        if (thisWClass == 4) {
+                            // drone rack vs drone: launches a tracked drone
+                            // at the enemy drone instead of resolving an
+                            // instant hit, same min/max range as firing at
+                            // a ship (no overload mechanic for drones)
+                            if (droneRange < thisMinRange || droneRange > thisMaxRange) {
+                                str += ' dimWeapon';
+                            }
+                            else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
+                                str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ',\'drone\');';
+                            } else {
+                                str += ' dimWeapon';
+                            }
                         } else {
-                            str += ' dimWeapon';
+                            var droneWeaponEntry = shipList[arrId].shipWeapons[z];
+                            var isOverloadedDisruptorVsDrone = isDisruptorWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
+                            var isOverloadedPhotonVsDrone = isPhotonWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
+                            var droneEffMinRange = (isOverloadedDisruptorVsDrone || isOverloadedPhotonVsDrone) ? 0 : thisMinRange;
+                            var droneEffMaxRange = isOverloadedDisruptorVsDrone ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhotonVsDrone ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
+                            if (droneRange < droneEffMinRange || droneRange > droneEffMaxRange) {
+                                str += ' dimWeapon';
+                            }
+                            else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
+                                str += ' canTargetHighlight" onclick="fireWeaponAtDrone(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ');';
+                            } else {
+                                str += ' dimWeapon';
+                            }
                         }
                     }
                 }
@@ -2082,7 +2167,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             $('#weaponInfoPopUpDiv').css('display', 'block');
         }
 
-        function fireWeapon(sArrId, wArrId, tsId, arc) {
+        function fireWeapon(sArrId, wArrId, tsId, arc, targetType) {
+            targetType = targetType || 'ship'; // existing callers only ever target ships, so default preserves them
             var wClass = 0;
             var weapon = null;
             shipList[sArrId].shipWeapons[wArrId].bFired = true;
@@ -2120,7 +2206,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                         if (rack.droneLoadout[t] > 0) { chosenType = t; break; }
                     }
                 }
-                launchDrone(sArrId, wArrId, tsId, weapon, chosenType);
+                launchDrone(sArrId, wArrId, targetType, tsId, weapon, chosenType);
                 shipFirePopUp();
                 return;
             }
