@@ -12,6 +12,7 @@
     <!-- weapon damage tables + damage allocation chart, loaded from data/*.json -->
     <script src="js/weapons.js"></script>
     <script src="js/dac-chart.js"></script>
+    <script src="js/drone-types.js"></script>
 
     <script type="text/javascript">
         function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap) {
@@ -27,6 +28,20 @@
             this.phaserCap = phaserCap;
             this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
             this.shipWeapons = [];
+            // drone ammo: a single shared magazine for the whole ship, not
+            // per-rack. Capacity is the sum of every mounted drone rack's
+            // capacity (weaponList[...].powerCost, repurposed as magazine
+            // size for weaponClassId 4 - drones themselves cost no power).
+            // Populated by setupDroneLoadouts() once weaponList is loaded,
+            // since it isn't known yet at ship-construction time here.
+            // drone stockpile: reserve drones held in ship-wide storage,
+            // used to reload racks. Keyed by drone type name ("Type-I" etc)
+            // since a rack can hold - and a stockpile can carry - a mix of
+            // types, not a single homogeneous count. Populated by
+            // setupDroneLoadouts() once weaponList/droneTypeList are
+            // loaded, mirroring the sum of every rack's initial loadout.
+            this.droneStockpile = {}; // { "Type-I": 4, "Type-IV": 2, ... }
+            this.droneStockpileSpaceMax = 0; // fixed total space capacity (sum of all racks' capacities)
         }
         var shipList = [];
 
@@ -65,6 +80,24 @@
             this.loadRounds = 0; // 0/1/2 - rounds of loading power invested so far
             this.investedPower = 0; // cumulative warp power invested during loading (4 = normal, 5-8 = overload)
             this.armedTurnNumber = null; // turn number it became fully armed (loadRounds hit 2) - used for the maintenance grace period
+            // drone racks (weaponClassId 4) only: this rack's own loaded
+            // magazine, separate from the ship-wide reload stockpile. Capped
+            // at the rack type's own capacity (weaponList[...].powerCost,
+            // repurposed for drones). Populated by setupDroneLoadouts()
+            // once weaponList is loaded.
+            // drone racks (weaponClassId 4) only: a rack has a fixed number
+            // of SPACES (droneRackSpaceCapacity), which can be filled with
+            // any mix of drone types - a 4-space rack might hold 4 Type-I,
+            // 2 Type-IV, or a combination. droneLoadout tracks what's
+            // actually in the rack right now, keyed by type name.
+            // droneInitialLoadout is a snapshot of what the rack started
+            // the scenario with, and reload restores toward it. Populated
+            // by setupDroneLoadouts() once weaponList/droneTypeList are
+            // loaded.
+            this.droneRackSpaceCapacity = 0;
+            this.droneLoadout = {}; // { "Type-I": 2, "Type-IV": 1, ... }
+            this.droneInitialLoadout = {};
+            this.bReloading = false; // set true for the turn a rack is disabled to reload from the ship's stockpile
         }
 
         function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
@@ -234,7 +267,8 @@
             // anything that might reference weaponList/dacChart runs.
             Promise.all([
                 loadWeapons('data/weapons.json'),
-                loadDacChart('data/dac-chart.json')
+                loadDacChart('data/dac-chart.json'),
+                loadDroneTypes('data/drone-types.json')
             ]).then(function () {
                 try {
                     initGame();
@@ -248,7 +282,120 @@
             });
         });
 
+        // --- drone loadout helpers (mixed drone types per rack) ---
+
+        // total spaces occupied by a loadout object { "Type-I": count, ... }
+        function droneLoadoutSpaceUsed(loadout) {
+            var total = 0;
+            for (var t in loadout) {
+                if (loadout[t] > 0) total += loadout[t] * getDroneTypeByName(t).space;
+            }
+            return total;
+        }
+
+        // total individual drones (regardless of type) in a loadout object
+        function droneLoadoutCount(loadout) {
+            var total = 0;
+            for (var t in loadout) { total += loadout[t] || 0; }
+            return total;
+        }
+
+        // adds one loadout object's counts into another (used to build the
+        // ship stockpile as the sum of every rack's initial loadout)
+        function addLoadoutInto(target, source) {
+            for (var t in source) {
+                target[t] = (target[t] || 0) + source[t];
+            }
+        }
+
+        // human-readable breakdown for display: "Type-I x2, Type-IV x1 (4/4 sp)"
+        function formatDroneLoadout(loadout, spaceCapacity) {
+            var parts = [];
+            for (var t in loadout) {
+                if (loadout[t] > 0) parts.push(t + ' x' + loadout[t]);
+            }
+            var summary = parts.length > 0 ? parts.join(', ') : 'empty';
+            return summary + ' (' + droneLoadoutSpaceUsed(loadout) + '/' + spaceCapacity + ' sp)';
+        }
+
+        // moves up to budgetSpaces worth of drones from the ship stockpile
+        // into a rack, drawing on chosenType if the rack was completely
+        // empty (no established mix to go by), or otherwise restoring
+        // toward the rack's own droneInitialLoadout - round-robin across
+        // whichever types are still short, one drone at a time, until the
+        // budget/capacity/stockpile runs out. Returns { added, spacesUsed }.
+        function applyDroneReload(rack, ship, budgetSpaces, chosenType) {
+            var added = {};
+            var spacesUsed = 0;
+            var remainingCapacity = rack.droneRackSpaceCapacity - droneLoadoutSpaceUsed(rack.droneLoadout);
+            var isEmpty = droneLoadoutCount(rack.droneLoadout) <= 0;
+            var typeOrder = isEmpty ? [chosenType] : Object.keys(rack.droneInitialLoadout);
+
+            var progress = true;
+            while (spacesUsed < budgetSpaces && remainingCapacity > 0 && progress) {
+                progress = false;
+                for (var i = 0; i < typeOrder.length; i++) {
+                    var t = typeOrder[i];
+                    if (!t) continue;
+                    var typeSpace = getDroneTypeByName(t).space;
+                    if (spacesUsed + typeSpace > budgetSpaces) continue;
+                    if (typeSpace > remainingCapacity) continue;
+                    if (!isEmpty) {
+                        var deficit = (rack.droneInitialLoadout[t] || 0) - (rack.droneLoadout[t] || 0);
+                        if (deficit <= 0) continue;
+                    }
+                    if ((ship.droneStockpile[t] || 0) <= 0) continue;
+
+                    rack.droneLoadout[t] = (rack.droneLoadout[t] || 0) + 1;
+                    ship.droneStockpile[t] -= 1;
+                    added[t] = (added[t] || 0) + 1;
+                    spacesUsed += typeSpace;
+                    remainingCapacity -= typeSpace;
+                    progress = true;
+                }
+            }
+            return { added: added, spacesUsed: spacesUsed };
+        }
+
+        // sets up drone loadouts for every ship: each rack (weaponClassId 4)
+        // gets a fixed space capacity (weaponList[...].powerCost,
+        // repurposed for drones - drones themselves cost no power to use,
+        // so that field is otherwise unused for weaponClassId 4) and an
+        // initial loadout filling that capacity.
+        //
+        // DEFAULT: every rack starts 100% Type-I. Edit a rack's
+        // droneInitialLoadout below for an actual mixed loadout, e.g.
+        // { "Type-I": 2, "Type-IV": 1 } for a 4-space rack (2*1 + 1*2 = 4).
+        //
+        // The ship's shared reload stockpile mirrors the sum of every one
+        // of its racks' initial loadouts, type-for-type - so reloading a
+        // rack has something matching its original mix to draw from.
+        function setupDroneLoadouts() {
+            for (var s = 0; s < shipList.length; s++) {
+                var ship = shipList[s];
+                var stockpile = {};
+                var stockpileSpaceMax = 0;
+                for (var w = 0; w < ship.shipWeapons.length; w++) {
+                    var wEntry = ship.shipWeapons[w];
+                    if (wEntry.weaponClassId != 4) continue;
+                    for (var y = 0; y < weaponList.length; y++) {
+                        if (weaponList[y].weaponTypeId != wEntry.weaponTypeId) continue;
+                        var capacity = weaponList[y].powerCost;
+                        wEntry.droneRackSpaceCapacity = capacity;
+                        wEntry.droneInitialLoadout = { 'Type-I': capacity };
+                        wEntry.droneLoadout = {};
+                        addLoadoutInto(wEntry.droneLoadout, wEntry.droneInitialLoadout);
+                        addLoadoutInto(stockpile, wEntry.droneInitialLoadout);
+                        stockpileSpaceMax += capacity;
+                    }
+                }
+                ship.droneStockpile = stockpile;
+                ship.droneStockpileSpaceMax = stockpileSpaceMax;
+            }
+        }
+
         function initGame() {
+            setupDroneLoadouts();
             plotShip(1);
             plotShip(2);
             /* DEAD CODE - matches the disabled ships 3-9 above; would need
@@ -481,6 +628,10 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '<div>Distance to target: ' + d + '</div>';
             str += '<div>I hit shield: ' + shieldFacing(tf) + '</div>';
             str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
+            var reinfArrId = findInternalsArrId(sId);
+            if (reinfArrId != -1 && shipInternals[reinfArrId].generalReinforcement > 0) {
+                str += '<div>General reinforcement: ' + shipInternals[reinfArrId].generalReinforcement + 'pts</div>';
+            }
 
             str += '<div style="position:relative;margin:10px auto;width:102px;font-size:10px;">';
             str += '<div style="position:absolute;top:46px;left:44px;"><i class="fa-solid fa-solid fa-arrow-up" ';
@@ -519,7 +670,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Launched by: ' + ownerName + '</div>';
-            str += '<div>Hit Points: ' + drone.hitPoints + ' / ' + droneStats.hitPoints + '</div>';
+            str += '<div>Hit Points: ' + drone.hitPoints + ' / ' + drone.maxHitPoints + '</div>';
             str += '<div>Distance to target: ' + findDistToDrone(curShipId, droneId) + '</div>';
             $('#targetShipPopUpDiv').html(str).css('display', 'block');
 
@@ -572,42 +723,42 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     if (a > 1) c = 'yellow';
                     if (a > 2.5) c = 'green';
                     str += '<path id="arc1" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 331, 29) + '"/>';
-                    sn += '<div style="position:absolute;left:35px;top:11px;width:32px;text-align:center;">' + shipInternals[z].shield1 + '</div>';
+                    sn += '<div style="position:absolute;left:35px;top:11px;width:32px;text-align:center;' + (shipInternals[z].specificShield1 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield1 + (shipInternals[z].specificShield1 > 0 ? ' +' + shipInternals[z].specificShield1 : '') + '</div>';
 
                     a = Math.round(shipInternals[z].shield2 / shipInternals[z].mShield2 * 500) / 100;
                     c = 'red';
                     if (a > 1) c = 'yellow';
                     if (a > 2) c = 'green';
                     str += '<path id="arc2" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 31, 89) + '"/>';
-                    sn += '<div style="position:absolute;right:15px;top:29px;">' + shipInternals[z].shield2 + '</div>';
+                    sn += '<div style="position:absolute;right:15px;top:29px;' + (shipInternals[z].specificShield2 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield2 + (shipInternals[z].specificShield2 > 0 ? ' +' + shipInternals[z].specificShield2 : '') + '</div>';
 
                     a = Math.round(shipInternals[z].shield3 / shipInternals[z].mShield3 * 500) / 100;
                     c = 'red';
                     if (a > 1) c = 'yellow';
                     if (a > 2) c = 'green';
                     str += '<path id="arc3" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 91, 149) + '"/>';
-                    sn += '<div style="position:absolute;right:15px;bottom:29px;">' + shipInternals[z].shield3 + '</div>';
+                    sn += '<div style="position:absolute;right:15px;bottom:29px;' + (shipInternals[z].specificShield3 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield3 + (shipInternals[z].specificShield3 > 0 ? ' +' + shipInternals[z].specificShield3 : '') + '</div>';
 
                     a = Math.round(shipInternals[z].shield4 / shipInternals[z].mShield4 * 500) / 100;
                     c = 'red';
                     if (a > 1) c = 'yellow';
                     if (a > 2) c = 'green';
                     str += '<path id="arc4" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 151, 209) + '"/>';
-                    sn += '<div style="position:absolute;left:35px;bottom:13px;width:32px;text-align:center;">' + shipInternals[z].shield4 + '</div>';
+                    sn += '<div style="position:absolute;left:35px;bottom:13px;width:32px;text-align:center;' + (shipInternals[z].specificShield4 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield4 + (shipInternals[z].specificShield4 > 0 ? ' +' + shipInternals[z].specificShield4 : '') + '</div>';
 
                     a = Math.round(shipInternals[z].shield5 / shipInternals[z].mShield5 * 500) / 100;
                     c = 'red';
                     if (a > 1) c = 'yellow';
                     if (a > 2) c = 'green';
                     str += '<path id="arc5" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 211, 269) + '"/>';
-                    sn += '<div style="position:absolute;left:15px;bottom:29px;">' + shipInternals[z].shield5 + '</div>';
+                    sn += '<div style="position:absolute;left:15px;bottom:29px;' + (shipInternals[z].specificShield5 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield5 + (shipInternals[z].specificShield5 > 0 ? ' +' + shipInternals[z].specificShield5 : '') + '</div>';
 
                     a = Math.round(shipInternals[z].shield6 / shipInternals[z].mShield6 * 500) / 100;
                     c = 'red';
                     if (a > 1) c = 'yellow';
                     if (a > 2) c = 'green';
                     str += '<path id="arc6" stroke="' + c + '" stroke-width="' + a + '" d="' + describeArc(50, 50, 45, 271, 329) + '"/>';
-                    sn += '<div style="position:absolute;left:15px;top:29px;">' + shipInternals[z].shield6 + '</div>';
+                    sn += '<div style="position:absolute;left:15px;top:29px;' + (shipInternals[z].specificShield6 > 0 ? 'font-size:8px;' : '') + '">' + shipInternals[z].shield6 + (shipInternals[z].specificShield6 > 0 ? ' +' + shipInternals[z].specificShield6 : '') + '</div>';
                 }
             }
             str += '</g></svg>';
@@ -866,7 +1017,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         function plotSeekingWeapon(drone) {
             var p = seekingWeaponPixelPos(drone.xCord, drone.yCord);
-            var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="Drone #' + drone.id + '" onclick="hexEntityClick(\'drone\', ' + drone.id + ');"></div>';
+            var str = '<div id="drone' + drone.id + '" class="droneDiv" style="left:' + p.x + 'px;top:' + p.y + 'px;" title="' + (drone.droneTypeName || 'Drone') + ' #' + drone.id + '" onclick="hexEntityClick(\'drone\', ' + drone.id + ');"></div>';
             $('#shipLayer').append(str);
             updateStackBadges();
         }
@@ -892,9 +1043,17 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
 
         // launches a drone: creates a tracked seeking weapon at the
-        // launching ship's position, heading toward the target
-        function launchDrone(sArrId, tsId, weapon) {
+        // launching ship's position, heading toward the target.
+        // chosenTypeName picks which type fires out of a (possibly mixed)
+        // rack loadout - see fireWeapon()'s drone-type dropdown handling.
+        function launchDrone(sArrId, wArrId, tsId, weapon, chosenTypeName) {
             var launcher = shipList[sArrId];
+            var rack = launcher.shipWeapons[wArrId];
+            if (!rack.droneLoadout[chosenTypeName] || rack.droneLoadout[chosenTypeName] <= 0) {
+                $('#dataDiv').append('<div style="color:#900;">' + launcher.name + '\'s ' + weapon.weaponName + ' has no ' + chosenTypeName + ' drones loaded</div>');
+                return;
+            }
+            var droneType = getDroneTypeByName(chosenTypeName);
             var drone = new seekingWeaponType(
                 seekingWeaponIdCounter++,
                 launcher.userId,
@@ -902,14 +1061,16 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 launcher.xCord,
                 launcher.yCord,
                 launcher.facing,
-                droneStats.speed,
-                droneStats.hitPoints,
-                droneStats.damage,
-                droneStats.turns,
-                4
+                droneType.speed,
+                droneType.hitPoints,
+                droneType.damage,
+                droneType.endurance,
+                4,
+                droneType.name
             );
             activeDrones.push(drone);
             plotSeekingWeapon(drone);
+            rack.droneLoadout[chosenTypeName] -= 1;
 
             var targetName = '';
             var targetArrIdForBearing = -1;
@@ -927,7 +1088,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     : bearingBetweenCoords(t.xCord, t.yCord, drone.xCord, drone.yCord);
             }
 
-            $('#dataDiv').append('<div>' + launcher.name + ' launches drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + '</div>');
+            $('#dataDiv').append('<div>' + launcher.name + ' launches ' + droneType.name + ' drone #' + drone.id + ' (' + weapon.weaponName + ') at ' + targetName + ' - rack ' + droneLoadoutSpaceUsed(rack.droneLoadout) + '/' + rack.droneRackSpaceCapacity + ' sp used</div>');
             writeImpulseChart();
         }
 
@@ -1095,9 +1256,15 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
         // lean v1 stats - ignoring drone rack storage/reloads and arming
         // distance for now, per the current scope
-        var droneStats = { speed: 12, turns: 2, hitPoints: 4, damage: 12 };
+        // per-type stats (speed/endurance/damage/hitPoints/space) now live in
+        // data/drone-types.json, loaded into droneTypeList by
+        // loadDroneTypes() (see js/drone-types.js). The old flat droneStats
+        // placeholder used identical stats for every drone regardless of
+        // type - superseded now that launchDrone() looks up the rack's
+        // actual loaded type.
+        var DRONE_RELOAD_AMOUNT = 2; // drones moved from ship stockpile into a rack per turn it's disabled for reload
 
-        function seekingWeaponType(id, ownerShipId, targetShipId, xCord, yCord, facing, speed, hitPoints, damage, turnsRemaining, weaponClassId) {
+        function seekingWeaponType(id, ownerShipId, targetShipId, xCord, yCord, facing, speed, hitPoints, damage, turnsRemaining, weaponClassId, droneTypeName) {
             this.id = id;
             this.ownerShipId = ownerShipId;
             this.targetShipId = targetShipId;
@@ -1106,9 +1273,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             this.facing = facing;
             this.speed = speed;
             this.hitPoints = hitPoints; // not yet consumed by anything (no point-defense implemented yet)
+            this.maxHitPoints = hitPoints; // starting value, for HP display (current hitPoints decreases as damaged)
             this.damage = damage;
             this.turnsRemaining = turnsRemaining;
             this.weaponClassId = weaponClassId; // 4 = drone
+            this.droneTypeName = droneTypeName || null; // "Type-I".."Type-VI" - which basic drone type this is
             this.bDestroyed = false;
             // bearing from the target to this drone's position, captured
             // just before each move (including the launch position). Used
@@ -1292,7 +1461,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     for (var zz = 0; zz < shipList.length; zz++) {
                         if (shipList[zz].userId == drone.ownerShipId) { ownerName = shipList[zz].name; }
                     }
-                    $('#dataDiv').append('<div>' + ownerName + ' drone #' + drone.id + ' impacts ' + target.name + ' -- ' + drone.damage + ' damage to shield #' + shieldHit + '</div>');
+                    $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + drone.damage + ' damage to shield #' + shieldHit + '</div>');
 
                     var bAdded = false;
                     for (var z = 0; z < damageList.length; z++) {
@@ -1388,6 +1557,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                     wEntry.bFired = false;
                     wEntry.impFired = 0;
+                    wEntry.bReloading = false;
                 }
                 // phaserCap no longer auto-recharges - it's set entirely by
                 // energy allocation now (see startEnergyAllocation() below)
@@ -1625,6 +1795,19 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
                 str += '</div>';
+                if (thisWClass == 4) {
+                    var droneRack = shipList[arrId].shipWeapons[z];
+                    var droneTypesPresent = [];
+                    for (var t in droneRack.droneLoadout) { if (droneRack.droneLoadout[t] > 0) droneTypesPresent.push(t); }
+                    str += '<div style="font-size:11px;color:#666;">' + formatDroneLoadout(droneRack.droneLoadout, droneRack.droneRackSpaceCapacity) + (droneRack.bReloading ? ' - reloading' : '') + '</div>';
+                    if (droneTypesPresent.length > 1) {
+                        str += '<div>Fire: <select id="droneTypeSelect' + curShipId + '-' + z + '">';
+                        for (var ti = 0; ti < droneTypesPresent.length; ti++) {
+                            str += '<option value="' + droneTypesPresent[ti] + '">' + droneTypesPresent[ti] + ' x' + droneRack.droneLoadout[droneTypesPresent[ti]] + '</option>';
+                        }
+                        str += '</select></div>';
+                    }
+                }
                 str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
                 var isReady = weaponReady(shipList[arrId].shipWeapons[z]);
                 var needsArm = isHeavyWeaponClass(thisWClass);
@@ -1633,6 +1816,8 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else if (!isReady) { str += ' dimWeapon'; }
                 else if (thisWClass == 1 && pCost > shipList[arrId].phaserCap) { str += ' dimWeapon'; }
                 else if (needsArm && !isArmed) { str += ' dimWeapon'; }
+                else if (thisWClass == 4 && shipList[arrId].shipWeapons[z].bReloading) { str += ' dimWeapon'; }
+                else if (thisWClass == 4 && droneLoadoutCount(shipList[arrId].shipWeapons[z].droneLoadout) <= 0) { str += ' dimWeapon'; }
                 else if (selTargetShipId != -1) {
                     var arc = findFacing(curShipId, selTargetShipId);
                     var rangeToTarget = findDist(curShipId, selTargetShipId);
@@ -1655,12 +1840,22 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     // only direct-fire weapons (phasers/disruptors) can
                     // engage a drone - seeking weapons targeting a drone
                     // isn't modeled
+                    // NOTE: heavy weapons vs drones will likely get their own
+                    // dedicated rules later - for now this just mirrors the
+                    // ship-targeting overload min/max range bypass above so
+                    // an overloaded disruptor/photon behaves consistently
+                    // regardless of target type.
                     if (thisWClass != 1 && thisWClass != 2) {
                         str += ' dimWeapon';
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
                         var droneRange = findDistToDrone(curShipId, selTargetDroneId);
-                        if (droneRange < thisMinRange || droneRange > thisMaxRange) {
+                        var droneWeaponEntry = shipList[arrId].shipWeapons[z];
+                        var isOverloadedDisruptorVsDrone = isDisruptorWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
+                        var isOverloadedPhotonVsDrone = isPhotonWeaponTypeId(droneWeaponEntry.weaponTypeId) && droneWeaponEntry.loadType == 'overload';
+                        var droneEffMinRange = (isOverloadedDisruptorVsDrone || isOverloadedPhotonVsDrone) ? 0 : thisMinRange;
+                        var droneEffMaxRange = isOverloadedDisruptorVsDrone ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhotonVsDrone ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
+                        if (droneRange < droneEffMinRange || droneRange > droneEffMaxRange) {
                             str += ' dimWeapon';
                         }
                         else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
@@ -1840,13 +2035,20 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             var range = findDist(sId, selTargetShipId);
 
+            // mirror the overload min-range bypass used to gate the fire
+            // button itself, so this info popup doesn't contradict it
+            var thisEntry = shipList[arrId].shipWeapons[wArrId];
+            var isOverloadedDisruptorInfo = isDisruptorWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
+            var isOverloadedPhotonInfo = isPhotonWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
+            var infoEffMinRange = (isOverloadedDisruptorInfo || isOverloadedPhotonInfo) ? 0 : (weapon.minRange || 0);
+
             var str = '<div style="font-weight:bold;">' + weapon.weaponName + '</div>';
-            var minRangeNote = (weapon.minRange > 0) ? (', min ' + weapon.minRange) : '';
+            var minRangeNote = (weapon.minRange > 0) ? (', min ' + weapon.minRange + ((infoEffMinRange == 0) ? ' (waived - overloaded)' : '')) : '';
             str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + minRangeNote + ')</div>';
 
             if (!weapon.damageTable || weapon.damageTable.length == 0) {
                 str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
-            } else if (range < (weapon.minRange || 0)) {
+            } else if (range < infoEffMinRange) {
                 str += '<div style="color:#900;">Target is inside minimum range (' + weapon.minRange + ') - cannot fire.</div>';
             } else {
                 var hits = null;
@@ -1904,8 +2106,21 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             if (wClass == 4) {
                 // seeking weapon (drone): launch a tracked object instead of
-                // resolving an instant hit
-                launchDrone(sArrId, tsId, weapon);
+                // resolving an instant hit. If the rack holds a mix of
+                // types, a dropdown (rendered in shipFirePopUp) lets the
+                // player pick which one launches; with only one type
+                // present there's nothing to pick, so just use it.
+                var rack = shipList[sArrId].shipWeapons[wArrId];
+                var chosenType = null;
+                var $droneTypeSel = $('#droneTypeSelect' + curShipId + '-' + wArrId);
+                if ($droneTypeSel.length) {
+                    chosenType = $droneTypeSel.val();
+                } else {
+                    for (var t in rack.droneLoadout) {
+                        if (rack.droneLoadout[t] > 0) { chosenType = t; break; }
+                    }
+                }
+                launchDrone(sArrId, wArrId, tsId, weapon, chosenType);
                 shipFirePopUp();
                 return;
             }
@@ -2103,7 +2318,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var rollStr = '<div>' + attackerName + ' - Drone #' + drone.id + '  ' + weapon.weaponName + ' roll ' + r;
             if (d > 0) {
                 drone.hitPoints -= d;
-                rollStr += ' -- ' + d + ' damage to drone (HP ' + Math.max(drone.hitPoints, 0) + '/' + droneStats.hitPoints + ')';
+                rollStr += ' -- ' + d + ' damage to drone (HP ' + Math.max(drone.hitPoints, 0) + '/' + drone.maxHitPoints + ')';
             } else {
                 rollStr += ' miss';
             }
@@ -2356,16 +2571,33 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             if (shield == 5) arc = 240;
             if (shield == 6) arc = 300;
 
+            // collect every eligible mount (right type, in arc, not already
+            // destroyed) - last-to-first, same order the old single-pick
+            // loop used, so tie-breaking within a priority tier is unchanged
+            var candidates = [];
             for (var x = (shipList[arrId].shipWeapons.length - 1); x >= 0; x--) {
-                if (!shipList[arrId].shipWeapons[x].bDestroyed) {
-                    if (shipList[arrId].shipWeapons[x].weaponClassId == wClass || wClass == 0) {  // right type of weapon
-                        if (weaponInArc(shipList[arrId].shipWeapons[x], arc) || arc == -1) {  // in arc
-                            shipList[arrId].shipWeapons[x].bDestroyed = true;
-                            bDamage = true;
-                            break;
+                var wEntry = shipList[arrId].shipWeapons[x];
+                if (!wEntry.bDestroyed) {
+                    if (wEntry.weaponClassId == wClass || wClass == 0) {  // right type of weapon
+                        if (weaponInArc(wEntry, arc) || arc == -1) {  // in arc
+                            candidates.push(wEntry);
                         }
                     }
                 }
+            }
+
+            // preferred hit order: already-fired (charge already spent) >
+            // never charged (idle) > currently armed/holding a charge -
+            // strip the least valuable state off the ship before touching
+            // a live loaded weapon
+            var target = null;
+            for (var i = 0; i < candidates.length; i++) { if (candidates[i].bFired) { target = candidates[i]; break; } }
+            if (!target) { for (var i = 0; i < candidates.length; i++) { if (!candidates[i].bArmed) { target = candidates[i]; break; } } }
+            if (!target && candidates.length > 0) { target = candidates[0]; }
+
+            if (target) {
+                target.bDestroyed = true;
+                bDamage = true;
             }
             /* DEAD CODE - stray scratch fragment (an old findFacing/
                weaponInArc snippet plus duplicate weaponEntryType/weaponType
@@ -2752,10 +2984,14 @@ $('#dataDiv').append(w);
         var PHOTON_ROUND_MAX = 6;
         var PHOTON_TOTAL_MAX = 8;
         var PHOTON_NORMAL_TOTAL = 4;
-        var PHOTON_MAINTENANCE_COST = 1;
+        var PHOTON_MAINTENANCE_COST = 1; // holding a normal-load photon
+        var PHOTON_MAINTENANCE_COST_OVERLOAD = 2; // holding an overloaded photon - every turn it's held, not just the first
         var PHOTON_OVERLOAD_MAX_RANGE = 8;
         function isPhotonWeaponTypeId(weaponTypeId) {
             return weaponTypeId == PHOTON_WEAPON_TYPE_ID;
+        }
+        function getPhotonMaintenanceCost(wEntry) {
+            return (wEntry.loadType == 'overload') ? PHOTON_MAINTENANCE_COST_OVERLOAD : PHOTON_MAINTENANCE_COST;
         }
 
         function showEnergyAllocPopUp(sId) {
@@ -2844,7 +3080,12 @@ $('#dataDiv').append(w);
                     } else if (wEntry.armedTurnNumber == turnNumber) {
                         str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ready to fire this turn</div>';
                     } else {
-                        str += '<div><label><input type="checkbox" id="eaMaintain' + z + '" checked onclick="updateEnergyAllocTotal();"> Maintain ' + wName + ' [' + displayNumber + '] charge (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ' + PHOTON_MAINTENANCE_COST + 'pt, or it discharges</label></div>';
+                        var maintCost = getPhotonMaintenanceCost(wEntry);
+                        var topUpMax = PHOTON_TOTAL_MAX - wEntry.investedPower;
+                        str += '<div><label title="Uncheck to let it discharge"><input type="checkbox" id="eaMaintain' + z + '" checked onclick="updateEnergyAllocTotal();"> ' + wName + ' [' + displayNumber + '] (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - hold ' + maintCost + 'pt</label></div>';
+                        if (topUpMax > 0) {
+                            str += '<div style="padding-left:20px;">Add power to overload it (warp only, 0-' + topUpMax + 'pt more): <input type="number" id="eaPhotonTopUp' + z + '" min="0" max="' + topUpMax + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                        }
                     }
                 } else if (wEntry.bArmed) {
                     var armedNote = isDisruptorWeaponTypeId(wEntry.weaponTypeId) ? 'fire this turn or the charge is lost' : 'stays armed until fired';
@@ -2858,6 +3099,40 @@ $('#dataDiv').append(w);
                     str += '</select></div>';
                 } else {
                     str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + displayNumber + ']</label></div>';
+                }
+            }
+
+            str += '<div class="dividerLine"></div>';
+            str += '<div>Drone Racks (disable a rack this turn to reload up to ' + DRONE_RELOAD_AMOUNT + ' spaces from stockpile):</div>';
+            str += '<div>Stockpile: ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + '</div>';
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var dEntry = ship.shipWeapons[z];
+                var dClass = 0, dName = '', dDisplayNumber = z + 1;
+                for (var y = 0; y < weaponList.length; y++) {
+                    if (weaponList[y].weaponTypeId == dEntry.weaponTypeId) { dClass = weaponList[y].weaponClassId; dName = weaponList[y].weaponName; }
+                }
+                if (dClass != 4) continue;
+                var usedSpace = droneLoadoutSpaceUsed(dEntry.droneLoadout);
+                var stockpileCount = droneLoadoutCount(ship.droneStockpile);
+                if (dEntry.bDestroyed) {
+                    str += '<div style="color:#999;">' + dName + ' [' + dDisplayNumber + '] - destroyed</div>';
+                } else if (usedSpace >= dEntry.droneRackSpaceCapacity) {
+                    str += '<div>' + dName + ' [' + dDisplayNumber + '] - full (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ')</div>';
+                } else if (stockpileCount <= 0) {
+                    str += '<div>' + dName + ' [' + dDisplayNumber + '] - ' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ', stockpile empty</div>';
+                } else if (droneLoadoutCount(dEntry.droneLoadout) <= 0) {
+                    // completely empty - no "original mix" left in the rack to restore toward,
+                    // so the player picks which type from the stockpile to load in
+                    str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (empty) with: ';
+                    str += '</label><select id="eaDroneReloadType' + z + '">';
+                    for (var t in ship.droneStockpile) {
+                        if (ship.droneStockpile[t] > 0) {
+                            str += '<option value="' + t + '">' + t + ' (' + ship.droneStockpile[t] + ' in stock)</option>';
+                        }
+                    }
+                    str += '</select> - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</div>';
+                } else {
+                    str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ') toward original loadout - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</label></div>';
                 }
             }
 
@@ -2931,11 +3206,38 @@ $('#dataDiv').append(w);
                 } else if (wEntry.armedTurnNumber != turnNumber) {
                     var $cb = $('#eaMaintain' + z);
                     if ($cb.length && $cb.is(':checked')) {
-                        result.totalCost += PHOTON_MAINTENANCE_COST;
-                        result.entries.push({ index: z, kind: 'maintain' });
+                        var maintCost = getPhotonMaintenanceCost(wEntry);
+                        var $topUp = $('#eaPhotonTopUp' + z);
+                        var topup = ($topUp.length) ? (parseInt($topUp.val()) || 0) : 0;
+                        result.totalCost += maintCost + topup;
+                        result.warpCost += topup; // top-up power is arming energy - warp only, same as initial loading
+                        result.entries.push({ index: z, kind: 'maintain', topup: topup });
                     } else {
                         result.entries.push({ index: z, kind: 'discharge' });
                     }
+                }
+            }
+            return result;
+        }
+
+        // gathers which drone racks are checked to reload this turn. Doesn't
+        // resolve amounts against the shared stockpile here (that happens
+        // in confirmEnergyAllocation, sequentially in array order, so if
+        // the stockpile can't cover every checked rack the earlier ones in
+        // the list get priority rather than any silently failing outright)
+        function computeDroneReloadInputs(sId) {
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var result = { entries: [] }; // entries: [{index, chosenType?}] - chosenType only set for a rack that was completely empty
+            for (var z = 0; z < ship.shipWeapons.length; z++) {
+                var wEntry = ship.shipWeapons[z];
+                if (wEntry.bDestroyed || wEntry.weaponClassId != 4) continue;
+                var $cb = $('#eaDroneReload' + z);
+                if ($cb.length && $cb.is(':checked')) {
+                    var entry = { index: z };
+                    var $typeSel = $('#eaDroneReloadType' + z);
+                    if ($typeSel.length) { entry.chosenType = $typeSel.val(); }
+                    result.entries.push(entry);
                 }
             }
             return result;
@@ -3034,6 +3336,7 @@ $('#dataDiv').append(w);
             // collect which heavy weapons are being newly armed this turn (and how)
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
+            var droneReload = computeDroneReloadInputs(sId);
 
             // validate each photon round input against its per-round min/max
             for (var i = 0; i < photonLoading.entries.length; i++) {
@@ -3043,6 +3346,19 @@ $('#dataDiv').append(w);
                 var maxThisRound = (wEntry.loadRounds == 0) ? PHOTON_ROUND_MAX : Math.min(PHOTON_ROUND_MAX, PHOTON_TOTAL_MAX - wEntry.investedPower);
                 if (entry.amount < PHOTON_ROUND_MIN || entry.amount > maxThisRound) {
                     alert('Photon loading amount must be between ' + PHOTON_ROUND_MIN + ' and ' + maxThisRound + ' this round');
+                    return;
+                }
+            }
+
+            // validate top-up amounts on held photons (additional power added
+            // while maintaining, to push a normal load into overload)
+            for (var i = 0; i < photonLoading.entries.length; i++) {
+                var entry = photonLoading.entries[i];
+                if (entry.kind != 'maintain' || !entry.topup) continue;
+                var wEntry = ship.shipWeapons[entry.index];
+                var maxTopUp = PHOTON_TOTAL_MAX - wEntry.investedPower;
+                if (entry.topup < 0 || entry.topup > maxTopUp) {
+                    alert('Photon top-up amount must be between 0 and ' + maxTopUp + ' this turn');
                     return;
                 }
             }
@@ -3089,7 +3405,7 @@ $('#dataDiv').append(w);
                 dropShields(iArrId);
             }
 
-            var photonDischarged = 0, photonAdvanced = 0, photonMaintained = 0;
+            var photonDischarged = 0, photonAdvanced = 0, photonMaintained = 0, photonToppedUp = 0;
             for (var i = 0; i < photonLoading.entries.length; i++) {
                 var entry = photonLoading.entries[i];
                 var wEntry = ship.shipWeapons[entry.index];
@@ -3103,6 +3419,11 @@ $('#dataDiv').append(w);
                         wEntry.loadType = (wEntry.investedPower > PHOTON_NORMAL_TOTAL) ? 'overload' : 'normal';
                     }
                 } else if (entry.kind == 'maintain') {
+                    if (entry.topup > 0) {
+                        wEntry.investedPower += entry.topup;
+                        wEntry.loadType = (wEntry.investedPower > PHOTON_NORMAL_TOTAL) ? 'overload' : 'normal';
+                        photonToppedUp++;
+                    }
                     photonMaintained++;
                 } else if (entry.kind == 'discharge') {
                     wEntry.loadRounds = 0;
@@ -3111,6 +3432,29 @@ $('#dataDiv').append(w);
                     wEntry.loadType = null;
                     wEntry.armedTurnNumber = null;
                     photonDischarged++;
+                }
+            }
+
+            // drone reloads: each checked rack draws from the shared ship
+            // stockpile, in the order racks appear on the ship. Free (no
+            // power cost) but disables the rack for the rest of this turn.
+            // Processed sequentially so that if the stockpile can't cover
+            // every checked rack, earlier racks in the list get priority
+            // instead of anything failing outright.
+            var dronesReloaded = 0, racksReloaded = 0;
+            var reloadParts = [];
+            for (var i = 0; i < droneReload.entries.length; i++) {
+                var entry = droneReload.entries[i];
+                var wEntry = ship.shipWeapons[entry.index];
+                var reloadResult = applyDroneReload(wEntry, ship, DRONE_RELOAD_AMOUNT, entry.chosenType);
+                wEntry.bReloading = true; // disabled for the rest of this turn regardless of whether stockpile covered it
+                racksReloaded++;
+                var addedCount = droneLoadoutCount(reloadResult.added);
+                dronesReloaded += addedCount;
+                if (addedCount > 0) {
+                    var addedParts = [];
+                    for (var t in reloadResult.added) { addedParts.push('+' + reloadResult.added[t] + ' ' + t); }
+                    reloadParts.push('[' + (entry.index + 1) + '] ' + addedParts.join(' '));
                 }
             }
 
@@ -3123,7 +3467,9 @@ $('#dataDiv').append(w);
             if (newArming.entries.length > 0) logMsg += ', armed ' + newArming.entries.length + ' heavy weapon(s)';
             if (photonAdvanced > 0) logMsg += ', advanced ' + photonAdvanced + ' photon load(s)';
             if (photonMaintained > 0) logMsg += ', maintained ' + photonMaintained + ' photon charge(s)';
+            if (photonToppedUp > 0) logMsg += ', ' + photonToppedUp + ' photon(s) topped up toward overload';
             if (photonDischarged > 0) logMsg += ', ' + photonDischarged + ' photon(s) DISCHARGED (no maintenance paid)';
+            if (racksReloaded > 0) logMsg += ', ' + racksReloaded + ' drone rack(s) reloading (' + (reloadParts.length > 0 ? reloadParts.join('; ') + ', ' : '') + 'stockpile ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + ')';
             logMsg += ', battery ' + internals.batteryStored + '/' + internals.mBty;
             $('#dataDiv').append('<div>' + logMsg + '</div>');
 

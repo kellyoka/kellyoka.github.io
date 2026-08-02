@@ -1,0 +1,56 @@
+[
+  {
+    "droneTypeId": 1,
+    "name": "Type-I",
+    "speed": 8,
+    "endurance": 3,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 2,
+    "name": "Type-II",
+    "speed": 12,
+    "endurance": 2,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 3,
+    "name": "Type-III",
+    "speed": 12,
+    "endurance": 25,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 4,
+    "name": "Type-IV",
+    "speed": 8,
+    "endurance": 3,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 5,
+    "name": "Type-V",
+    "speed": 12,
+    "endurance": 2,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 6,
+    "name": "Type-VI",
+    "speed": 12,
+    "endurance": 1,
+    "damage": 8,
+    "hitPoints": 3,
+    "space": 0.5
+  }
+]
