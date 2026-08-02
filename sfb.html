@@ -43,6 +43,11 @@
             // loaded, mirroring the sum of every rack's initial loadout.
             this.droneStockpile = {}; // { "Type-I": 4, "Type-IV": 2, ... }
             this.droneStockpileSpaceMax = 0; // fixed total space capacity (sum of all racks' capacities)
+            // ADD reload stockpile: unlike drones, ADD ammo isn't typed, so
+            // this is just a plain count - sized to 2x the combined charge
+            // capacity of all ADD racks on the ship ("two sets of reloads").
+            // Populated by setupADDCharges() once weaponList is loaded.
+            this.addStockpile = 0;
         }
         var shipList = [];
 
@@ -99,6 +104,13 @@
             this.droneLoadout = {}; // { "Type-I": 2, "Type-IV": 1, ... }
             this.droneInitialLoadout = {};
             this.bReloading = false; // set true for the turn a rack is disabled to reload from the ship's stockpile
+            // ADD racks (weaponClassId 5) only: a flat charge count instead
+            // of power or a drone magazine - no types, no space-weighting,
+            // just decrementing by 1 per shot. Populated by
+            // setupADDCharges() once weaponList is loaded.
+            this.chargesMax = 0;
+            this.chargesCurrent = 0;
+            this.addFiredThisTurn = false; // ADD only: tracked separately from bFired (which ADD never sets) so endTurn() can grant the didn't-fire-last-turn reload bonus
         }
 
         function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess) {
@@ -401,8 +413,17 @@
                         }
                         wEntry.droneLoadout = {};
                         addLoadoutInto(wEntry.droneLoadout, wEntry.droneInitialLoadout);
-                        addLoadoutInto(stockpile, wEntry.droneInitialLoadout);
-                        stockpileSpaceMax += capacity;
+                        // ADD-Charge (Drone-G's hybrid ammo, see fireADD())
+                        // doesn't count toward the drone stockpile - it
+                        // reloads from the separate ship.addStockpile pool
+                        // instead, with its own rules (2x capacity, +4/turn
+                        // if unused, no manual reload checkbox)
+                        var droneOnlyLoadout = {};
+                        for (var t in wEntry.droneInitialLoadout) {
+                            if (t != 'ADD-Charge') droneOnlyLoadout[t] = wEntry.droneInitialLoadout[t];
+                        }
+                        addLoadoutInto(stockpile, droneOnlyLoadout);
+                        stockpileSpaceMax += capacity - droneLoadoutSpaceUsed({ 'ADD-Charge': wEntry.droneInitialLoadout['ADD-Charge'] || 0 });
                     }
                 }
                 ship.droneStockpile = stockpile;
@@ -410,8 +431,42 @@
             }
         }
 
+        // ADD racks (weaponClassId 5): populates each rack's flat charge
+        // count from its catalog entry (weaponList[...].powerCost,
+        // repurposed for ADD the same way it's repurposed as space
+        // capacity for drone racks - ADD doesn't use ship power at all).
+        // Also seeds the ship's shared reload stockpile: a plain int (ADD
+        // ammo isn't typed, unlike drones), sized to 2x the combined charge
+        // capacity of every ADD rack on the ship ("two sets of reloads"),
+        // PLUS 2x however much ADD-Charge ammo Drone-G's initial loadout
+        // allocated (see DRONE_G_WEAPON_TYPE_ID) - it draws from this same
+        // pool for its hybrid ADD mode. Must run after setupDroneLoadouts()
+        // so Drone-G's droneInitialLoadout is already populated.
+        function setupADDCharges() {
+            for (var s = 0; s < shipList.length; s++) {
+                var ship = shipList[s];
+                var totalCapacity = 0;
+                for (var w = 0; w < ship.shipWeapons.length; w++) {
+                    var wEntry = ship.shipWeapons[w];
+                    if (wEntry.weaponClassId == ADD_WEAPON_CLASS_ID) {
+                        for (var y = 0; y < weaponList.length; y++) {
+                            if (weaponList[y].weaponTypeId == wEntry.weaponTypeId) {
+                                wEntry.chargesMax = weaponList[y].powerCost;
+                                wEntry.chargesCurrent = weaponList[y].powerCost;
+                                totalCapacity += weaponList[y].powerCost;
+                            }
+                        }
+                    } else if (wEntry.weaponTypeId == DRONE_G_WEAPON_TYPE_ID) {
+                        totalCapacity += wEntry.droneInitialLoadout['ADD-Charge'] || 0;
+                    }
+                }
+                ship.addStockpile = totalCapacity * 2;
+            }
+        }
+
         function initGame() {
             setupDroneLoadouts();
+            setupADDCharges();
             plotShip(1);
             plotShip(2);
             /* DEAD CODE - matches the disabled ships 3-9 above; would need
@@ -426,23 +481,6 @@
          */
 
             var str = '';
-            /* DEAD CODE - debug scratchpad checking impluseChart[10] against
-               ship speeds, plus a stray duplicate shipType definition.
-               Superseded by the live writeImpulseChart()/oneImpluse().
-            a = impluseChart[10];
-            // impluseChart[10] = [7, 10, 13, 14, 16, 17, 20, 21, 23, 24, 26, 27, 28, 29, 30, 31, 32];
-
-            str += '<div>imp=10 s=' + shipList[0].speed + ' shipList[0]=' + a.includes(shipList[0].speed) + '</div>';
-            str += '<div>imp=10 s=' + shipList[1].speed + ' shipList[1]=' + a.includes(shipList[1].speed) + '</div>';
-            str += '<div>imp=10 s=' + shipList[2].speed + ' shipList[2]=' + a.includes(shipList[2].speed) + '</div>';
-            str += '<div>imp=10 s=' + shipList[3].speed + ' shipList[3]=' + a.includes(shipList[3].speed) + '</div>';
-            str += '<div>imp=10 s=' + shipList[4].speed + ' shipList[4]=' + a.includes(shipList[4].speed) + '</div>';
-
-
-            $('#dataDiv').append(str);
-
-        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap ) {
-            */
             //oneTurn();
 
             drawGrid(1640, 1340);
@@ -535,67 +573,6 @@ $('#dataDiv').append(str);
         */
 
         // end turn functions
-        /* DEAD CODE - an early pixel/thrust-vector based movement prototype
-           (addThrust, xMove/yMove, a pixel-coordinate moveShip(sId) and
-           showStatus()) from before the game settled on discrete hex-grid
-           movement. shipList entries have no xMove/yMove fields today (the
-           live shipType constructor doesn't set them), so nothing here
-           could run even if un-commented without further rework.
-           Superseded entirely by the hex-based turnShip()/moveShip(sId, m)
-           pair further down.
-
-        function addThrust(sId, thrust) {
-            var a = 0;
-            var x = 0;
-            var y = 0;
-            for (var z = 0; z < shipList.length; z++) {
-                if (shipList[z].userId == sId) {
-                    a = 90 - shipList[z].facing;
-                    if (a < 0) a += 360;
-                    y = Math.round(Math.sin(a * (Math.PI / 180)) * 100 * thrust) / 100;
-                    x = Math.round(Math.cos(a * (Math.PI / 180)) * 100 * thrust) / 100;
-
-                    shipList[z].xMove += x;
-                    shipList[z].yMove += y;
-$('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a + ' x=' + x + ' y=' + y + '</div>');
-                }
-            }
-        }
-
-        function moveShip(sId) {
-            for (var z = 0; z < shipList.length; z++) {
-                if (shipList[z].userId == sId) {
-                    shipList[z].xCord = Math.round((shipList[z].xCord + shipList[z].xMove) * 100) / 100;
-                    shipList[z].yCord = Math.round((shipList[z].yCord + shipList[z].yMove) * 100) / 100;
-
-                    $('#ship' + sId).css({
-                        'left': (shipList[z].xCord - 10), 'bottom': (shipList[z].yCord - 10)
-                    });
-                    showStatus(sId);  // update status
-
-                    break;
-                }
-            }
-
-
-            // reset ships & stuff
-            $('#weaponArc').remove();
-            $('.shipDiv').removeClass('selShipColor');
-            selTargetShipId = -1;
-            selTShield = 0; selTRange = 0;
-
-            $('.weaponFireDiv').removeClass('selWeapon').removeClass('dimWeapon').removeClass('firedWeapon');
-            var s = '';
-            for (var z = 0; z < shipList[curShipArrId].shipWeapons.length; z++) {
-                s = $('#weapon' + curShipId + '-' + z).html();
-                s = s.replace('-F', '');
-                $('#weapon' + curShipId + '-' + z).html(s);
-            }
-
-            // add power to system
-            shipList[curShipArrId].phaserCap++;
-        }
-        */
 
 
         function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
@@ -672,8 +649,16 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             }
             if (!drone || drone.bDestroyed) return;
 
-            selTargetDroneId = droneId;
-            selTargetShipId = -1;
+            // a ship can inspect its own drone's status, but can't select it
+            // as an attack target - leave any existing target selection
+            // alone rather than clearing it out from under the player
+            var isOwnDrone = (drone.ownerShipId == curShipId);
+            if (isOwnDrone) {
+                selTargetDroneId = -1;
+            } else {
+                selTargetDroneId = droneId;
+                selTargetShipId = -1;
+            }
 
             setTargetHexHighlightAtCoords(drone.xCord, drone.yCord);
 
@@ -682,7 +667,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 if (shipList[z].userId == drone.ownerShipId) { ownerName = shipList[z].name; }
             }
 
-            var str = '<div style="float:left;">Target: Drone #' + drone.id + '</div>';
+            var str = '<div style="float:left;">' + (isOwnDrone ? 'Your Drone #' + drone.id + ' (can\'t target your own)' : 'Target: Drone #' + drone.id) + '</div>';
             str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Launched by: ' + ownerName + '</div>';
@@ -931,20 +916,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         }
 
 
-        function storeGuess(event) {
-            var x = event.offsetX;
-            var y = event.offsetY;
-            var guessX = x;
-            var guessY = y;
-            var h = findHex(x, y);
-            //$('#dataDiv').html('x coords: ' + guessX + ', y coords: ' + guessY + ' h=' + h);
-        }
-        function findHex(x, y) {
-            var xh = Math.floor((x - 6) / 37.5) + 1;
-            var yh = Math.floor(((y - 4) - (((xh % 2 == 1) ? 0 : 1) * 20)) / 43.3) + 1;
-            var h = xh + ' ' + yh;
-            return h;
-        }
+
 
 
         // draw hex map & grid numbers
@@ -1621,6 +1593,12 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     // discharges and must be paid for again next turn.
                     // (photons are unaffected - their multi-round loading
                     // and maintenance mechanic is unchanged)
+                    // captured BEFORE bFired resets below - needed for the
+                    // ADD/Drone-G reload check further down, which cares
+                    // whether the weapon fired (in ANY mode) during the
+                    // turn that just ended
+                    var firedLastTurn = wEntry.bFired || wEntry.addFiredThisTurn;
+
                     if (wEntry.bArmed && isDisruptorWeaponTypeId(wEntry.weaponTypeId)) {
                         $('#dataDiv').append('<div>' + shipList[s].name + '\'s disruptor [' + w + '] charge lost - did not fire</div>');
                         wEntry.bArmed = false;
@@ -1629,6 +1607,43 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     wEntry.bFired = false;
                     wEntry.impFired = 0;
                     wEntry.bReloading = false;
+
+                    // ADD racks (and Drone-G, firing in its hybrid ADD
+                    // mode): if a rack didn't fire even once - in ANY mode,
+                    // for Drone-G - during the turn that just ended, it
+                    // recovers up to 4 charges from the ship's shared
+                    // stockpile. Dedicated ADD racks store charges directly
+                    // (chargesCurrent/chargesMax); Drone-G's ADD-Charge
+                    // ammo lives in its shared drone loadout instead, so its
+                    // headroom is whatever rack space isn't already used.
+                    // Checked here (turn boundary, right before the new
+                    // turn's energy allocation) rather than in the popup
+                    // itself, so it runs exactly once per turn no matter how
+                    // many times that popup gets opened/re-rendered.
+                    if (wEntry.weaponClassId == ADD_WEAPON_CLASS_ID) {
+                        if (!firedLastTurn) {
+                            var addReloadAmt = Math.min(4, wEntry.chargesMax - wEntry.chargesCurrent, shipList[s].addStockpile);
+                            if (addReloadAmt > 0) {
+                                wEntry.chargesCurrent += addReloadAmt;
+                                shipList[s].addStockpile -= addReloadAmt;
+                                $('#dataDiv').append('<div>' + shipList[s].name + '\'s ADD [' + (w + 1) + '] didn\'t fire last turn - reloads +' + addReloadAmt + ' charges (' + wEntry.chargesCurrent + '/' + wEntry.chargesMax + ', stockpile ' + shipList[s].addStockpile + ')</div>');
+                            }
+                        }
+                        wEntry.addFiredThisTurn = false; // reset for the new turn
+                    } else if (wEntry.weaponTypeId == DRONE_G_WEAPON_TYPE_ID) {
+                        if (!firedLastTurn) {
+                            var addChargeSpace = getDroneTypeByName('ADD-Charge').space; // 0.5 - two charges fit per space
+                            var droneGHeadroomSpace = wEntry.droneRackSpaceCapacity - droneLoadoutSpaceUsed(wEntry.droneLoadout);
+                            var droneGHeadroomUnits = Math.floor(droneGHeadroomSpace / addChargeSpace);
+                            var droneGReloadAmt = Math.min(4, droneGHeadroomUnits, shipList[s].addStockpile);
+                            if (droneGReloadAmt > 0) {
+                                wEntry.droneLoadout['ADD-Charge'] = (wEntry.droneLoadout['ADD-Charge'] || 0) + droneGReloadAmt;
+                                shipList[s].addStockpile -= droneGReloadAmt;
+                                $('#dataDiv').append('<div>' + shipList[s].name + '\'s Drone G [' + (w + 1) + '] didn\'t fire last turn - reloads +' + droneGReloadAmt + ' ADD charges (' + wEntry.droneLoadout['ADD-Charge'] + ', stockpile ' + shipList[s].addStockpile + ')</div>');
+                            }
+                        }
+                        wEntry.addFiredThisTurn = false; // reset for the new turn
+                    }
                 }
                 // phaserCap no longer auto-recharges - it's set entirely by
                 // energy allocation now (see startEnergyAllocation() below)
@@ -1666,25 +1681,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             $('#' + str + 'PopUpDiv').css('display', 'block');
         }
 
-        /* DEAD CODE - old debug function that built a text summary of which
-           ships move/turn/slip on a given impulse. Superseded by the live
-           oneImpluse()/writeImpulseChart() pipeline.
-        function impluseMove(imp) {
-            shipList.sort(speedSort);
-            var str = '';
-            var aS = impluseChart[imp];
-            for (var x = 0; x < shipList.length; x++) {
-                bTurn = false;
-                bSlip = false;
-                if (aS.includes(shipList[x].speed)) {
-                    if (shipList[x].turnMarker == 0) bTurn = true;
-                    bSlip = shipList[x].sideSlip;
-                    str += '<div>ShipId=' + shipList[x].userId + ' speed=' + shipList[x].speed + ' bTurn=' + bTurn + ' bSlip=' + bSlip + '</div>';
-                }
-            }
-            return str;
-        }
-        */
 
         function shipMovePopUp(sId) {
             var arrId1 = -1;
@@ -1866,6 +1862,9 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
                 str += '</div>';
+                if (thisWClass == ADD_WEAPON_CLASS_ID) {
+                    str += '<div style="font-size:11px;color:#666;">' + shipList[arrId].shipWeapons[z].chargesCurrent + '/' + shipList[arrId].shipWeapons[z].chargesMax + ' charges (stockpile: ' + shipList[arrId].addStockpile + ')</div>';
+                }
                 str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
                 var isReady = weaponReady(shipList[arrId].shipWeapons[z]);
                 var needsArm = isHeavyWeaponClass(thisWClass);
@@ -1876,33 +1875,48 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 else if (needsArm && !isArmed) { str += ' dimWeapon'; }
                 else if (thisWClass == 4 && shipList[arrId].shipWeapons[z].bReloading) { str += ' dimWeapon'; }
                 else if (thisWClass == 4 && droneLoadoutCount(shipList[arrId].shipWeapons[z].droneLoadout) <= 0) { str += ' dimWeapon'; }
+                else if (thisWClass == ADD_WEAPON_CLASS_ID && shipList[arrId].shipWeapons[z].chargesCurrent <= 0) { str += ' dimWeapon'; }
                 else if (selTargetShipId != -1) {
-                    var arc = findFacing(curShipId, selTargetShipId);
-                    var rangeToTarget = findDist(curShipId, selTargetShipId);
-                    var thisWeaponEntry = shipList[arrId].shipWeapons[z];
-                    var isOverloadedDisruptor = isDisruptorWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
-                    var isOverloadedPhoton = isPhotonWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
-                    var effMinRange = (isOverloadedDisruptor || isOverloadedPhoton) ? 0 : thisMinRange;
-                    var effMaxRange = isOverloadedDisruptor ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhoton ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
-                    if (rangeToTarget < effMinRange || rangeToTarget > effMaxRange) {
-                        str += ' dimWeapon';
-                    }
-                    else if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
-                        str += ' canTargetHighlight" onclick="' + (thisWClass == 4 ? 'chooseDroneTypeAndFire(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ',\'ship\');' : 'fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');') + '';
-                    }
-                    else {
-                        str += ' dimWeapon';
+                    // ADD can only ever engage sizeClass-6 ships (shuttles/
+                    // fighters) - never a normal ship, regardless of range
+                    if (thisWClass == ADD_WEAPON_CLASS_ID) {
+                        var addTargetArrId = -1;
+                        for (var zz = 0; zz < shipList.length; zz++) { if (shipList[zz].userId == selTargetShipId) { addTargetArrId = zz; } }
+                        var addTargetSizeOk = (addTargetArrId != -1 && shipList[addTargetArrId].sizeClass == 6);
+                        var addRange = findDist(curShipId, selTargetShipId);
+                        if (!addTargetSizeOk || addRange > thisMaxRange) {
+                            str += ' dimWeapon';
+                        } else {
+                            str += ' canTargetHighlight" onclick="fireADD(' + arrId + ',' + z + ',\'ship\',' + selTargetShipId + ',0);';
+                        }
+                    } else {
+                        var arc = findFacing(curShipId, selTargetShipId);
+                        var rangeToTarget = findDist(curShipId, selTargetShipId);
+                        var thisWeaponEntry = shipList[arrId].shipWeapons[z];
+                        var isOverloadedDisruptor = isDisruptorWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
+                        var isOverloadedPhoton = isPhotonWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
+                        var effMinRange = (isOverloadedDisruptor || isOverloadedPhoton) ? 0 : thisMinRange;
+                        var effMaxRange = isOverloadedDisruptor ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhoton ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
+                        if (rangeToTarget < effMinRange || rangeToTarget > effMaxRange) {
+                            str += ' dimWeapon';
+                        }
+                        else if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
+                            str += ' canTargetHighlight" onclick="' + (thisWClass == 4 ? 'chooseDroneTypeAndFire(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ',\'ship\');' : 'fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');') + '';
+                        }
+                        else {
+                            str += ' dimWeapon';
+                        }
                     }
                 }
                 else if (selTargetDroneId != -1) {
-                    // direct-fire weapons (phasers/disruptors) and drone
-                    // racks can engage a drone; other classes can't
+                    // direct-fire weapons (phasers/disruptors), drone
+                    // racks, and ADD can engage a drone; other classes can't
                     // NOTE: heavy weapons vs drones will likely get their own
                     // dedicated rules later - for now this just mirrors the
                     // ship-targeting overload min/max range bypass above so
                     // an overloaded disruptor/photon behaves consistently
                     // regardless of target type.
-                    if (thisWClass != 1 && thisWClass != 2 && thisWClass != 4) {
+                    if (thisWClass != 1 && thisWClass != 2 && thisWClass != 4 && thisWClass != ADD_WEAPON_CLASS_ID) {
                         str += ' dimWeapon';
                     } else {
                         var dArc = findFacingToDrone(curShipId, selTargetDroneId);
@@ -1919,6 +1933,14 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                                 str += ' canTargetHighlight" onclick="chooseDroneTypeAndFire(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ',\'drone\');';
                             } else {
                                 str += ' dimWeapon';
+                            }
+                        } else if (thisWClass == ADD_WEAPON_CLASS_ID) {
+                            // ADD racks are 360-arc mounts, so arc never
+                            // gates them - only range matters
+                            if (droneRange > thisMaxRange) {
+                                str += ' dimWeapon';
+                            } else {
+                                str += ' canTargetHighlight" onclick="fireADD(' + arrId + ',' + z + ',\'drone\',' + selTargetDroneId + ',' + dArc + ');';
                             }
                         } else {
                             var droneWeaponEntry = shipList[arrId].shipWeapons[z];
@@ -2175,15 +2197,46 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             var typesPresent = [];
             for (var t in rack.droneLoadout) { if (rack.droneLoadout[t] > 0) typesPresent.push(t); }
 
+            // ADD-Charge (Drone-G's hybrid ammo) can only ever be used
+            // against a drone or a sizeClass-6 ship, same restriction
+            // dedicated ADD racks are held to - filter it out of the
+            // choices entirely when the current target doesn't qualify
+            if (typesPresent.indexOf('ADD-Charge') != -1) {
+                var addValidTarget = true;
+                if (targetType == 'ship') {
+                    var tArrId = -1;
+                    for (var z = 0; z < shipList.length; z++) { if (shipList[z].userId == tsId) { tArrId = z; } }
+                    addValidTarget = (tArrId != -1 && shipList[tArrId].sizeClass == 6);
+                }
+                if (!addValidTarget) {
+                    typesPresent = typesPresent.filter(function (t) { return t != 'ADD-Charge'; });
+                }
+            }
+
+            if (typesPresent.length == 0) {
+                var strEmpty = '<div>No usable ammo for this target.</div>';
+                strEmpty += '<div class="button" style="margin-top:8px;" onclick="shipFirePopUp();">Back</div>';
+                $('#fireShipPopUpDiv').html(strEmpty).css('display', 'block');
+                return;
+            }
+
             if (typesPresent.length <= 1) {
-                fireWeapon(sArrId, wArrId, tsId, arc, targetType, typesPresent[0]);
+                var onlyType = typesPresent[0];
+                if (onlyType == 'ADD-Charge') {
+                    fireADD(sArrId, wArrId, targetType, tsId, arc);
+                } else {
+                    fireWeapon(sArrId, wArrId, tsId, arc, targetType, onlyType);
+                }
                 return;
             }
 
             var str = '<div style="font-weight:bold;">Choose drone type to fire:</div>';
             for (var i = 0; i < typesPresent.length; i++) {
                 var t = typesPresent[i];
-                str += '<div class="weaponFireDiv canTargetHighlight" onclick="fireWeapon(' + sArrId + ',' + wArrId + ',' + tsId + ',' + arc + ',\'' + targetType + '\',\'' + t + '\');">' + t + ' x' + rack.droneLoadout[t] + '</div>';
+                var onclickCall = (t == 'ADD-Charge')
+                    ? 'fireADD(' + sArrId + ',' + wArrId + ',\'' + targetType + '\',' + tsId + ',' + arc + ');'
+                    : 'fireWeapon(' + sArrId + ',' + wArrId + ',' + tsId + ',' + arc + ',\'' + targetType + '\',\'' + t + '\');';
+                str += '<div class="weaponFireDiv canTargetHighlight" onclick="' + onclickCall + '">' + t + ' x' + rack.droneLoadout[t] + '</div>';
             }
             str += '<div class="button" style="margin-top:8px;" onclick="shipFirePopUp();">Cancel</div>';
             $('#fireShipPopUpDiv').html(str).css('display', 'block');
@@ -2437,6 +2490,111 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 selTargetDroneId = -1;
                 clearTargetHexHighlight();
                 $('#targetShipPopUpDiv').css('display', 'none');
+            }
+
+            shipFirePopUp();
+        }
+
+        // fires an ADD (Anti-Drone Device) rack, OR Drone-G firing in its
+        // hybrid ADD mode. Unlike every other weapon:
+        // - ammo is a flat charge count, not ship power - for a dedicated
+        //   ADD rack that's chargesCurrent; for Drone-G it's the
+        //   "ADD-Charge" entry in its shared drone loadout instead (see
+        //   DRONE_G_WEAPON_TYPE_ID)
+        // - no cooldown at all (see weaponReady()'s early-exit for ADD, and
+        //   its addFiredThisTurn cross-check for Drone-G)
+        // - can ONLY target drones or sizeClass-6 ships (shuttles/fighters) -
+        //   the UI gating in shipFirePopUp() already restricts selection to
+        //   these, so this function trusts the target it's given
+        // - a hit on a drone is an instant kill regardless of its HP
+        // - a hit on a sizeClass-6 ship rolls a separate 1d6 for 1-6 damage,
+        //   applied through the normal shield/damageList pipeline
+        // NOTE: no ship in the current scenario is sizeClass 6, so the
+        // ship-targeting branch below is implemented but currently
+        // unreachable/untested in practice - only the drone-targeting path
+        // can actually be exercised right now.
+        function fireADD(sArrId, wArrId, targetType, targetId, arc) {
+            var launcher = shipList[sArrId];
+            var wEntry = launcher.shipWeapons[wArrId];
+            var isDroneG = (wEntry.weaponTypeId == DRONE_G_WEAPON_TYPE_ID);
+
+            // Drone-G's catalog entry ("Drone G") has no damage table of its
+            // own - when firing in ADD mode it uses ADD-6's to-hit table,
+            // since no distinct table was specified for the hybrid case
+            var weapon = null;
+            for (var y = 0; y < weaponList.length; y++) {
+                if (weaponList[y].weaponTypeId == wEntry.weaponTypeId && !isDroneG) { weapon = weaponList[y]; }
+                if (isDroneG && weaponList[y].weaponName == 'ADD-6') { weapon = weaponList[y]; }
+            }
+            if (!weapon) { shipFirePopUp(); return; }
+
+            var ammoAvailable = isDroneG ? (wEntry.droneLoadout['ADD-Charge'] || 0) : wEntry.chargesCurrent;
+            if (ammoAvailable <= 0) { shipFirePopUp(); return; }
+
+            // NOTE: bFired intentionally NOT set here - ADD has no
+            // once-per-turn or recycle limit (see weaponReady())
+            wEntry.lastFiredAbsImpulse = currentAbsoluteImpulse();
+            wEntry.impFired = impulse;
+            if (isDroneG) {
+                wEntry.droneLoadout['ADD-Charge'] -= 1;
+            } else {
+                wEntry.chargesCurrent -= 1;
+            }
+            wEntry.addFiredThisTurn = true; // tracked for endTurn()'s didn't-fire-last-turn reload bonus, and for Drone-G's cross-mode exclusivity in weaponReady()
+
+            var range = (targetType == 'drone') ? findDistToDrone(launcher.userId, targetId) : findDist(launcher.userId, targetId);
+            var r = rollD6();
+            var hits = null;
+            try { hits = getDamage(weapon, range); } catch (e) { hits = null; }
+            var isHit = hits && (r <= hits[0]);
+
+            var displayName = isDroneG ? 'Drone G (ADD mode)' : weapon.weaponName;
+            var remainingAmmo = isDroneG ? (wEntry.droneLoadout['ADD-Charge'] || 0) : wEntry.chargesCurrent;
+            var ammoNote = isDroneG ? (remainingAmmo + ' charges left') : (remainingAmmo + '/' + wEntry.chargesMax + ' charges left');
+            var rollStr = '<div>' + launcher.name + ' - ' + displayName + ' roll ' + r + ' (' + ammoNote + ')';
+
+            if (targetType == 'drone') {
+                var drone = null;
+                for (var i = 0; i < activeDrones.length; i++) { if (activeDrones[i].id == targetId) { drone = activeDrones[i]; } }
+                if (!drone || drone.bDestroyed) { shipFirePopUp(); return; }
+
+                if (isHit) {
+                    rollStr += ' -- HIT, drone destroyed</div>';
+                    $('#dataDiv').append(rollStr);
+                    removeActiveDrone(drone);
+                    if (selTargetDroneId == targetId) {
+                        selTargetDroneId = -1;
+                        clearTargetHexHighlight();
+                        $('#targetShipPopUpDiv').css('display', 'none');
+                    }
+                } else {
+                    rollStr += ' miss</div>';
+                    $('#dataDiv').append(rollStr);
+                }
+            } else {
+                var targetArrId = -1;
+                for (var z = 0; z < shipList.length; z++) { if (shipList[z].userId == targetId) { targetArrId = z; } }
+                if (targetArrId == -1) { shipFirePopUp(); return; }
+
+                if (isHit) {
+                    var dmg = rollD6();
+                    var shieldFacingBearing = findFacing(targetId, launcher.userId);
+                    var shieldNum = shieldFacing(shieldFacingBearing);
+                    rollStr += ' -- ' + dmg + ' damage to shield #' + shieldNum + '</div>';
+                    $('#dataDiv').append(rollStr);
+
+                    var bAdded = false;
+                    for (var z = 0; z < damageList.length; z++) {
+                        if (damageList[z].targetId == targetId && damageList[z].shield == shieldNum) {
+                            damageList[z].damage += dmg;
+                            bAdded = true;
+                        }
+                    }
+                    if (!bAdded) damageList[damageList.length] = new damageListType(targetId, shieldNum, dmg);
+                } else {
+                    rollStr += ' miss</div>';
+                    $('#dataDiv').append(rollStr);
+                }
             }
 
             shipFirePopUp();
@@ -2705,106 +2863,11 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                 target.bDestroyed = true;
                 bDamage = true;
             }
-            /* DEAD CODE - stray scratch fragment (an old findFacing/
-               weaponInArc snippet plus duplicate weaponEntryType/weaponType
-               constructor definitions from the pre-refactor weapon system).
-               Sits between this function's real logic and its `return
-               bDamage;` below - comments don't break control flow, so that
-               return statement IS live and this function does work
-               correctly despite the fragment sitting in the middle.
-             *
-             *
-                var arc = findFacing(curShipId, selTargetShipId);
-                if (weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
-
-                            shipList[0].shipWeapons[0] = new weaponEntryType(1, 1, 1, 300, 120, 0, 0);
-
-function weaponEntryType(shipWeaponId, weaponTypeId, weaponClassId, startP, arc, startP2, arc2) {
-                                this.shipWeaponId = shipWeaponId;
-                                this.weaponTypeId = weaponTypeId;
-                                this.startP = startP;
-                                this.arc = arc;
-                                this.startP2 = startP2;
-                                this.arc2 = arc2;
-                                this.bFired = false;
-                                this.bDestroyed = false;
-                            }
-
-
-        function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, powerCost ) {
-            this.weaponTypeId = weaponTypeId;
-            this.weaponClassId = weaponClassId;
-            this.weaponName = weaponName;
-            this.effRange = effRange;
-            this.powerCost = powerCost;
-        }
-        var weaponList = [];
-        weaponList[0] = new weaponType(1, 1, 'Phaser 1', 75, 1);
-             */
 
             return bDamage;
         }
 
 
-        /* DEAD CODE - old damageShield(wtId, range) function and an
-           eval-based shield-damage snippet that incorrectly wrote to
-           shipList[z].shieldN (ships don't have shield fields - only
-           shipInternals entries do). Superseded by the live
-           fireWeapon()/applyDamage()/damageShip() pipeline.
-        function damageShield(wtId, range) {
-            var d = 0;
-            var s = 0;
-            var arrId = -1;
-            var r = 0;
-
-var w = '';
-w = '<div>wtId=' + wtId + ' r=' + range;
-            for (var z = 0; z < weaponList.length; z++)
-                if (weaponList[z].weaponTypeId == wtId)
-                    arrId = z;
-
-            if (weaponList[arrId].weaponClassId == 1) {
-                if (range < 20) { d = weaponList[arrId].maxDam; w += '  damClass=0'; }
-                else if (range < ((weaponList[arrId].effRange - 1) * 20)) {
-                    d = Math.round(((240 - range + (weaponList[arrId].eff * 20)) / 320) * weaponList[arrId].maxDam); w += '  damClass=1';
-                }
-                else if (range <= (weaponList[arrId].effRange * 20)) {
-                    d = Math.round(((240 - range + (weaponList[arrId].eff * 10)) / 320) * weaponList[arrId].maxDam); w += '  damClass=2';
-                }
-                else if (range <= (weaponList[arrId].maxRange * 20)) {
-                    d = Math.round((((weaponList[arrId].maxRange * 20) - range) / (weaponList[arrId].maxRange * 20)) * weaponList[arrId].extDam); w += '  damClass=3';
-                }
-                else { d = 0; w += '  damClass=4'; }
-w += ' rawD=' + d;
-                if (d > 0) {
-                    r = (Math.floor(Math.random() * 100) - 50) / 100;
-w += '  rnd=' + r;
-                    d = Math.round((1 + r) * d / 6);
-                }
-            }
-w += ' d=' + d + ' ef=' + weaponList[arrId].eff + '  er=' + weaponList[arrId].effRange + ' mr=' + weaponList[arrId].maxRange + '</div>'
-$('#dataDiv').append(w);
-
-            //function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, maxRange, maxDam, extDam, eff, powerCost)
-            //weaponList[0] = new weaponType(1, 1, 'Phaser 1', 5, 75, 40, 13, 2, 1);
-
-
-            for (var z = 0; z < shipList.length; z++) {
-                if (shipList[z].userId == selTargetShipId) {
-                    eval('s = shipList[z].shield' + selTShield);
-w = '<div>Fire Damage =' + d + ' tS=' + selTShield + ' tSId=' + selTargetShipId + ' SBefore=' + s;
-
-                    s -= d;
-                    if (s < 0) s = 0;
-                    eval('shipList[z].shield' + selTShield + ' = ' + s);
-
-w += ' sAfter=' + s + '</div> ';
-$('#dataDiv').append(w);
-                }
-            }
-            shipClick(selTargetShipId);
-        }
-        */
 
         function showShipPopUp(sId) {
             var arrId = -1;
@@ -2878,42 +2941,6 @@ $('#dataDiv').append(w);
         }
 
 
-        /* DEAD CODE - leftover fragments from the very first weapon-table
-           system (positional weaponType/weaponDamageType constructors),
-           from before it was replaced by data/weapons.json + js/weapons.js.
-           Fully superseded - see weaponEntryType/weaponList near the top
-           of the file for the live equivalents.
-        function damageListType(targetId, shield, damage) {
-        function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap ) {
-        function weaponEntryType(shipWeaponId, weaponTypeId, startP, arc, startP2, arc2) {
-            this.shipWeaponId = shipWeaponId;
-            this.weaponTypeId = weaponTypeId;
-            this.startP = startP;
-            this.arc = arc;
-            this.startP2 = startP2;
-            this.arc2 = arc2;
-            this.bFired = false;
-            this.bDestroyed = false;
-        }
-        function weaponType(weaponTypeId, weaponClassId, weaponName, effRange, powerCost ) {
-            this.damageArray = new Array();
-
-        function weaponDamageType(range, r1, r2, r3, r4, r5, r6) {
-            this.range = range;
-            this.r1 = r1;
-            this.r2 = r2;
-            this.r3 = r3;
-            this.r4 = r4;
-            this.r5 = r5;
-            this.r6 = r6;
-        }
-
-        weaponList[0] = new weaponType(1, 1, 'Phaser 1', 75, 1);
-        weaponList[0].damageArray[0] = new weaponDamageType(0, 9, 8, 7, 6, 5, 4);
-        weaponList[0].damageArray[1] = new weaponDamageType(1, 8, 7, 5, 4, 4, 4);
-        weaponList[0].damageArray[2] = new weaponDamageType(2, 7, 6, 5, 4, 4, 3);
-        weaponList[0].damageArray[3] = new weaponDamageType(3, 6, 5, 4, 4, 4, 3);
-        */
 
 
 
@@ -2948,6 +2975,19 @@ $('#dataDiv').append(w);
         var PHASER_G_WEAPON_TYPE_ID = 4;
         var WEAPON_RECYCLE_IMPULSES = 8;
         var IMPULSES_PER_TURN = 32;
+        // ADD (Anti-Drone Device) racks: weaponClassId 5. Phaser-like direct
+        // fire, but ammo is a flat charge count instead of phaser power, and
+        // (see weaponReady()) they're fully exempt from both the once-per-turn
+        // and 8-impulse recycle restrictions above - they can fire every impulse.
+        var ADD_WEAPON_CLASS_ID = 5;
+        // Drone-G (weaponTypeId 36) is a hybrid mount: its loadout can hold
+        // a mix of real drone types AND "ADD-Charge" (a pseudo drone-type,
+        // see drone-types.json) in the same shared magazine. Picking a real
+        // type at fire time launches a drone as normal; picking ADD-Charge
+        // fires it like an ADD instead (see fireADD() and weaponReady()).
+        // The two modes are mutually exclusive within a turn - see the
+        // addFiredThisTurn cross-check in weaponReady().
+        var DRONE_G_WEAPON_TYPE_ID = 36;
 
         // --- energy allocation ---
         // once per turn, before movement begins. Modeled on the actual SFB
@@ -3144,7 +3184,7 @@ $('#dataDiv').append(w);
 
             str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">General Reinforcement (' + GENERAL_REINFORCEMENT_COST + 'pt/pt):</div>';
-            str += '<div style="float:right;"><input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"> <span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span></div>';
+            str += '<div style="float:right;"><span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span> <input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
 
             str += '<div>Specific Reinforcement (1pt/pt):</div>';
@@ -3177,12 +3217,14 @@ $('#dataDiv').append(w);
                     str += '<div style="color:#999;">' + wName + ' [' + displayNumber + '] - destroyed</div>';
                 } else if (isPhotonWeaponTypeId(wEntry.weaponTypeId)) {
                     if (wEntry.loadRounds == 0) {
-                        str += '<div>' + wName + ' [' + displayNumber + '] - load round 1 (warp only, ' + PHOTON_ROUND_MIN + '-' + PHOTON_ROUND_MAX + 'pt): ';
-                        str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + PHOTON_ROUND_MAX + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                        str += '<div style="float:left;">' + wName + ' [' + displayNumber + '] - load round 1 (warp only, ' + PHOTON_ROUND_MIN + '-' + PHOTON_ROUND_MAX + 'pt):</div>';
+                        str += '<div style="float:right;"><input type="number" id="eaPhotonRound' + z + '" min="0" max="' + PHOTON_ROUND_MAX + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                        str += '<div style="clear:both;"></div>';
                     } else if (wEntry.loadRounds == 1) {
                         var maxRound2 = Math.min(PHOTON_ROUND_MAX, PHOTON_TOTAL_MAX - wEntry.investedPower);
-                        str += '<div>' + wName + ' [' + displayNumber + '] - load r2 (warp only, [' + wEntry.investedPower + '], ' + PHOTON_ROUND_MIN + '-' + maxRound2 + 'pts more): ';
-                        str += '<input type="number" id="eaPhotonRound' + z + '" min="0" max="' + maxRound2 + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                        str += '<div style="float:left;">' + wName + ' [' + displayNumber + '] - load r2 (warp only, [' + wEntry.investedPower + '], ' + PHOTON_ROUND_MIN + '-' + maxRound2 + 'pts more):</div>';
+                        str += '<div style="float:right;"><input type="number" id="eaPhotonRound' + z + '" min="0" max="' + maxRound2 + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                        str += '<div style="clear:both;"></div>';
                     } else if (wEntry.armedTurnNumber == turnNumber) {
                         str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - ready to fire this turn</div>';
                     } else {
@@ -3190,55 +3232,61 @@ $('#dataDiv').append(w);
                         var topUpMax = PHOTON_TOTAL_MAX - wEntry.investedPower;
                         str += '<div><label title="Uncheck to let it discharge"><input type="checkbox" id="eaMaintain' + z + '" checked onclick="updateEnergyAllocTotal();"> ' + wName + ' [' + displayNumber + '] (' + wEntry.loadType + ', ' + wEntry.investedPower + 'pt) - hold ' + maintCost + 'pt</label></div>';
                         if (topUpMax > 0) {
-                            str += '<div style="padding-left:20px;">Add power to overload it (warp only, 0-' + topUpMax + 'pt more): <input type="number" id="eaPhotonTopUp' + z + '" min="0" max="' + topUpMax + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                            str += '<div style="float:left;padding-left:20px;">Add power to overload it (warp only, 0-' + topUpMax + 'pt more):</div>';
+                            str += '<div style="float:right;"><input type="number" id="eaPhotonTopUp' + z + '" min="0" max="' + topUpMax + '" value="0" style="width:35px;" oninput="updateEnergyAllocTotal();"></div>';
+                            str += '<div style="clear:both;"></div>';
                         }
                     }
                 } else if (wEntry.bArmed) {
                     var armedNote = isDisruptorWeaponTypeId(wEntry.weaponTypeId) ? 'fire this turn or the charge is lost' : 'stays armed until fired';
                     str += '<div>' + wName + ' [' + displayNumber + '] - armed (' + wEntry.loadType + ', ' + armedNote + ')</div>';
                 } else if (isDisruptorWeaponTypeId(wEntry.weaponTypeId)) {
-                    str += '<div>' + wName + ' [' + displayNumber + ']: ';
-                    str += '<select id="eaArmType' + z + '" onchange="updateEnergyAllocTotal();">';
+                    str += '<div style="float:left;">' + wName + ' [' + displayNumber + ']:</div>';
+                    str += '<div style="float:right;"><select id="eaArmType' + z + '" onchange="updateEnergyAllocTotal();">';
                     str += '<option value="none">Don\'t arm</option>';
                     str += '<option value="normal">Normal (' + HEAVY_WEAPON_ARM_COST + 'pt)</option>';
                     str += '<option value="overload">Overload (' + (HEAVY_WEAPON_ARM_COST * 2) + 'pt)</option>';
                     str += '</select></div>';
+                    str += '<div style="clear:both;"></div>';
                 } else {
                     str += '<div><label><input type="checkbox" id="eaArm' + z + '" onclick="updateEnergyAllocTotal();"> Arm ' + wName + ' [' + displayNumber + ']</label></div>';
                 }
             }
 
-            str += '<div class="dividerLine"></div>';
-            str += '<div>Drone Racks (disable a rack this turn to reload up to ' + DRONE_RELOAD_AMOUNT + ' spaces from stockpile):</div>';
-            str += '<div>Stockpile: ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + '</div>';
-            for (var z = 0; z < ship.shipWeapons.length; z++) {
-                var dEntry = ship.shipWeapons[z];
-                var dClass = 0, dName = '', dDisplayNumber = z + 1;
-                for (var y = 0; y < weaponList.length; y++) {
-                    if (weaponList[y].weaponTypeId == dEntry.weaponTypeId) { dClass = weaponList[y].weaponClassId; dName = weaponList[y].weaponName; }
-                }
-                if (dClass != 4) continue;
-                var usedSpace = droneLoadoutSpaceUsed(dEntry.droneLoadout);
-                var stockpileCount = droneLoadoutCount(ship.droneStockpile);
-                if (dEntry.bDestroyed) {
-                    str += '<div style="color:#999;">' + dName + ' [' + dDisplayNumber + '] - destroyed</div>';
-                } else if (usedSpace >= dEntry.droneRackSpaceCapacity) {
-                    str += '<div>' + dName + ' [' + dDisplayNumber + '] - full (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ')</div>';
-                } else if (stockpileCount <= 0) {
-                    str += '<div>' + dName + ' [' + dDisplayNumber + '] - ' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ', stockpile empty</div>';
-                } else if (droneLoadoutCount(dEntry.droneLoadout) <= 0) {
-                    // completely empty - no "original mix" left in the rack to restore toward,
-                    // so the player picks which type from the stockpile to load in
-                    str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (empty) with: ';
-                    str += '</label><select id="eaDroneReloadType' + z + '">';
-                    for (var t in ship.droneStockpile) {
-                        if (ship.droneStockpile[t] > 0) {
-                            str += '<option value="' + t + '">' + t + ' (' + ship.droneStockpile[t] + ' in stock)</option>';
-                        }
+            var hasDroneRacks = ship.shipWeapons.some(function (w) { return w.weaponClassId == 4; });
+            if (hasDroneRacks) {
+                str += '<div class="dividerLine"></div>';
+                str += '<div>Drone Racks (disable a rack this turn to reload up to ' + DRONE_RELOAD_AMOUNT + ' spaces from stockpile):</div>';
+                str += '<div>Stockpile: ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + '</div>';
+                for (var z = 0; z < ship.shipWeapons.length; z++) {
+                    var dEntry = ship.shipWeapons[z];
+                    var dClass = 0, dName = '', dDisplayNumber = z + 1;
+                    for (var y = 0; y < weaponList.length; y++) {
+                        if (weaponList[y].weaponTypeId == dEntry.weaponTypeId) { dClass = weaponList[y].weaponClassId; dName = weaponList[y].weaponName; }
                     }
-                    str += '</select> - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</div>';
-                } else {
-                    str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ') toward original loadout - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</label></div>';
+                    if (dClass != 4) continue;
+                    var usedSpace = droneLoadoutSpaceUsed(dEntry.droneLoadout);
+                    var stockpileCount = droneLoadoutCount(ship.droneStockpile);
+                    if (dEntry.bDestroyed) {
+                        str += '<div style="color:#999;">' + dName + ' [' + dDisplayNumber + '] - destroyed</div>';
+                    } else if (usedSpace >= dEntry.droneRackSpaceCapacity) {
+                        str += '<div>' + dName + ' [' + dDisplayNumber + '] - full (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ')</div>';
+                    } else if (stockpileCount <= 0) {
+                        str += '<div>' + dName + ' [' + dDisplayNumber + '] - ' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ', stockpile empty</div>';
+                    } else if (droneLoadoutCount(dEntry.droneLoadout) <= 0) {
+                        // completely empty - no "original mix" left in the rack to restore toward,
+                        // so the player picks which type from the stockpile to load in
+                        str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (empty) with: ';
+                        str += '</label><select id="eaDroneReloadType' + z + '">';
+                        for (var t in ship.droneStockpile) {
+                            if (ship.droneStockpile[t] > 0) {
+                                str += '<option value="' + t + '">' + t + ' (' + ship.droneStockpile[t] + ' in stock)</option>';
+                            }
+                        }
+                        str += '</select> - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</div>';
+                    } else {
+                        str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ') toward original loadout - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</label></div>';
+                    }
                 }
             }
 
@@ -3599,6 +3647,17 @@ $('#dataDiv').append(w);
 
         function weaponReady(weaponEntry) {
             if (weaponEntry.bDestroyed) return false;
+            // ADD racks fire every impulse with no cooldown at all - not
+            // even the once-per-turn limit every other weapon (including
+            // Phaser-G) is still subject to below
+            if (weaponEntry.weaponClassId == ADD_WEAPON_CLASS_ID) return true;
+            // Drone-G: firing in ADD mode this turn locks out drone-launch
+            // mode for the rest of the turn too (mutual exclusivity) - even
+            // though ADD mode itself has no cooldown. This only checks the
+            // drone-launch side; ADD-mode eligibility on Drone-G is handled
+            // separately in fireADD()/chooseDroneTypeAndFire(), since it
+            // needs the opposite exemption from the recycle check below.
+            if (weaponEntry.weaponTypeId == DRONE_G_WEAPON_TYPE_ID && weaponEntry.addFiredThisTurn) return false;
             // once per turn always applies, to every weapon including Phaser-G
             if (weaponEntry.bFired) return false;
             // Phaser-G is exempt from the extra cross-turn-boundary delay below,
@@ -4394,22 +4453,6 @@ $('#dataDiv').append(w);
         <div id="dataDiv" class="popUpDiv" style="top:800px;width:400px;border:1px solid black;"></div>
 
 
-        <!--<div style="position:absolute;z-index:3;width:1200px;height:810px;" onclick="storeGuess(event);"></div>
-        </div>-->
-        <!--
-
-        <div style="float:left;">
-            <div id="shipDisplay"></div>
-
-            <div style="float:left;padding:5px;" onclick="turnShip(1, -15);">L</div>
-            <div style="float:left;padding:5px;" onclick="addThrust(1, 10);">F</div>
-            <div style="float:left;padding:5px;" onclick="turnShip(1, 15);">R</div>
-            <div style="clear:both;"></div>
-
-            <div style="padding:5px;" onclick="moveShip(1);">Turn</div>
-
-        </div>
-        -->
 
         <div style="clear:both;"></div>
 

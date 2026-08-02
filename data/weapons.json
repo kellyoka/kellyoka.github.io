@@ -390,7 +390,7 @@
         ]
       }
     ],
-    "minRange": 0
+    "minRange": 1
   },
   {
     "weaponTypeId": 11,
@@ -417,7 +417,7 @@
         4
       ]
     },
-    "minRange": 0
+    "minRange": 1
   },
   {
     "weaponTypeId": 12,
@@ -444,7 +444,7 @@
         4
       ]
     },
-    "minRange": 0
+    "minRange": 1
   },
   {
     "weaponTypeId": 13,
@@ -457,7 +457,7 @@
       {
         "range": 1,
         "hits": [
-          0,
+          6,
           8
         ]
       },
@@ -607,6 +607,41 @@
     "powerCost": 4,
     "fireRate": 1,
     "damageTable": [],
+    "minRange": 0
+  },
+  {
+    "weaponTypeId": 40,
+    "weaponClassId": 5,
+    "weaponName": "ADD-6",
+    "effRange": 3,
+    "powerCost": 6,
+    "fireRate": 1,
+    "damageTable": [
+      { "range": 0, "hits": [0] },
+      { "range": 1, "hits": [2] },
+      { "range": 2, "hits": [3] },
+      { "range": 3, "hits": [4] }
+    ],
+    "minRange": 0
+  },
+  {
+    "weaponTypeId": 41,
+    "weaponClassId": 5,
+    "weaponName": "ADD-12",
+    "effRange": 3,
+    "powerCost": 12,
+    "fireRate": 1,
+    "extends": "ADD-6",
+    "minRange": 0
+  },
+  {
+    "weaponTypeId": 42,
+    "weaponClassId": 5,
+    "weaponName": "ADD-30",
+    "effRange": 3,
+    "powerCost": 30,
+    "fireRate": 1,
+    "extends": "ADD-6",
     "minRange": 0
   }
 ]
