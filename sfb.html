@@ -1866,19 +1866,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     }
                 }
                 str += '</div>';
-                if (thisWClass == 4) {
-                    var droneRack = shipList[arrId].shipWeapons[z];
-                    var droneTypesPresent = [];
-                    for (var t in droneRack.droneLoadout) { if (droneRack.droneLoadout[t] > 0) droneTypesPresent.push(t); }
-                    str += '<div style="font-size:11px;color:#666;">' + formatDroneLoadout(droneRack.droneLoadout, droneRack.droneRackSpaceCapacity) + (droneRack.bReloading ? ' - reloading' : '') + '</div>';
-                    if (droneTypesPresent.length > 1) {
-                        str += '<div>Fire: <select id="droneTypeSelect' + curShipId + '-' + z + '">';
-                        for (var ti = 0; ti < droneTypesPresent.length; ti++) {
-                            str += '<option value="' + droneTypesPresent[ti] + '">' + droneTypesPresent[ti] + ' x' + droneRack.droneLoadout[droneTypesPresent[ti]] + '</option>';
-                        }
-                        str += '</select></div>';
-                    }
-                }
                 str += '<div id="weaponFire' + curShipId + '-' + z + '" class="weaponFireDiv';
                 var isReady = weaponReady(shipList[arrId].shipWeapons[z]);
                 var needsArm = isHeavyWeaponClass(thisWClass);
@@ -1901,7 +1888,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                         str += ' dimWeapon';
                     }
                     else if (rangeToTarget == 0 || weaponInArc(shipList[arrId].shipWeapons[z], arc)) {
-                        str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');';
+                        str += ' canTargetHighlight" onclick="' + (thisWClass == 4 ? 'chooseDroneTypeAndFire(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ',\'ship\');' : 'fireWeapon(' + arrId + ',' + z + ',' + selTargetShipId + ',' + arc + ');') + '';
                     }
                     else {
                         str += ' dimWeapon';
@@ -1929,7 +1916,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                                 str += ' dimWeapon';
                             }
                             else if (droneRange == 0 || weaponInArc(shipList[arrId].shipWeapons[z], dArc)) {
-                                str += ' canTargetHighlight" onclick="fireWeapon(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ',\'drone\');';
+                                str += ' canTargetHighlight" onclick="chooseDroneTypeAndFire(' + arrId + ',' + z + ',' + selTargetDroneId + ',' + dArc + ',\'drone\');';
                             } else {
                                 str += ' dimWeapon';
                             }
@@ -1967,7 +1954,7 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
                     readyLabel = 'not armed';
                 }
                 str += '<div style="float:left;padding-left:10px;line-height:30px;">' + readyLabel + '</div>';
-                str += '<div class="weaponInfoIconDiv' + ((selTargetShipId != -1) ? '' : ' weaponInfoIconDisabled') + '" title="Damage chart at current range" onclick="' + ((selTargetShipId != -1) ? ('showWeaponDamageInfo(' + curShipId + ',' + z + ');') : '') + '"><i class="fa-light fa-circle-info"></i></div>';
+                str += '<div class="weaponInfoIconDiv' + ((selTargetShipId != -1 || thisWClass == 4) ? '' : ' weaponInfoIconDisabled') + '" title="' + (thisWClass == 4 ? 'Rack loadout' : 'Damage chart at current range') + '" onclick="' + ((selTargetShipId != -1 || thisWClass == 4) ? ('showWeaponDamageInfo(' + curShipId + ',' + z + ');') : '') + '"><i class="fa-light fa-circle-info"></i></div>';
                 //str += '&nbsp;a=' + displayWeaponArc(shipList[arrId].shipWeapons[z]);
                 str += '<div style="clear:both;"></div>';
             }
@@ -2106,7 +2093,6 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
         // disruptors/photons show hit chance + damage since they resolve
         // as a threshold roll rather than a direct roll->damage lookup
         function showWeaponDamageInfo(sId, wArrId) {
-            if (selTargetShipId == -1) return;
             var arrId = -1;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) { arrId = z; }
@@ -2118,48 +2104,59 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             }
             if (!weapon) return;
 
-            var range = findDist(sId, selTargetShipId);
-
-            // mirror the overload min-range bypass used to gate the fire
-            // button itself, so this info popup doesn't contradict it
-            var thisEntry = shipList[arrId].shipWeapons[wArrId];
-            var isOverloadedDisruptorInfo = isDisruptorWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
-            var isOverloadedPhotonInfo = isPhotonWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
-            var infoEffMinRange = (isOverloadedDisruptorInfo || isOverloadedPhotonInfo) ? 0 : (weapon.minRange || 0);
-
             var str = '<div style="font-weight:bold;">' + weapon.weaponName + '</div>';
-            var minRangeNote = (weapon.minRange > 0) ? (', min ' + weapon.minRange + ((infoEffMinRange == 0) ? ' (waived - overloaded)' : '')) : '';
-            str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + minRangeNote + ')</div>';
 
-            if (!weapon.damageTable || weapon.damageTable.length == 0) {
-                str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
-            } else if (range < infoEffMinRange) {
-                str += '<div style="color:#900;">Target is inside minimum range (' + weapon.minRange + ') - cannot fire.</div>';
+            if (weapon.weaponClassId == 4) {
+                // drone rack: nothing here is target/range-dependent, so
+                // this works whether or not a target is currently selected -
+                // show the current loadout instead of a damage chart
+                var rack = shipList[arrId].shipWeapons[wArrId];
+                str += '<div>' + formatDroneLoadout(rack.droneLoadout, rack.droneRackSpaceCapacity) + '</div>';
+                if (rack.bReloading) { str += '<div style="color:#069;padding-top:4px;">Reloading this turn</div>'; }
             } else {
-                var hits = null;
-                try { hits = getDamage(weapon, range); } catch (e) { hits = null; }
+                if (selTargetShipId == -1) return; // everything below needs a target
+                var range = findDist(sId, selTargetShipId);
 
-                if (!hits) {
-                    str += '<div style="color:#900;">Target is out of effective range.</div>';
-                } else if (weapon.weaponClassId == 1) {
-                    // phaser: direct roll(1-6) -> damage lookup
-                    str += '<div style="font-weight:600;padding-bottom:2px;">Damage by 1d6 roll:</div>';
-                    str += '<table class="weaponInfoTable"><tr>';
-                    for (var r = 1; r <= 6; r++) str += '<th>' + r + '</th>';
-                    str += '</tr><tr>';
-                    for (var r = 1; r <= 6; r++) str += '<td>' + hits[r - 1] + '</td>';
-                    str += '</tr></table>';
-                } else if (weapon.weaponClassId == 2) {
-                    // disruptor/photon: threshold roll -> hit, then fixed damage
-                    var threshold = hits[0];
-                    var dmg = hits[1];
-                    var pct = Math.round((threshold / 6) * 100);
-                    str += '<div style="font-weight:600;">Hit chance:</div>';
-                    str += '<div>Roll 1d6, hits on ' + threshold + ' or less (' + pct + '%)</div>';
-                    str += '<div style="font-weight:600;padding-top:6px;">Damage if it hits:</div>';
-                    str += '<div>' + dmg + ' points</div>';
-                } else {
+                // mirror the overload min-range bypass used to gate the fire
+                // button itself, so this info popup doesn't contradict it
+                var thisEntry = shipList[arrId].shipWeapons[wArrId];
+                var isOverloadedDisruptorInfo = isDisruptorWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
+                var isOverloadedPhotonInfo = isPhotonWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload';
+                var infoEffMinRange = (isOverloadedDisruptorInfo || isOverloadedPhotonInfo) ? 0 : (weapon.minRange || 0);
+
+                var minRangeNote = (weapon.minRange > 0) ? (', min ' + weapon.minRange + ((infoEffMinRange == 0) ? ' (waived - overloaded)' : '')) : '';
+                str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Range to target: ' + range + ' (max ' + weapon.effRange + minRangeNote + ')</div>';
+
+                if (!weapon.damageTable || weapon.damageTable.length == 0) {
                     str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
+                } else if (range < infoEffMinRange) {
+                    str += '<div style="color:#900;">Target is inside minimum range (' + weapon.minRange + ') - cannot fire.</div>';
+                } else {
+                    var hits = null;
+                    try { hits = getDamage(weapon, range); } catch (e) { hits = null; }
+
+                    if (!hits) {
+                        str += '<div style="color:#900;">Target is out of effective range.</div>';
+                    } else if (weapon.weaponClassId == 1) {
+                        // phaser: direct roll(1-6) -> damage lookup
+                        str += '<div style="font-weight:600;padding-bottom:2px;">Damage by 1d6 roll:</div>';
+                        str += '<table class="weaponInfoTable"><tr>';
+                        for (var r = 1; r <= 6; r++) str += '<th>' + r + '</th>';
+                        str += '</tr><tr>';
+                        for (var r = 1; r <= 6; r++) str += '<td>' + hits[r - 1] + '</td>';
+                        str += '</tr></table>';
+                    } else if (weapon.weaponClassId == 2) {
+                        // disruptor/photon: threshold roll -> hit, then fixed damage
+                        var threshold = hits[0];
+                        var dmg = hits[1];
+                        var pct = Math.round((threshold / 6) * 100);
+                        str += '<div style="font-weight:600;">Hit chance:</div>';
+                        str += '<div>Roll 1d6, hits on ' + threshold + ' or less (' + pct + '%)</div>';
+                        str += '<div style="font-weight:600;padding-top:6px;">Damage if it hits:</div>';
+                        str += '<div>' + dmg + ' points</div>';
+                    } else {
+                        str += '<div style="color:#666;">Damage chart for this weapon type is not yet implemented.</div>';
+                    }
                 }
             }
 
@@ -2167,7 +2164,32 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
             $('#weaponInfoPopUpDiv').css('display', 'block');
         }
 
-        function fireWeapon(sArrId, wArrId, tsId, arc, targetType) {
+        // entry point for clicking "Fire" on a drone rack. If the rack
+        // holds only one type, there's nothing to ask - fire immediately.
+        // If it holds a mix, show a quick chooser (in place of the normal
+        // fire list) and only actually launch once a type is picked -
+        // selection happens AFTER the player commits to firing this rack,
+        // not as a standing dropdown before they've clicked anything.
+        function chooseDroneTypeAndFire(sArrId, wArrId, tsId, arc, targetType) {
+            var rack = shipList[sArrId].shipWeapons[wArrId];
+            var typesPresent = [];
+            for (var t in rack.droneLoadout) { if (rack.droneLoadout[t] > 0) typesPresent.push(t); }
+
+            if (typesPresent.length <= 1) {
+                fireWeapon(sArrId, wArrId, tsId, arc, targetType, typesPresent[0]);
+                return;
+            }
+
+            var str = '<div style="font-weight:bold;">Choose drone type to fire:</div>';
+            for (var i = 0; i < typesPresent.length; i++) {
+                var t = typesPresent[i];
+                str += '<div class="weaponFireDiv canTargetHighlight" onclick="fireWeapon(' + sArrId + ',' + wArrId + ',' + tsId + ',' + arc + ',\'' + targetType + '\',\'' + t + '\');">' + t + ' x' + rack.droneLoadout[t] + '</div>';
+            }
+            str += '<div class="button" style="margin-top:8px;" onclick="shipFirePopUp();">Cancel</div>';
+            $('#fireShipPopUpDiv').html(str).css('display', 'block');
+        }
+
+        function fireWeapon(sArrId, wArrId, tsId, arc, targetType, chosenType) {
             targetType = targetType || 'ship'; // existing callers only ever target ships, so default preserves them
             var wClass = 0;
             var weapon = null;
@@ -2192,21 +2214,19 @@ $('#dataDiv').html('<div>t=' + thrust + ' f=' + shipList[z].facing + ' a=' + a +
 
             if (wClass == 4) {
                 // seeking weapon (drone): launch a tracked object instead of
-                // resolving an instant hit. If the rack holds a mix of
-                // types, a dropdown (rendered in shipFirePopUp) lets the
-                // player pick which one launches; with only one type
-                // present there's nothing to pick, so just use it.
+                // resolving an instant hit. chosenType comes from
+                // chooseDroneTypeAndFire() when the rack holds a mix of
+                // types (it prompts before calling back in here); with
+                // only one type present there's nothing to choose, so fall
+                // back to it automatically.
                 var rack = shipList[sArrId].shipWeapons[wArrId];
-                var chosenType = null;
-                var $droneTypeSel = $('#droneTypeSelect' + curShipId + '-' + wArrId);
-                if ($droneTypeSel.length) {
-                    chosenType = $droneTypeSel.val();
-                } else {
+                var finalType = chosenType;
+                if (!finalType) {
                     for (var t in rack.droneLoadout) {
-                        if (rack.droneLoadout[t] > 0) { chosenType = t; break; }
+                        if (rack.droneLoadout[t] > 0) { finalType = t; break; }
                     }
                 }
-                launchDrone(sArrId, wArrId, targetType, tsId, weapon, chosenType);
+                launchDrone(sArrId, wArrId, targetType, tsId, weapon, finalType);
                 shipFirePopUp();
                 return;
             }

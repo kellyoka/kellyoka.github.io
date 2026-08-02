@@ -52,5 +52,113 @@
     "damage": 8,
     "hitPoints": 3,
     "space": 0.5
+  },
+  {
+    "droneTypeId": 7,
+    "name": "Type-I-M",
+    "speed": 20,
+    "endurance": 3,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 8,
+    "name": "Type-I-F",
+    "speed": 32,
+    "endurance": 3,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 9,
+    "name": "Type-II-M",
+    "speed": 20,
+    "endurance": 2,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 10,
+    "name": "Type-II-F",
+    "speed": 32,
+    "endurance": 2,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 11,
+    "name": "Type-III-M",
+    "speed": 20,
+    "endurance": 25,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 12,
+    "name": "Type-III-F",
+    "speed": 32,
+    "endurance": 25,
+    "damage": 12,
+    "hitPoints": 4,
+    "space": 1
+  },
+  {
+    "droneTypeId": 13,
+    "name": "Type-IV-M",
+    "speed": 20,
+    "endurance": 3,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 14,
+    "name": "Type-IV-F",
+    "speed": 32,
+    "endurance": 3,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 15,
+    "name": "Type-V-M",
+    "speed": 20,
+    "endurance": 2,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 16,
+    "name": "Type-V-F",
+    "speed": 32,
+    "endurance": 2,
+    "damage": 24,
+    "hitPoints": 6,
+    "space": 2
+  },
+  {
+    "droneTypeId": 17,
+    "name": "Type-VI-M",
+    "speed": 20,
+    "endurance": 1,
+    "damage": 8,
+    "hitPoints": 3,
+    "space": 0.5
+  },
+  {
+    "droneTypeId": 18,
+    "name": "Type-VI-F",
+    "speed": 32,
+    "endurance": 1,
+    "damage": 8,
+    "hitPoints": 3,
+    "space": 0.5
   }
 ]
