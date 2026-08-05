@@ -29,6 +29,25 @@
             this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
             this.sizeClass = sizeClass; // 1 (biggest) - 7 (smallest)
             this.shipWeapons = [];
+
+            // shuttles: isShuttle marks a launched shuttle itself (flat
+            // HP, no shields/DAC - see applyDamage()'s bypass for that,
+            // and no energy allocation - see showEnergyAllocPopUp()'s
+            // bypass for that). ownerShipId is only meaningful on a
+            // shuttle, pointing back to its mothership for docking.
+            // shuttleHangar/Max are only meaningful on a mothership - a
+            // simple depleting/refillable count, no per-shuttle-type
+            // magazine complexity like drone racks have.
+            this.isShuttle = false;
+            this.ownerShipId = null;
+            this.hitPoints = 0;
+            this.maxHitPoints = 0;
+            this.shuttleHangar = 0;
+            this.shuttleHangarMax = 0;
+            // how many shuttle launches (and, separately, how many
+            // landings) this ship can do per impulse - 1 for everyone for
+            // now; some ships will eventually be special-cased higher
+            this.shuttleOpsPerImpulse = 1;
             // drone ammo: a single shared magazine for the whole ship, not
             // per-rack. Capacity is the sum of every mounted drone rack's
             // capacity (weaponList[...].powerCost, repurposed as magazine
@@ -219,9 +238,13 @@
 
 
         shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8, 3);  // FED CA
+        shipList[0].shuttleHangar = 4;
+        shipList[0].shuttleHangarMax = 4;
         shipInternals[0] = new shipSystemsType(1, 2, 2, 2, 2, 0, 0, 12, 4, 0, 8, 1, 2, 3, 4, 15, 15, 0, 4, 2, 4, 30, 24, 20, 20, 20, 24, 6);
 
         shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9, 3);    //KLI D7
+        shipList[1].shuttleHangar = 2;
+        shipList[1].shuttleHangarMax = 2;
         shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
         /* DEAD CODE - ships 3-9 (NCA, F5, C9, three D6s) are commented out.
            Only CA (ship 1) and D7 (ship 2) above are actually live right
@@ -1246,12 +1269,21 @@ $('#dataDiv').append(str);
         var moveShipList = new Array();
         var seekingList = new Array();
         var launchSeekingList = new Array(); // weapons queued to launch this impulse (not yet populated by any code - stub for future drone/photon launch logic)
+        var recoverShuttleList = new Array(); // step 8: ships/shuttles eligible to dock this impulse
+        var launchShuttleList = new Array(); // step 9: ships eligible to launch a shuttle this impulse
+        var shuttleLaunchCounts = {}; // mothership userId -> launches so far this impulse, capped by shuttleOpsPerImpulse
+        var shuttleDockCounts = {}; // mothership userId -> landings so far this impulse, capped by shuttleOpsPerImpulse
         var fireShipList = new Array();
         var damageList = new Array();
 
         // --- seeking weapons (drones for now) ---
         var activeDrones = new Array(); // persists across impulses/turns until impact or expiry
         var seekingWeaponIdCounter = 1;
+        var nextShuttleUserId = 101; // distinct range from real ship userIds (1, 2, ...), purely for readability - no functional collision risk since shuttles live in shipList alongside real ships either way
+        var SHUTTLE_SPEED = 6;
+        var SHUTTLE_HITPOINTS = 6;
+        var SHUTTLE_TURN_MODE = 2; // more agile than either mothership (CA=7, D7=5) - smaller craft turns tighter
+        var SHUTTLE_PHASER_WEAPON_TYPE_ID = 3; // Phaser 3
 
         // lean v1 stats - ignoring drone rack storage/reloads and arming
         // distance for now, per the current scope
@@ -1532,23 +1564,118 @@ $('#dataDiv').append(str);
                 }
             }
 
-            // when done go to cloak --> tractor beams --> launch seeking weapons
+            cloakPhase();
+        }
+
+        // step 4: cloak/uncloak - not implemented yet, placeholder
+        function cloakPhase() {
+            tractorBeamPhase();
+        }
+
+        // step 5: tractor beams - not implemented yet, placeholder
+        function tractorBeamPhase() {
             fireSeekingWeapons();
         }
-        // cloak/uncloak
-        // tractor beams
-        // launch seeking weapons
+
+        // step 6: launch seeking weapons (drones)
         function fireSeekingWeapons() {
-            // cycle through weapons queued to launch this impulse; when none remain,
-            // move on to shields/transporters/shuttles, then direct-fire weapons
+            // cycle through weapons queued to launch this impulse; when none remain, move on
             if (launchSeekingList.length == 0)
-                fireShips();
+                shieldTransporterPhase();
             else
                 launchSeekingList.shift();
         }
-        // shield/transporters
-        // recover shuttlecraft
-        // launch shuttlecraft
+
+        // step 7: shields/transporters - shield activation itself is
+        // already handled per-turn via energy allocation, not per-impulse;
+        // transporters aren't implemented yet. Placeholder for now.
+        function shieldTransporterPhase() {
+            shuttleLaunchCounts = {};
+            shuttleDockCounts = {};
+            recoverShuttleList = shipList.map(function (s) { return s.userId; });
+            recoverShuttlecraft();
+        }
+
+        // step 8: recover shuttlecraft - offers docking to every eligible
+        // shuttle this impulse (silently skipping ships/shuttles that
+        // aren't currently in range of their mothership), then moves on
+        function recoverShuttlecraft() {
+            while (recoverShuttleList.length > 0) {
+                var sId = recoverShuttleList[0];
+                var arrId = findShipArrId(sId);
+                if (arrId == -1) { recoverShuttleList.shift(); continue; }
+                var ship = shipList[arrId];
+                if (ship.isShuttle && findDist(ship.userId, ship.ownerShipId) <= 1) {
+                    var motherArrIdCheck = findShipArrId(ship.ownerShipId);
+                    var dockLimit = (motherArrIdCheck != -1) ? shipList[motherArrIdCheck].shuttleOpsPerImpulse : 1;
+                    if ((shuttleDockCounts[ship.ownerShipId] || 0) < dockLimit) {
+                        curShipId = sId;
+                        setSelfHexHighlight(sId);
+                        recoverShuttlecraftPopUp(sId);
+                        return;
+                    }
+                }
+                recoverShuttleList.shift();
+            }
+            clearSelfHexHighlight();
+            launchShuttleList = shipList.map(function (s) { return s.userId; });
+            launchShuttlecraft();
+        }
+
+        function recoverShuttlecraftPopUp(sId) {
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var motherArrId = findShipArrId(ship.ownerShipId);
+            var str = '<div style="float:left;">Recover Shuttlecraft: ' + ship.name + '</div>';
+            str += '<div class="button" style="float:right;padding:2px 8px;" onclick="doneRecoverShuttlecraft();">Done</div>';
+            str += '<div style="clear:both;"></div>';
+            if (motherArrId != -1) {
+                str += '<div class="weaponFireDiv canTargetHighlight" onclick="dockShuttle(' + arrId + ');">Dock with ' + shipList[motherArrId].name + '</div>';
+            }
+            $('#fireShipPopUpDiv').html(str).css('display', 'block');
+        }
+
+        function doneRecoverShuttlecraft() {
+            $('#fireShipPopUpDiv').css('display', 'none');
+            recoverShuttleList.shift();
+            recoverShuttlecraft();
+        }
+
+        // step 9: launch shuttlecraft - offers launching to every ship with
+        // hangar space this impulse, then moves on to direct-fire weapons
+        function launchShuttlecraft() {
+            while (launchShuttleList.length > 0) {
+                var sId = launchShuttleList[0];
+                var arrId = findShipArrId(sId);
+                if (arrId == -1) { launchShuttleList.shift(); continue; }
+                var ship = shipList[arrId];
+                if (ship.shuttleHangar > 0 && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse) {
+                    curShipId = sId;
+                    setSelfHexHighlight(sId);
+                    launchShuttlecraftPopUp(sId);
+                    return;
+                }
+                launchShuttleList.shift();
+            }
+            clearSelfHexHighlight();
+            fireShips();
+        }
+
+        function launchShuttlecraftPopUp(sId) {
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var str = '<div style="float:left;">Launch Shuttlecraft: ' + ship.name + '</div>';
+            str += '<div class="button" style="float:right;padding:2px 8px;" onclick="doneLaunchShuttlecraft();">Done</div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchShuttle(' + arrId + ');">Launch Shuttle (' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' in hangar)</div>';
+            $('#fireShipPopUpDiv').html(str).css('display', 'block');
+        }
+
+        function doneLaunchShuttlecraft() {
+            $('#fireShipPopUpDiv').css('display', 'none');
+            launchShuttleList.shift();
+            launchShuttlecraft();
+        }
 
 
         // fire direct-fire weapons
@@ -1561,14 +1688,15 @@ $('#dataDiv').append(str);
         // covers ADD's no-cooldown exemption and Drone-G's cross-mode
         // exclusivity), armed state for heavy weapons, remaining phaser
         // capacitor, and ammo for drone racks/ADD.
-        // NOTE: once shuttles, transporters, and other per-turn ship
-        // actions exist, this will need revisiting - a ship might still
-        // have something to do in the fire phase even with zero weapons
-        // left, and simply skipping it outright would no longer be right.
+        // Shuttle launch/dock live in their own dedicated impulse phases
+        // (steps 8-9, see recoverShuttlecraft()/launchShuttlecraft()) and
+        // don't factor in here - transporters, once they exist, may need
+        // their own similar phase rather than affecting this check.
         function shipHasFireableWeapon(sId) {
             var arrId = findShipArrId(sId);
             if (arrId == -1) return false;
             var ship = shipList[arrId];
+
             for (var z = 0; z < ship.shipWeapons.length; z++) {
                 var wEntry = ship.shipWeapons[z];
                 if (wEntry.bDestroyed) continue;
@@ -1917,6 +2045,9 @@ $('#dataDiv').append(str);
             str += '<div class="button" style="float:right;padding: 2px 8px;" onclick="doneFire();">Done</div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Phaser Cap: ' + shipList[arrId].phaserCap + '</div>';
+            if (shipList[arrId].isShuttle) {
+                str += '<div>Hit Points: ' + shipList[arrId].hitPoints + '/' + shipList[arrId].maxHitPoints + '</div>';
+            }
             if (selTargetDroneId != -1) {
                 str += '<div>Target: Drone #' + selTargetDroneId + '</div>';
             }
@@ -2505,6 +2636,89 @@ $('#dataDiv').append(str);
         // fire a direct-fire weapon (phaser/disruptor) at a drone instead of
         // a ship. Drones have no shields, so damage applies straight to
         // hit points instead of going through the shield/armor/DAC pipeline.
+        // launches a shuttle from its mothership's hangar - triggered as an
+        // action in the fire popup (see shipFirePopUp()'s hangar button).
+        // The new shuttle spawns at the mothership's current position and
+        // facing, with 0 speed until its own (minimal) energy allocation
+        // sets one next turn - see showEnergyAllocPopUp()'s isShuttle
+        // bypass. It's a real shipList entry (so it gets full move/fire
+        // queue participation for free), but flat-HP (see applyDamage()'s
+        // isShuttle bypass) with no shipInternals entry at all - it never
+        // goes through shields/DAC/energy allocation.
+        function launchShuttle(sArrId) {
+            var mothership = shipList[sArrId];
+            if (mothership.shuttleHangar <= 0) return;
+
+            mothership.shuttleHangar -= 1;
+            var shuttleNum = mothership.shuttleHangarMax - mothership.shuttleHangar;
+            var shuttle = new shipType(nextShuttleUserId++, mothership.name + ' Shuttle ' + shuttleNum, mothership.xCord, mothership.yCord, mothership.facing, SHUTTLE_TURN_MODE, 0, 1, 6);
+            shuttle.isShuttle = true;
+            shuttle.ownerShipId = mothership.userId;
+            shuttle.hitPoints = SHUTTLE_HITPOINTS;
+            shuttle.maxHitPoints = SHUTTLE_HITPOINTS;
+            shuttle.shipWeapons[0] = new weaponEntryType(1, SHUTTLE_PHASER_WEAPON_TYPE_ID, 1, 0, 360, 0, 0);
+            shipList.push(shuttle);
+
+            // ships 1/2 (and the reserved-for-later 3-9) have their marker
+            // divs pre-built into the static page; a shuttle needs its
+            // marker created dynamically instead, same idea as
+            // plotSeekingWeapon() does for drones. Scaled down a bit so
+            // it visually reads as smaller than a full ship.
+            var markerStr = '<div id="ship' + shuttle.userId + '" class="shipDiv" style="background-color:#069;transform:scale(0.7);" onclick="hexEntityClick(\'ship\', ' + shuttle.userId + ');"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>';
+            $('#shipLayer').append(markerStr);
+            plotShip(shuttle.userId); // reuse the normal positioning math now that the marker div exists
+
+            $('#dataDiv').append('<div>' + mothership.name + ' launches ' + shuttle.name + ' (' + mothership.shuttleHangar + '/' + mothership.shuttleHangarMax + ' remaining in hangar)</div>');
+
+            // it launched before this impulse's direct-fire phase (step 10)
+            // runs, so let it get a chance to fire too, same impulse
+            fireShipList.push(shuttle.userId);
+
+            shuttleLaunchCounts[mothership.userId] = (shuttleLaunchCounts[mothership.userId] || 0) + 1;
+            if (shuttleLaunchCounts[mothership.userId] >= mothership.shuttleOpsPerImpulse) {
+                doneLaunchShuttlecraft(); // hit this impulse's limit - move on to the next ship
+            } else {
+                launchShuttlecraftPopUp(mothership.userId); // still has launches left this impulse - offer another
+            }
+        }
+
+        // docks a shuttle back with its mothership - only available when
+        // they're in the same hex or adjacent, no speed restriction. Undoes
+        // launchShuttle(): removes the shipList entry and any leftover
+        // queue references, restores one hangar slot on the mothership.
+        function dockShuttle(sArrId) {
+            var shuttle = shipList[sArrId];
+            if (!shuttle.isShuttle) return;
+            var motherArrId = findShipArrId(shuttle.ownerShipId);
+            if (motherArrId == -1) return;
+            var mothership = shipList[motherArrId];
+            if (findDist(shuttle.userId, mothership.userId) > 1) return;
+
+            mothership.shuttleHangar = Math.min(mothership.shuttleHangarMax, mothership.shuttleHangar + 1);
+            shuttleDockCounts[mothership.userId] = (shuttleDockCounts[mothership.userId] || 0) + 1;
+            $('#dataDiv').append('<div>' + shuttle.name + ' docks with ' + mothership.name + ' (' + mothership.shuttleHangar + '/' + mothership.shuttleHangarMax + ' in hangar)</div>');
+
+            removeShipEntirely(shuttle.userId);
+            doneRecoverShuttlecraft(); // the shuttle just docked is gone - move on to the next eligible one
+        }
+
+        function removeShipMarker(sId) {
+            $('#ship' + sId).remove();
+            updateStackBadges();
+        }
+
+        // removes a ship/shuttle from shipList and every queue it might
+        // still be sitting in - used for docking and for shuttle
+        // destruction (see applyDamage()'s isShuttle bypass)
+        function removeShipEntirely(sId) {
+            removeShipMarker(sId);
+            var arrId = findShipArrId(sId);
+            if (arrId != -1) shipList.splice(arrId, 1);
+            moveShipList = moveShipList.filter(function (id) { return id != sId; });
+            fireShipList = fireShipList.filter(function (id) { return id != sId; });
+            energyAllocList = energyAllocList.filter(function (id) { return id != sId; });
+        }
+
         function fireWeaponAtDrone(sArrId, wArrId, droneId, arc) {
             var wClass = 0;
             var weapon = null;
@@ -2695,8 +2909,24 @@ $('#dataDiv').append(str);
                 }
 
                 var targetName = '';
+                var targetArrId = -1;
                 for (var zz = 0; zz < shipList.length; zz++) {
-                    if (shipList[zz].userId == damageList[0].targetId) { targetName = shipList[zz].name; }
+                    if (shipList[zz].userId == damageList[0].targetId) { targetName = shipList[zz].name; targetArrId = zz; }
+                }
+
+                // shuttles have no shields/armor/DAC at all - full incoming
+                // damage applies straight to flat HP, same idea as a drone
+                if (targetArrId != -1 && shipList[targetArrId].isShuttle) {
+                    var shuttle = shipList[targetArrId];
+                    shuttle.hitPoints -= d;
+                    $('#dataDiv').append('<div>' + targetName + ' takes ' + d + ' damage (HP ' + Math.max(shuttle.hitPoints, 0) + '/' + shuttle.maxHitPoints + ')</div>');
+                    if (shuttle.hitPoints <= 0) {
+                        $('#dataDiv').append('<div>' + targetName + ' destroyed</div>');
+                        removeShipEntirely(shuttle.userId);
+                    }
+                    damageList.shift();
+                    damageShips();
+                    return;
                 }
 
                 // 1) general reinforcement absorbs first - any facing
@@ -3231,8 +3461,24 @@ $('#dataDiv').append(str);
 
         function showEnergyAllocPopUp(sId) {
             var arrId = findShipArrId(sId);
-            var iArrId = findInternalsArrId(sId);
             var ship = shipList[arrId];
+
+            // shuttles skip full energy allocation entirely - no warp/
+            // impulse/battery/shields/reinforcement/weapon-arming systems
+            // to manage, just a speed choice each turn (their single
+            // Phaser-3 auto-refills for free, see confirmEnergyAllocation's
+            // matching isShuttle branch)
+            if (ship.isShuttle) {
+                var str = '<div style="font-weight:bold;">' + ship.name + ' - Set Speed</div>';
+                str += '<div style="float:left;">Speed (max ' + SHUTTLE_SPEED + '):</div>';
+                str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + SHUTTLE_SPEED + '" value="' + Math.min(ship.speed, SHUTTLE_SPEED) + '" style="width:35px;text-align:center;"></div>';
+                str += '<div style="clear:both;"></div>';
+                str += '<div class="button" style="margin-top:8px;" onclick="confirmEnergyAllocation(' + sId + ', ' + SHUTTLE_SPEED + ');">Confirm</div>';
+                $('#energyAllocPopUpDiv').html(str).data('sId', sId).css('display', 'block');
+                return;
+            }
+
+            var iArrId = findInternalsArrId(sId);
             var internals = shipInternals[iArrId];
 
             var warpAvail = internals.rWarp + internals.lWarp + internals.cWarp;
@@ -3550,8 +3796,23 @@ $('#dataDiv').append(str);
 
         function confirmEnergyAllocation(sId, maxSpeed) {
             var arrId = findShipArrId(sId);
-            var iArrId = findInternalsArrId(sId);
             var ship = shipList[arrId];
+
+            // shuttles: no power budget to validate, just set the chosen
+            // speed and auto-refill the single Phaser-3 for free (matches
+            // showEnergyAllocPopUp()'s minimal speed-only popup for them)
+            if (ship.isShuttle) {
+                var shuttleSpeed = Math.min(parseInt($('#eaSpeed').val()) || 0, maxSpeed);
+                ship.speed = shuttleSpeed;
+                ship.phaserCap = ship.maxPhaserCap;
+                $('#dataDiv').append('<div>' + ship.name + ' sets speed ' + shuttleSpeed + '</div>');
+                $('#energyAllocPopUpDiv').css('display', 'none');
+                energyAllocList.shift();
+                allocateNextShip();
+                return;
+            }
+
+            var iArrId = findInternalsArrId(sId);
             var internals = shipInternals[iArrId];
 
             var warpAvail = internals.rWarp + internals.lWarp + internals.cWarp;
