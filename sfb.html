@@ -29,6 +29,12 @@
             this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
             this.sizeClass = sizeClass; // 1 (biggest) - 7 (smallest)
             this.shipWeapons = [];
+            // team: defaults to the ship's own userId (so today, with one
+            // ship per side, "same team" and "same ship" are equivalent).
+            // Shuttles inherit their mothership's team in launchShuttle().
+            // Lets targeting checks generalize to "multiple ships on one
+            // side" later without changing how they're written.
+            this.team = userId;
 
             // shuttles: isShuttle marks a launched shuttle itself (flat
             // HP, no shields/DAC - see applyDamage()'s bypass for that,
@@ -633,49 +639,70 @@ $('#dataDiv').append(str);
         var selTShield = 0;
         var selTRange = 0;
         function shipClick(sId) {
+            var isOwnTeam = isSameTeam(curShipId, sId);
+
             var d = findDist(curShipId, sId);
             var f = findFacing(curShipId, sId);
             var tf = findFacing(sId, curShipId);
-            selTargetShipId = sId;
-            selTShield = shieldFacing(tf);
-            selTRange = d;
 
-            setTargetHexHighlight(sId);
+            // a ship can inspect its own team's ship/shuttle, but can't
+            // select it as an attack target - leave any existing target
+            // selection alone rather than clearing it out from under the
+            // player, same pattern droneClick() uses for a ship's own drones
+            if (isOwnTeam) {
+                selTargetShipId = -1;
+            } else {
+                selTargetShipId = sId;
+                selTShield = shieldFacing(tf);
+                selTRange = d;
+                setTargetHexHighlight(sId);
+            }
 
             //$('#dataDiv').append('<div>d=' + d + '  f=' + f + ' tsF=' + tf + '</div>');
 
             var speed = 0;
             var name = '';
+            var isTargetShuttle = false;
+            var targetHP = 0, targetMaxHP = 0;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) {
                     speed = shipList[z].speed;
                     name = shipList[z].name;
+                    isTargetShuttle = shipList[z].isShuttle;
+                    targetHP = shipList[z].hitPoints;
+                    targetMaxHP = shipList[z].maxHitPoints;
                 }
             }
 
-            var str = '<div style="float:left;">Target Ship: [' + sId + ']</div>';
+            var str = '<div style="float:left;">' + (isOwnTeam ? 'Your Ship: [' + sId + '] (can\'t target your own team)' : 'Target Ship: [' + sId + ']') + '</div>';
             str += '<div style="float:left;padding-left:4px;">' + name + '</div>';
             str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Ship Speed: ' + speed + '</div>';
             str += '<div>Distance to target: ' + d + '</div>';
-            str += '<div>I hit shield: ' + shieldFacing(tf) + '</div>';
-            str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
+            if (!isOwnTeam && !isTargetShuttle) {
+                str += '<div>I hit shield: ' + shieldFacing(tf) + '</div>';
+                str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
+            }
             var reinfArrId = findInternalsArrId(sId);
             if (reinfArrId != -1 && shipInternals[reinfArrId].generalReinforcement > 0) {
                 str += '<div>General reinforcement: ' + shipInternals[reinfArrId].generalReinforcement + 'pts</div>';
             }
 
-            str += '<div style="position:relative;margin:10px auto;width:102px;font-size:10px;">';
-            str += '<div style="position:absolute;top:46px;left:44px;"><i class="fa-solid fa-solid fa-arrow-up" ';
-            if (shieldFacing(tf) == 2) str += ' data-fa-transform="rotate-60"';
-            if (shieldFacing(tf) == 3) str += ' data-fa-transform="rotate-120"';
-            if (shieldFacing(tf) == 4) str += ' data-fa-transform="rotate-180"';
-            if (shieldFacing(tf) == 5) str += ' data-fa-transform="rotate-240"';
-            if (shieldFacing(tf) == 6) str += ' data-fa-transform="rotate-300"';
-            str += '></i></div>';
-            str += writeShields(sId);
-            str += '</div>';
+            if (isTargetShuttle) {
+                str += '<div>Hit Points: ' + targetHP + ' / ' + targetMaxHP + '</div>';
+            } else if (!isOwnTeam) {
+                str += '<div style="position:relative;margin:10px auto;width:102px;font-size:10px;">';
+                str += '<div style="position:absolute;top:46px;left:44px;"><i class="fa-solid fa-solid fa-arrow-up" ';
+                if (shieldFacing(tf) == 2) str += ' data-fa-transform="rotate-60"';
+                if (shieldFacing(tf) == 3) str += ' data-fa-transform="rotate-120"';
+                if (shieldFacing(tf) == 4) str += ' data-fa-transform="rotate-180"';
+                if (shieldFacing(tf) == 5) str += ' data-fa-transform="rotate-240"';
+                if (shieldFacing(tf) == 6) str += ' data-fa-transform="rotate-300"';
+                str += '></i></div>';
+                str += writeShields(sId);
+                str += '</div>';
+            }
             $('#targetShipPopUpDiv').html(str).css('display', 'block');
 
             $('.weaponArc').remove();
@@ -689,10 +716,11 @@ $('#dataDiv').append(str);
             }
             if (!drone || drone.bDestroyed) return;
 
-            // a ship can inspect its own drone's status, but can't select it
-            // as an attack target - leave any existing target selection
-            // alone rather than clearing it out from under the player
-            var isOwnDrone = (drone.ownerShipId == curShipId);
+            // a ship can inspect its own team's drone's status, but can't
+            // select it as an attack target - leave any existing target
+            // selection alone rather than clearing it out from under the
+            // player
+            var isOwnDrone = isSameTeam(drone.ownerShipId, curShipId);
             if (isOwnDrone) {
                 selTargetDroneId = -1;
             } else {
@@ -707,7 +735,7 @@ $('#dataDiv').append(str);
                 if (shipList[z].userId == drone.ownerShipId) { ownerName = shipList[z].name; }
             }
 
-            var str = '<div style="float:left;">' + (isOwnDrone ? 'Your Drone #' + drone.id + ' (can\'t target your own)' : 'Target: Drone #' + drone.id) + '</div>';
+            var str = '<div style="float:left;">' + (isOwnDrone ? 'Your Drone #' + drone.id + ' (can\'t target your own team)' : 'Target: Drone #' + drone.id) + '</div>';
             str += '<div style="float:right;" onclick="closePopup(\'targetShip\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div>Launched by: ' + ownerName + '</div>';
@@ -1403,7 +1431,7 @@ $('#dataDiv').append(str);
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == targetId) {
                     var s = shipList[z];
-                    return { exists: true, x: s.xCord, y: s.yCord, facing: s.facing, name: s.name, sizeClass: s.sizeClass };
+                    return { exists: true, x: s.xCord, y: s.yCord, facing: s.facing, name: s.name, sizeClass: s.sizeClass, isShuttle: s.isShuttle };
                 }
             }
             return { exists: false };
@@ -1418,7 +1446,16 @@ $('#dataDiv').append(str);
             if (!drone || drone.bDestroyed) return;
 
             var target = getSeekingTargetInfo(drone.targetType, drone.targetId);
-            if (!target.exists) return; // target no longer exists
+            if (!target.exists) {
+                // target was destroyed by something else before this drone
+                // reached it (or, for a drone chasing a shuttle, the
+                // shuttle docked - though that case retargets the drone to
+                // the mothership in dockShuttle() before this ever runs,
+                // so it won't hit this branch). Nothing left to home in on.
+                $('#dataDiv').append('<div>' + (drone.droneTypeName || 'Drone') + ' #' + drone.id + ' loses its target and self-destructs</div>');
+                removeActiveDrone(drone);
+                return;
+            }
 
             // already on the target's hex (e.g. the target moved onto us
             // this impulse) - don't move away chasing a degenerate
@@ -1552,7 +1589,16 @@ $('#dataDiv').append(str);
                         var shieldHit = shieldFacing(arc);
                         var impactDamage = (drone.droneTypeName == 'Type-VI') ? getTypeVIDamage(target.sizeClass) : drone.damage;
 
-                        $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + impactDamage + ' damage to shield #' + shieldHit + '</div>');
+                        // shuttles have no shields - shieldHit is still
+                        // computed below for the damageList entry's shape,
+                        // but applyDamage()'s isShuttle bypass ignores it
+                        // and applies flat HP loss instead, so don't imply
+                        // shield absorption in the log for one
+                        if (target.isShuttle) {
+                            $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + impactDamage + ' damage</div>');
+                        } else {
+                            $('#dataDiv').append('<div>' + ownerName + ' ' + (drone.droneTypeName || 'drone') + ' #' + drone.id + ' impacts ' + target.name + ' -- ' + impactDamage + ' damage to shield #' + shieldHit + '</div>');
+                        }
 
                         var bAdded = false;
                         for (var z = 0; z < damageList.length; z++) {
@@ -2666,6 +2712,7 @@ $('#dataDiv').append(str);
             var shuttle = new shipType(nextShuttleUserId++, mothership.name + ' Shuttle ' + shuttleNum, mothership.xCord, mothership.yCord, mothership.facing, SHUTTLE_TURN_MODE, SHUTTLE_SPEED, 1, 6);
             shuttle.isShuttle = true;
             shuttle.ownerShipId = mothership.userId;
+            shuttle.team = mothership.team;
             shuttle.hitPoints = SHUTTLE_HITPOINTS;
             shuttle.maxHitPoints = SHUTTLE_HITPOINTS;
             shuttle.shipWeapons[0] = new weaponEntryType(1, SHUTTLE_PHASER_WEAPON_TYPE_ID, 1, 0, 360, 0, 0);
@@ -2711,6 +2758,20 @@ $('#dataDiv').append(str);
             mothership.shuttleHangar = Math.min(mothership.shuttleHangarMax, mothership.shuttleHangar + 1);
             shuttleDockCounts[mothership.userId] = (shuttleDockCounts[mothership.userId] || 0) + 1;
             $('#dataDiv').append('<div>' + shuttle.name + ' docks with ' + mothership.name + ' (' + mothership.shuttleHangar + '/' + mothership.shuttleHangarMax + ' in hangar)</div>');
+
+            // any drone still homing in on this shuttle switches to
+            // pursuing the mothership it just docked with, instead of
+            // losing its target and self-destructing (see
+            // moveSeekingWeapon()'s target-gone bypass) - done BEFORE the
+            // shuttle is removed, so the retarget is in place before
+            // anything checks whether its old target still exists
+            for (var di = 0; di < activeDrones.length; di++) {
+                var d = activeDrones[di];
+                if (!d.bDestroyed && d.targetType == 'ship' && d.targetId == shuttle.userId) {
+                    d.targetId = mothership.userId;
+                    $('#dataDiv').append('<div>' + (d.droneTypeName || 'Drone') + ' #' + d.id + ' retargets ' + mothership.name + ' as ' + shuttle.name + ' docks</div>');
+                }
+            }
 
             removeShipEntirely(shuttle.userId);
             doneRecoverShuttlecraft(); // the shuttle just docked is gone - move on to the next eligible one
@@ -3376,6 +3437,17 @@ $('#dataDiv').append(str);
                 return;
             }
             showEnergyAllocPopUp(energyAllocList[0]);
+        }
+
+        // true if two ship/shuttle userIds belong to the same team - used
+        // to block targeting your own ships, shuttles, or drones
+        function isSameTeam(userIdA, userIdB) {
+            var teamA = null, teamB = null;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == userIdA) teamA = shipList[z].team;
+                if (shipList[z].userId == userIdB) teamB = shipList[z].team;
+            }
+            return teamA != null && teamA === teamB;
         }
 
         function findShipArrId(sId) {
