@@ -206,7 +206,7 @@
             // pending repair application at endTurn() ("end of the
             // round"). Every 2 points allocated repairs 1 point of that
             // shield. Capped ship-wide by the sum of intact damageCon box
-            // values (see getDamageConTotal()) - not a power cost, so this
+            // values (see getDamageConMax()) - not a power cost, so this
             // is tracked and validated separately from the power budget.
             this.damageControlShield1 = 0;
             this.damageControlShield2 = 0;
@@ -2942,15 +2942,20 @@ $('#dataDiv').append(str);
 
 
 
-        // sum of intact damage control box values - the ship's total
-        // repair budget for this turn (see damageControlShield1-6 on
-        // shipSystemsType, and the reload/repair application in endTurn())
-        function getDamageConTotal(internals) {
-            var total = 0;
+        // the ship's damage control budget for a turn is the single
+        // HIGHEST-value intact damage control box, not the sum of all of
+        // them - only one damage control party works per turn, so a ship
+        // with boxes [4,4,2,2,2,0] can allocate up to 4 points in a turn,
+        // not 14 (and once that box is knocked out, the next-highest
+        // intact one becomes the cap).
+        function getDamageConMax(internals) {
+            var maxVal = 0;
             for (var z = 0; z < internals.damageCon.length; z++) {
-                if (internals.damageCon[z][1] == 1) total += internals.damageCon[z][0];
+                if (internals.damageCon[z][1] == 1 && internals.damageCon[z][0] > maxVal) {
+                    maxVal = internals.damageCon[z][0];
+                }
             }
-            return total;
+            return maxVal;
         }
 
         function showShipPopUp(sId) {
@@ -3271,7 +3276,7 @@ $('#dataDiv').append(str);
             str += '<div style="float:right;"><span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span> <input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
 
-            var damageConTotal = getDamageConTotal(internals);
+            var damageConTotal = getDamageConMax(internals);
             str += '<div>Damage Control (<span id="eaDamageConRemaining">' + damageConTotal + '</span>/' + damageConTotal + ' pts available, 2pt repairs 1pt of shield, applied end of round):</div>';
             str += '<div>Specific Reinforcement (1pt/pt):</div>';
             for (var s = 1; s <= 6; s++) {
@@ -3518,7 +3523,7 @@ $('#dataDiv').append(str);
             // damage control isn't a power cost - tracked and validated
             // against its own separate budget (sum of intact damageCon
             // box values), not folded into the power used/remaining below
-            var damageConTotal = getDamageConTotal(shipInternals[iArrId]);
+            var damageConTotal = getDamageConMax(shipInternals[iArrId]);
             var damageConUsed = 0;
             for (var dcS = 1; dcS <= 6; dcS++) {
                 var $dcInp = $('#eaDamageControl' + dcS);
@@ -3592,7 +3597,7 @@ $('#dataDiv').append(str);
                     damageControlTotal += dcV;
                 }
             }
-            var damageConAvailable = getDamageConTotal(internals);
+            var damageConAvailable = getDamageConMax(internals);
             if (damageControlTotal > damageConAvailable) {
                 alert('Allocated damage control (' + damageControlTotal + ') exceeds available damage control (' + damageConAvailable + ')');
                 return;
