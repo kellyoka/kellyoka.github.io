@@ -240,11 +240,15 @@
         shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8, 3);  // FED CA
         shipList[0].shuttleHangar = 4;
         shipList[0].shuttleHangarMax = 4;
+        shipList[0].shuttleIconSrc = 'images/sfb/shuttle.svg';
+        shipList[0].shuttleBgColor = 'blue'; // matches CA's own .shipDiv default (no inline override on #ship1)
         shipInternals[0] = new shipSystemsType(1, 2, 2, 2, 2, 0, 0, 12, 4, 0, 8, 1, 2, 3, 4, 15, 15, 0, 4, 2, 4, 30, 24, 20, 20, 20, 24, 6);
 
         shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9, 3);    //KLI D7
         shipList[1].shuttleHangar = 2;
         shipList[1].shuttleHangarMax = 2;
+        shipList[1].shuttleIconSrc = 'images/sfb/shuttle2.svg';
+        shipList[1].shuttleBgColor = 'black'; // matches D7's own #ship2 inline background-color
         shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
         /* DEAD CODE - ships 3-9 (NCA, F5, C9, three D6s) are commented out.
            Only CA (ship 1) and D7 (ship 2) above are actually live right
@@ -1282,7 +1286,7 @@ $('#dataDiv').append(str);
         var nextShuttleUserId = 101; // distinct range from real ship userIds (1, 2, ...), purely for readability - no functional collision risk since shuttles live in shipList alongside real ships either way
         var SHUTTLE_SPEED = 6;
         var SHUTTLE_HITPOINTS = 6;
-        var SHUTTLE_TURN_MODE = 2; // more agile than either mothership (CA=7, D7=5) - smaller craft turns tighter
+        var SHUTTLE_TURN_MODE = 2; // confirmed: shuttles/fighters use turn mode class 2, i.e. turnMode[2] = [11, 23, 32] above ([1-11] 1 hex, [12-23] 2 hexes, [24+] 3 hexes before turning again)
         var SHUTTLE_PHASER_WEAPON_TYPE_ID = 3; // Phaser 3
 
         // lean v1 stats - ignoring drone rack storage/reloads and arming
@@ -1605,7 +1609,7 @@ $('#dataDiv').append(str);
                 var arrId = findShipArrId(sId);
                 if (arrId == -1) { recoverShuttleList.shift(); continue; }
                 var ship = shipList[arrId];
-                if (ship.isShuttle && findDist(ship.userId, ship.ownerShipId) <= 1) {
+                if (ship.isShuttle && findDist(ship.userId, ship.ownerShipId) == 0) {
                     var motherArrIdCheck = findShipArrId(ship.ownerShipId);
                     var dockLimit = (motherArrIdCheck != -1) ? shipList[motherArrIdCheck].shuttleOpsPerImpulse : 1;
                     if ((shuttleDockCounts[ship.ownerShipId] || 0) < dockLimit) {
@@ -1768,6 +1772,14 @@ $('#dataDiv').append(str);
         function endTurn() {
             turnNumber++;
             impulse = 1;
+
+            // shuttles skip energy allocation entirely (see
+            // startEnergyAllocation()), so their one Phaser-3 refills for
+            // free here instead, once per turn
+            for (var su = 0; su < shipList.length; su++) {
+                if (shipList[su].isShuttle) shipList[su].phaserCap = shipList[su].maxPhaserCap;
+            }
+
             for (var s = 0; s < shipList.length; s++) {
                 for (var w = 0; w < shipList[s].shipWeapons.length; w++) {
                     var wEntry = shipList[s].shipWeapons[w];
@@ -2651,7 +2663,7 @@ $('#dataDiv').append(str);
 
             mothership.shuttleHangar -= 1;
             var shuttleNum = mothership.shuttleHangarMax - mothership.shuttleHangar;
-            var shuttle = new shipType(nextShuttleUserId++, mothership.name + ' Shuttle ' + shuttleNum, mothership.xCord, mothership.yCord, mothership.facing, SHUTTLE_TURN_MODE, 0, 1, 6);
+            var shuttle = new shipType(nextShuttleUserId++, mothership.name + ' Shuttle ' + shuttleNum, mothership.xCord, mothership.yCord, mothership.facing, SHUTTLE_TURN_MODE, SHUTTLE_SPEED, 1, 6);
             shuttle.isShuttle = true;
             shuttle.ownerShipId = mothership.userId;
             shuttle.hitPoints = SHUTTLE_HITPOINTS;
@@ -2662,9 +2674,11 @@ $('#dataDiv').append(str);
             // ships 1/2 (and the reserved-for-later 3-9) have their marker
             // divs pre-built into the static page; a shuttle needs its
             // marker created dynamically instead, same idea as
-            // plotSeekingWeapon() does for drones. Scaled down a bit so
-            // it visually reads as smaller than a full ship.
-            var markerStr = '<div id="ship' + shuttle.userId + '" class="shipDiv" style="background-color:#069;transform:scale(0.7);" onclick="hexEntityClick(\'ship\', ' + shuttle.userId + ');"><img src="images/sfb/ship2.svg" class="nav-icon-path" /></div>';
+            // plotSeekingWeapon() does for drones. Uses the mothership's
+            // own icon/background color so it visually reads as "one of
+            // this ship's shuttles" - scaled down a bit so it also reads
+            // as smaller than a full ship.
+            var markerStr = '<div id="ship' + shuttle.userId + '" class="shipDiv" style="background-color:' + mothership.shuttleBgColor + ';transform:scale(0.7);" onclick="hexEntityClick(\'ship\', ' + shuttle.userId + ');"><img src="' + mothership.shuttleIconSrc + '" class="nav-icon-path" /></div>';
             $('#shipLayer').append(markerStr);
             plotShip(shuttle.userId); // reuse the normal positioning math now that the marker div exists
 
@@ -2683,7 +2697,7 @@ $('#dataDiv').append(str);
         }
 
         // docks a shuttle back with its mothership - only available when
-        // they're in the same hex or adjacent, no speed restriction. Undoes
+        // they're in the exact same hex, no speed restriction. Undoes
         // launchShuttle(): removes the shipList entry and any leftover
         // queue references, restores one hangar slot on the mothership.
         function dockShuttle(sArrId) {
@@ -2692,7 +2706,7 @@ $('#dataDiv').append(str);
             var motherArrId = findShipArrId(shuttle.ownerShipId);
             if (motherArrId == -1) return;
             var mothership = shipList[motherArrId];
-            if (findDist(shuttle.userId, mothership.userId) > 1) return;
+            if (findDist(shuttle.userId, mothership.userId) > 0) return;
 
             mothership.shuttleHangar = Math.min(mothership.shuttleHangarMax, mothership.shuttleHangar + 1);
             shuttleDockCounts[mothership.userId] = (shuttleDockCounts[mothership.userId] || 0) + 1;
@@ -3343,6 +3357,12 @@ $('#dataDiv').append(str);
         function startEnergyAllocation() {
             energyAllocList = [];
             for (var x = 0; x < shipList.length; x++) {
+                // shuttles skip energy allocation entirely - their speed is
+                // fixed at SHUTTLE_SPEED from the moment they launch, and
+                // they have no power systems to manage. They still get a
+                // normal move-phase turning popup like any ship, via
+                // moveShips()/shipMovePopUp(), which don't touch this list.
+                if (shipList[x].isShuttle) continue;
                 energyAllocList.push(shipList[x].userId);
             }
             setPhase('Energy Allocation');
@@ -3462,21 +3482,6 @@ $('#dataDiv').append(str);
         function showEnergyAllocPopUp(sId) {
             var arrId = findShipArrId(sId);
             var ship = shipList[arrId];
-
-            // shuttles skip full energy allocation entirely - no warp/
-            // impulse/battery/shields/reinforcement/weapon-arming systems
-            // to manage, just a speed choice each turn (their single
-            // Phaser-3 auto-refills for free, see confirmEnergyAllocation's
-            // matching isShuttle branch)
-            if (ship.isShuttle) {
-                var str = '<div style="font-weight:bold;">' + ship.name + ' - Set Speed</div>';
-                str += '<div style="float:left;">Speed (max ' + SHUTTLE_SPEED + '):</div>';
-                str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + SHUTTLE_SPEED + '" value="' + Math.min(ship.speed, SHUTTLE_SPEED) + '" style="width:35px;text-align:center;"></div>';
-                str += '<div style="clear:both;"></div>';
-                str += '<div class="button" style="margin-top:8px;" onclick="confirmEnergyAllocation(' + sId + ', ' + SHUTTLE_SPEED + ');">Confirm</div>';
-                $('#energyAllocPopUpDiv').html(str).data('sId', sId).css('display', 'block');
-                return;
-            }
 
             var iArrId = findInternalsArrId(sId);
             var internals = shipInternals[iArrId];
@@ -3797,20 +3802,6 @@ $('#dataDiv').append(str);
         function confirmEnergyAllocation(sId, maxSpeed) {
             var arrId = findShipArrId(sId);
             var ship = shipList[arrId];
-
-            // shuttles: no power budget to validate, just set the chosen
-            // speed and auto-refill the single Phaser-3 for free (matches
-            // showEnergyAllocPopUp()'s minimal speed-only popup for them)
-            if (ship.isShuttle) {
-                var shuttleSpeed = Math.min(parseInt($('#eaSpeed').val()) || 0, maxSpeed);
-                ship.speed = shuttleSpeed;
-                ship.phaserCap = ship.maxPhaserCap;
-                $('#dataDiv').append('<div>' + ship.name + ' sets speed ' + shuttleSpeed + '</div>');
-                $('#energyAllocPopUpDiv').css('display', 'none');
-                energyAllocList.shift();
-                allocateNextShip();
-                return;
-            }
 
             var iArrId = findInternalsArrId(sId);
             var internals = shipInternals[iArrId];
