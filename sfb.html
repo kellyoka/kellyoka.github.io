@@ -3463,7 +3463,7 @@ $('#dataDiv').append(str);
         // currently looking at. Assigned in first-seen order (team 1 =
         // whichever team appears first, gets blue; team 2 gets red; a 3rd
         // or 4th team later would just extend down the list).
-        var TEAM_COLORS = ['#eaf2ff', '#ffecec', '#eaffea', '#fff6d9'];
+        var TEAM_COLORS = ['#eaf2ff', '#ececec', '#eaffea', '#fff6d9'];
         var teamColorAssignments = {};
         function getTeamBgColor(sId) {
             var team = null;
@@ -4470,7 +4470,8 @@ $('#dataDiv').append(str);
             font-size: 12px;
             line-height: 24px;
             text-align: center;
-            background-color: #EFEFEF;
+            background-color: white;
+            border: 1px solid #333;
             cursor: pointer;
         }
 
@@ -4559,7 +4560,8 @@ $('#dataDiv').append(str);
             margin: 2px;
             padding: 2px 4px;
             text-align: center;
-            background-color: #EFEFEF;
+            background-color: white;
+            border: 1px solid #333;
             cursor: pointer;
         }
 
@@ -4772,7 +4774,8 @@ $('#dataDiv').append(str);
             line-height: 20px;
             padding: 0px 5px;
             margin: 5px 2px 2px;
-            background-color: #EFEFEF;
+            background-color: white;
+            border: 1px solid #333;
             cursor: pointer;
         }
         .dividerLine {
