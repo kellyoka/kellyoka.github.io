@@ -1942,6 +1942,7 @@ $('#dataDiv').append(str);
 
 
         function shipMovePopUp(sId) {
+            $('#moveShipPopUpDiv').css('background-color', getTeamBgColor(sId));
             var arrId1 = -1;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) { arrId1 = z; }
@@ -2093,6 +2094,7 @@ $('#dataDiv').append(str);
 
 
         function shipFirePopUp() {
+            $('#fireShipPopUpDiv').css('background-color', getTeamBgColor(curShipId));
             var arrId = -1;
             var pCost = 0;
             for (var z = 0; z < shipList.length; z++) {
@@ -2786,9 +2788,15 @@ $('#dataDiv').append(str);
         // still be sitting in - used for docking and for shuttle
         // destruction (see applyDamage()'s isShuttle bypass)
         function removeShipEntirely(sId) {
-            removeShipMarker(sId);
+            // splice out of shipList BEFORE removing the marker/updating
+            // stack badges - updateStackBadges() counts hexes from the
+            // current shipList, so doing this in the other order left it
+            // counting the just-destroyed entity for one extra badge
+            // refresh (stale by one, e.g. showing "2" in a hex that only
+            // has 1 ship left after the other one there is destroyed)
             var arrId = findShipArrId(sId);
             if (arrId != -1) shipList.splice(arrId, 1);
+            removeShipMarker(sId);
             moveShipList = moveShipList.filter(function (id) { return id != sId; });
             fireShipList = fireShipList.filter(function (id) { return id != sId; });
             energyAllocList = energyAllocList.filter(function (id) { return id != sId; });
@@ -3450,6 +3458,25 @@ $('#dataDiv').append(str);
             return teamA != null && teamA === teamB;
         }
 
+        // faint background colors for the move/fire/energy-allocation
+        // popups, so it's visually obvious which team's ship you're
+        // currently looking at. Assigned in first-seen order (team 1 =
+        // whichever team appears first, gets blue; team 2 gets red; a 3rd
+        // or 4th team later would just extend down the list).
+        var TEAM_COLORS = ['#eaf2ff', '#ffecec', '#eaffea', '#fff6d9'];
+        var teamColorAssignments = {};
+        function getTeamBgColor(sId) {
+            var team = null;
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].userId == sId) { team = shipList[z].team; }
+            }
+            if (team == null) return '#fff';
+            if (!(team in teamColorAssignments)) {
+                teamColorAssignments[team] = TEAM_COLORS[Object.keys(teamColorAssignments).length % TEAM_COLORS.length];
+            }
+            return teamColorAssignments[team];
+        }
+
         function findShipArrId(sId) {
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) return z;
@@ -3552,6 +3579,7 @@ $('#dataDiv').append(str);
         }
 
         function showEnergyAllocPopUp(sId) {
+            $('#energyAllocPopUpDiv').css('background-color', getTeamBgColor(sId));
             var arrId = findShipArrId(sId);
             var ship = shipList[arrId];
 
