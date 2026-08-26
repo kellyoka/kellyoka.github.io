@@ -680,6 +680,10 @@ $('#dataDiv').append(str);
             str += '<div style="clear:both;"></div>';
             str += '<div>Ship Speed: ' + speed + '</div>';
             str += '<div>Distance to target: ' + d + '</div>';
+            if (!isTargetShuttle) {
+                str += '<div class="button" onclick="showSSD(' + sId + ');">View SSD</div>';
+                str += '<div style="clear:both;"></div>';
+            }
             if (!isOwnTeam && !isTargetShuttle) {
                 str += '<div>I hit shield: ' + shieldFacing(tf) + '</div>';
                 str += '<div>Enemy hit shield: ' + shieldFacing(f) + '</div>';
@@ -3303,6 +3307,123 @@ $('#dataDiv').append(str);
             return '<div class="ssdRow"><div class="ssdLabel">' + label + '</div><div class="ssdBoxes">' + boxesHtml + '</div></div>';
         }
 
+        // --- SSD (Ship System Display) rendering ---
+        // This is one generic layout shared by every ship, not a
+        // hand-authored per-class chart - box counts/positions adapt to
+        // whatever that ship's own current/max values are, so the CA and
+        // D7 automatically look different (different engine/hull box
+        // counts) without needing separate layout data. An original
+        // grouping (Control / Power / Systems / Other / Weapons around a
+        // shield ring), not a reproduction of the published SFB SSD art.
+        var SSD_LABELS = {
+            flag: 'Flag', bridge: 'Bridge', aux: 'Aux', emer: 'Emer', scrty: 'Scrty',
+            armor: 'Armor', fHull: 'F Hull', aHull: 'A Hull', hull: 'C Hull', lab: 'Lab', probe: 'Probe',
+            trac: 'Trac', tran: 'Tran', shut: 'Shuttle',
+            rWarp: 'R Warp', lWarp: 'L Warp', cWarp: 'C Warp', imp: 'Imp', apr: 'APR', bty: 'Bty',
+            excess: 'Excess', sensor: 'Sensor', scanner: 'Scanner', damageCon: 'Damage Con'
+        };
+        var SSD_ARRAY_SYSTEMS = { sensor: true, scanner: true, damageCon: true };
+        var SSD_SECTIONS = {
+            control: { title: 'Control', x: 15, y: 35, width: 280, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
+            power: { title: 'Power', x: 345, y: 35, width: 280, systems: ['rWarp', 'lWarp', 'cWarp', 'imp', 'apr', 'bty'] },
+            systems: { title: 'Systems', x: 15, y: 230, width: 280, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] },
+            other: { title: 'Other', x: 345, y: 230, width: 280, systems: ['excess', 'sensor', 'scanner', 'damageCon'] }
+        };
+        var SSD_BOX_SIZE = 14, SSD_BOX_GAP = 2, SSD_ROW_HEIGHT = 20, SSD_LABEL_WIDTH = 62;
+
+        // one row of boxes: either a plain point-pool (current/max, boxes
+        // are otherwise interchangeable) or a box-array system (each box
+        // has its own point value and status, e.g. Damage Control)
+        function svgSSDRow(x, y, label, current, max, arrayData) {
+            var str = '<text x="' + x + '" y="' + (y + 11) + '" font-size="10">' + label + '</text>';
+            var boxX = x + SSD_LABEL_WIDTH;
+            var count = arrayData ? arrayData.length : max;
+            for (var i = 0; i < count; i++) {
+                var destroyed = arrayData ? (arrayData[i][1] == 0) : (i >= current);
+                var bx = boxX + i * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                str += '<rect x="' + bx + '" y="' + y + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (destroyed ? '#ccc' : '#eaffea') + '" stroke="#333"/>';
+                if (destroyed) {
+                    str += '<line x1="' + bx + '" y1="' + y + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + y + '" x2="' + bx + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                } else if (arrayData) {
+                    str += '<text x="' + (bx + SSD_BOX_SIZE / 2) + '" y="' + (y + SSD_BOX_SIZE - 4) + '" font-size="8" text-anchor="middle">' + arrayData[i][0] + '</text>';
+                }
+            }
+            return str;
+        }
+
+        // stacks every applicable system in a section top-to-bottom,
+        // skipping any the ship doesn't have (mSystem == 0, or an empty
+        // array for box-array systems)
+        function svgSSDSection(internals, section) {
+            var str = '<text x="' + section.x + '" y="' + (section.y - 5) + '" font-size="12" font-weight="bold">' + section.title + '</text>';
+            var y = section.y;
+            for (var i = 0; i < section.systems.length; i++) {
+                var sys = section.systems[i];
+                var label = SSD_LABELS[sys];
+                if (SSD_ARRAY_SYSTEMS[sys]) {
+                    if (internals[sys].length == 0) continue;
+                    str += svgSSDRow(section.x, y, label, null, null, internals[sys]);
+                } else {
+                    if (internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)] == 0) continue;
+                    str += svgSSDRow(section.x, y, label, internals[sys], internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)], null);
+                }
+                y += SSD_ROW_HEIGHT;
+            }
+            return str;
+        }
+
+        // weapon mounts aren't part of shipInternals (they're tracked per-
+        // instance on shipWeapons, since loadout varies by scenario), so
+        // this section is generated from whatever's actually mounted
+        // rather than a fixed per-class list
+        function svgSSDWeapons(ship, x, y, width) {
+            var str = '<text x="' + x + '" y="' + (y - 5) + '" font-size="12" font-weight="bold">Weapons</text>';
+            var bx = x, by = y;
+            var perRow = Math.floor(width / (SSD_BOX_SIZE + SSD_BOX_GAP + 30));
+            for (var i = 0; i < ship.shipWeapons.length; i++) {
+                var wEntry = ship.shipWeapons[i];
+                var wName = '?';
+                for (var y2 = 0; y2 < weaponList.length; y2++) {
+                    if (weaponList[y2].weaponTypeId == wEntry.weaponTypeId) wName = weaponList[y2].weaponName;
+                }
+                var col = i % perRow, row = Math.floor(i / perRow);
+                var cx = x + col * (width / perRow), cy = y + row * SSD_ROW_HEIGHT;
+                str += '<text x="' + cx + '" y="' + (cy + 11) + '" font-size="9">' + wName + '</text>';
+                var boxX = cx + 42;
+                str += '<rect x="' + boxX + '" y="' + cy + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (wEntry.bDestroyed ? '#ccc' : '#eaf2ff') + '" stroke="#333"/>';
+                if (wEntry.bDestroyed) {
+                    str += '<line x1="' + boxX + '" y1="' + cy + '" x2="' + (boxX + SSD_BOX_SIZE) + '" y2="' + (cy + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    str += '<line x1="' + (boxX + SSD_BOX_SIZE) + '" y1="' + cy + '" x2="' + boxX + '" y2="' + (cy + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                }
+            }
+            return str;
+        }
+
+        function showSSD(sId) {
+            var arrId = findInternalsArrId(sId);
+            var shipArrId = findShipArrId(sId);
+            if (arrId == -1 || shipArrId == -1) return;
+            var internals = shipInternals[arrId];
+            var ship = shipList[shipArrId];
+
+            var str = '<div style="float:left;font-weight:bold;">SSD: ' + ship.name + '</div>';
+            str += '<div style="float:right;" onclick="$(\'#ssdPopUpDiv\').css(\'display\',\'none\');"><i class="fa-light fa-circle-xmark"></i></div>';
+            str += '<div style="clear:both;"></div>';
+
+            str += '<svg viewBox="0 0 640 460" style="width:100%;height:400px;">';
+            str += svgSSDSection(internals, SSD_SECTIONS.control);
+            str += svgSSDSection(internals, SSD_SECTIONS.power);
+            str += svgSSDSection(internals, SSD_SECTIONS.systems);
+            str += svgSSDSection(internals, SSD_SECTIONS.other);
+            str += svgSSDWeapons(ship, 15, 420, 610);
+            str += '</svg>';
+
+            str += '<div style="text-align:center;">' + writeShields(sId) + '</div>';
+
+            $('#ssdPopUpDiv').html(str).css('display', 'block');
+        }
+
         function showShipPopUp(sId) {
             var arrId = -1;
             var arrId2 = -1;
@@ -4983,6 +5104,7 @@ $('#dataDiv').append(str);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
+        <div id="ssdPopUpDiv" class="popUpDiv" style="width:640px;max-height:520px;border:1px solid #333;display:none;"></div>
         <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:360px;border:1px solid #4a90d9;max-height:650px;display:none;"></div>
 
 
