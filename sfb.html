@@ -3273,6 +3273,36 @@ $('#dataDiv').append(str);
             return maxVal;
         }
 
+        // renders a row of empty boxes for a simple point-pool system (e.g.
+        // Bridge 1/1, a warp engine 4/4) - `max` boxes total, with
+        // (max-current) shown crossed out. These systems don't track which
+        // specific box was hit, just a running total, so any (max-current)
+        // of them being marked destroyed is equivalent - real SFB SSDs are
+        // the same way for this kind of system (empty boxes you fill in).
+        function renderSSDBoxes(current, max) {
+            var str = '';
+            for (var i = 0; i < max; i++) {
+                str += '<div class="ssdBox' + (i >= current ? ' ssdBoxDestroyed' : '') + '"></div>';
+            }
+            return str;
+        }
+
+        // renders a row of boxes for a box-array system (sensor/scanner/
+        // damageCon) where each individual box carries its own point value
+        // and its own intact/destroyed status
+        function renderSSDBoxArray(boxArray) {
+            var str = '';
+            for (var i = 0; i < boxArray.length; i++) {
+                var destroyed = boxArray[i][1] == 0;
+                str += '<div class="ssdBox' + (destroyed ? ' ssdBoxDestroyed' : '') + '">' + (destroyed ? '' : boxArray[i][0]) + '</div>';
+            }
+            return str;
+        }
+
+        function ssdRow(label, boxesHtml) {
+            return '<div class="ssdRow"><div class="ssdLabel">' + label + '</div><div class="ssdBoxes">' + boxesHtml + '</div></div>';
+        }
+
         function showShipPopUp(sId) {
             var arrId = -1;
             var arrId2 = -1;
@@ -3289,57 +3319,36 @@ $('#dataDiv').append(str);
             str += '<div style="clear:both;"></div>';
 
             str += '<div><b>Control</b></div>';
-            if (shipInternals[arrId].mFlag != 0) str += '<div>Flag = ' + shipInternals[arrId].mFlag + ' / ' + shipInternals[arrId].flag + '</div>';
-            if (shipInternals[arrId].mBridge != 0) str += '<div>Bridge = ' + shipInternals[arrId].mBridge + ' / ' + shipInternals[arrId].bridge + '</div>';
-            if (shipInternals[arrId].mEmer != 0) str += '<div>Emer = ' + shipInternals[arrId].mEmer + ' / ' + shipInternals[arrId].emer + '</div>';
-            if (shipInternals[arrId].mAux != 0) str += '<div>Aux = ' + shipInternals[arrId].mAux + ' / ' + shipInternals[arrId].aux + '</div>';
-            if (shipInternals[arrId].mScrty != 0) str += '<div>Scrty = ' + shipInternals[arrId].mScrty + ' / ' + shipInternals[arrId].scrty + '</div>';
+            if (shipInternals[arrId].mFlag != 0) str += ssdRow('Flag', renderSSDBoxes(shipInternals[arrId].flag, shipInternals[arrId].mFlag));
+            if (shipInternals[arrId].mBridge != 0) str += ssdRow('Bridge', renderSSDBoxes(shipInternals[arrId].bridge, shipInternals[arrId].mBridge));
+            if (shipInternals[arrId].mEmer != 0) str += ssdRow('Emer', renderSSDBoxes(shipInternals[arrId].emer, shipInternals[arrId].mEmer));
+            if (shipInternals[arrId].mAux != 0) str += ssdRow('Aux', renderSSDBoxes(shipInternals[arrId].aux, shipInternals[arrId].mAux));
+            if (shipInternals[arrId].mScrty != 0) str += ssdRow('Scrty', renderSSDBoxes(shipInternals[arrId].scrty, shipInternals[arrId].mScrty));
 
             str += '<div><b>Systems</b></div>';
-            if (shipInternals[arrId].mArmor != 0) str += '<div>Armor = ' + shipInternals[arrId].mArmor + ' / ' + shipInternals[arrId].armor + '</div>';
-            if (shipInternals[arrId].mFHull != 0) str += '<div>F Hull = ' + shipInternals[arrId].mFHull + ' / ' + shipInternals[arrId].fHull + '</div>';
-            if (shipInternals[arrId].mAHull != 0) str += '<div>A Hull = ' + shipInternals[arrId].mAHull + ' / ' + shipInternals[arrId].aHull + '</div>';
-            if (shipInternals[arrId].mHull != 0) str += '<div>C Hull = ' + shipInternals[arrId].mHull + ' / ' + shipInternals[arrId].hull + '</div>';
-            if (shipInternals[arrId].mLab != 0) str += '<div>Lab = ' + shipInternals[arrId].mLab + ' / ' + shipInternals[arrId].lab + '</div>';
-            if (shipInternals[arrId].mProbe != 0) str += '<div>Probe = ' + shipInternals[arrId].mProbe + ' / ' + shipInternals[arrId].probe + '</div>';
-            if (shipInternals[arrId].mTrac != 0) str += '<div>Trac = ' + shipInternals[arrId].mTrac + ' / ' + shipInternals[arrId].trac + '</div>';
-            if (shipInternals[arrId].mTran != 0) str += '<div>Tran = ' + shipInternals[arrId].mTran + ' / ' + shipInternals[arrId].tran + '</div>';
-            if (shipInternals[arrId].mShut != 0) str += '<div>Shutle = ' + shipInternals[arrId].mShut + ' / ' + shipInternals[arrId].shut + '</div>';
+            if (shipInternals[arrId].mArmor != 0) str += ssdRow('Armor', renderSSDBoxes(shipInternals[arrId].armor, shipInternals[arrId].mArmor));
+            if (shipInternals[arrId].mFHull != 0) str += ssdRow('F Hull', renderSSDBoxes(shipInternals[arrId].fHull, shipInternals[arrId].mFHull));
+            if (shipInternals[arrId].mAHull != 0) str += ssdRow('A Hull', renderSSDBoxes(shipInternals[arrId].aHull, shipInternals[arrId].mAHull));
+            if (shipInternals[arrId].mHull != 0) str += ssdRow('C Hull', renderSSDBoxes(shipInternals[arrId].hull, shipInternals[arrId].mHull));
+            if (shipInternals[arrId].mLab != 0) str += ssdRow('Lab', renderSSDBoxes(shipInternals[arrId].lab, shipInternals[arrId].mLab));
+            if (shipInternals[arrId].mProbe != 0) str += ssdRow('Probe', renderSSDBoxes(shipInternals[arrId].probe, shipInternals[arrId].mProbe));
+            if (shipInternals[arrId].mTrac != 0) str += ssdRow('Trac', renderSSDBoxes(shipInternals[arrId].trac, shipInternals[arrId].mTrac));
+            if (shipInternals[arrId].mTran != 0) str += ssdRow('Tran', renderSSDBoxes(shipInternals[arrId].tran, shipInternals[arrId].mTran));
+            if (shipInternals[arrId].mShut != 0) str += ssdRow('Shuttle', renderSSDBoxes(shipInternals[arrId].shut, shipInternals[arrId].mShut));
 
             str += '<div><b>Power</b></div>';
-            if (shipInternals[arrId].mRWarp != 0) str += '<div>R Warp = ' + shipInternals[arrId].mRWarp + ' / ' + shipInternals[arrId].rWarp + '</div>';
-            if (shipInternals[arrId].mLWarp != 0) str += '<div>L Warp = ' + shipInternals[arrId].mLWarp + ' / ' + shipInternals[arrId].lWarp + '</div>';
-            if (shipInternals[arrId].mCWarp != 0) str += '<div>C Warp = ' + shipInternals[arrId].mCWarp + ' / ' + shipInternals[arrId].cWarp + '</div>';
-            if (shipInternals[arrId].mImp != 0) str += '<div>Imp = ' + shipInternals[arrId].mImp + ' / ' + shipInternals[arrId].imp + '</div>';
-            if (shipInternals[arrId].mApr != 0) str += '<div>APR = ' + shipInternals[arrId].mApr + ' / ' + shipInternals[arrId].apr + '</div>';
-            if (shipInternals[arrId].mBty != 0) str += '<div>Bty = ' + shipInternals[arrId].mBty + ' / ' + shipInternals[arrId].bty + '</div>';
+            if (shipInternals[arrId].mRWarp != 0) str += ssdRow('R Warp', renderSSDBoxes(shipInternals[arrId].rWarp, shipInternals[arrId].mRWarp));
+            if (shipInternals[arrId].mLWarp != 0) str += ssdRow('L Warp', renderSSDBoxes(shipInternals[arrId].lWarp, shipInternals[arrId].mLWarp));
+            if (shipInternals[arrId].mCWarp != 0) str += ssdRow('C Warp', renderSSDBoxes(shipInternals[arrId].cWarp, shipInternals[arrId].mCWarp));
+            if (shipInternals[arrId].mImp != 0) str += ssdRow('Imp', renderSSDBoxes(shipInternals[arrId].imp, shipInternals[arrId].mImp));
+            if (shipInternals[arrId].mApr != 0) str += ssdRow('APR', renderSSDBoxes(shipInternals[arrId].apr, shipInternals[arrId].mApr));
+            if (shipInternals[arrId].mBty != 0) str += ssdRow('Bty', renderSSDBoxes(shipInternals[arrId].bty, shipInternals[arrId].mBty));
 
             str += '<div><b>Other</b></div>';
-            str += '<div>excess = ' + shipInternals[arrId].mExcess + ' / ' + shipInternals[arrId].excess + '</div>';
-            str += '<div>Sensor = ';
-            for (var z = 0; z < shipInternals[arrId].sensor.length; z++) {
-                if (shipInternals[arrId].sensor[z][1] == 1)
-                    str += '[' + shipInternals[arrId].sensor[z][0] + '] ';
-                else
-                    str += '[/] ';
-            }
-            str += '</div>';
-            str += '<div>Scanner = ';
-            for (var z = 0; z < shipInternals[arrId].scanner.length; z++) {
-                if (shipInternals[arrId].scanner[z][1] == 1)
-                    str += '[' + shipInternals[arrId].scanner[z][0] + '] ';
-                else
-                    str += '[/] ';
-            }
-            str += '</div>';
-            str += '<div>Damage Con = ';
-            for (var z = 0; z < shipInternals[arrId].damageCon.length; z++) {
-                if (shipInternals[arrId].damageCon[z][1] == 1)
-                    str += '[' + shipInternals[arrId].damageCon[z][0] + '] ';
-                else
-                    str += '[/] ';
-            }
-            str += '</div>';
+            if (shipInternals[arrId].mExcess != 0) str += ssdRow('Excess', renderSSDBoxes(shipInternals[arrId].excess, shipInternals[arrId].mExcess));
+            if (shipInternals[arrId].sensor.length > 0) str += ssdRow('Sensor', renderSSDBoxArray(shipInternals[arrId].sensor));
+            if (shipInternals[arrId].scanner.length > 0) str += ssdRow('Scanner', renderSSDBoxArray(shipInternals[arrId].scanner));
+            if (shipInternals[arrId].damageCon.length > 0) str += ssdRow('Damage Con', renderSSDBoxArray(shipInternals[arrId].damageCon));
 
             $('#shipInternalsPopUpDiv').html(str).css('display', 'block');
         }
@@ -4542,6 +4551,37 @@ $('#dataDiv').append(str);
             filter: invert(100%) sepia(0%) saturate(0%) hue-rotate(152deg) brightness(103%) contrast(103%);
         }
 
+
+        .ssdRow {
+            clear: both;
+            padding: 2px 0px;
+        }
+        .ssdLabel {
+            float: left;
+            width: 85px;
+            font-size: 11px;
+            line-height: 18px;
+        }
+        .ssdBoxes {
+            float: left;
+            overflow: hidden;
+        }
+        .ssdBox {
+            float: left;
+            width: 15px;
+            height: 15px;
+            margin: 1px;
+            border: 1px solid #333;
+            background-color: #eaffea;
+            font-size: 9px;
+            line-height: 15px;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        .ssdBoxDestroyed {
+            background: repeating-linear-gradient(45deg, #999, #999 2px, #ccc 2px, #ccc 4px);
+            color: transparent;
+        }
 
         .popUpDiv {
             position: absolute;
