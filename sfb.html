@@ -3323,13 +3323,19 @@ $('#dataDiv').append(str);
             excess: 'Excess', sensor: 'Sensor', scanner: 'Scanner', damageCon: 'Damage Con'
         };
         var SSD_ARRAY_SYSTEMS = { sensor: true, scanner: true, damageCon: true };
+        // Control/Systems sit as side-by-side columns near the top; Power
+        // below them split into two visually separate groups (Imp/APR/Bty,
+        // then the three Warp engines - gapAfter adds extra vertical space
+        // after that row index); Other likewise split (Sensor/Scanner over
+        // Damage Con/Excess). All of this nests inside the shield ring
+        // drawn separately by svgShieldRing().
         var SSD_SECTIONS = {
-            control: { title: 'Control', x: 15, y: 35, width: 280, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
-            power: { title: 'Power', x: 345, y: 35, width: 280, systems: ['rWarp', 'lWarp', 'cWarp', 'imp', 'apr', 'bty'] },
-            systems: { title: 'Systems', x: 15, y: 230, width: 280, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] },
-            other: { title: 'Other', x: 345, y: 230, width: 280, systems: ['excess', 'sensor', 'scanner', 'damageCon'] }
+            control: { title: 'Control', x: 100, y: 70, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
+            systems: { title: 'Systems', x: 330, y: 70, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] },
+            power: { title: 'Power', x: 180, y: 260, systems: ['imp', 'apr', 'bty', 'lWarp', 'cWarp', 'rWarp'], gapAfter: [2] },
+            other: { title: 'Other', x: 180, y: 400, systems: ['sensor', 'scanner', 'damageCon', 'excess'], gapAfter: [1] }
         };
-        var SSD_BOX_SIZE = 14, SSD_BOX_GAP = 2, SSD_ROW_HEIGHT = 20, SSD_LABEL_WIDTH = 62;
+        var SSD_BOX_SIZE = 13, SSD_BOX_GAP = 1, SSD_ROW_HEIGHT = 18, SSD_LABEL_WIDTH = 60, SSD_SECTION_GAP = 10;
 
         // one row of boxes: either a plain point-pool (current/max, boxes
         // are otherwise interchangeable) or a box-array system (each box
@@ -3346,7 +3352,7 @@ $('#dataDiv').append(str);
                     str += '<line x1="' + bx + '" y1="' + y + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
                     str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + y + '" x2="' + bx + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
                 } else if (arrayData) {
-                    str += '<text x="' + (bx + SSD_BOX_SIZE / 2) + '" y="' + (y + SSD_BOX_SIZE - 4) + '" font-size="8" text-anchor="middle">' + arrayData[i][0] + '</text>';
+                    str += '<text x="' + (bx + SSD_BOX_SIZE / 2) + '" y="' + (y + SSD_BOX_SIZE - 3) + '" font-size="8" text-anchor="middle">' + arrayData[i][0] + '</text>';
                 }
             }
             return str;
@@ -3354,10 +3360,13 @@ $('#dataDiv').append(str);
 
         // stacks every applicable system in a section top-to-bottom,
         // skipping any the ship doesn't have (mSystem == 0, or an empty
-        // array for box-array systems)
+        // array for box-array systems). gapAfter adds extra space after
+        // specific row indices, to visually separate sub-groups within one
+        // section (e.g. Imp/APR/Bty vs the three Warp engines in Power).
         function svgSSDSection(internals, section) {
             var str = '<text x="' + section.x + '" y="' + (section.y - 5) + '" font-size="12" font-weight="bold">' + section.title + '</text>';
             var y = section.y;
+            var gapAfter = section.gapAfter || [];
             for (var i = 0; i < section.systems.length; i++) {
                 var sys = section.systems[i];
                 var label = SSD_LABELS[sys];
@@ -3368,7 +3377,7 @@ $('#dataDiv').append(str);
                     if (internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)] == 0) continue;
                     str += svgSSDRow(section.x, y, label, internals[sys], internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)], null);
                 }
-                y += SSD_ROW_HEIGHT;
+                y += SSD_ROW_HEIGHT + (gapAfter.indexOf(i) != -1 ? SSD_SECTION_GAP : 0);
             }
             return str;
         }
@@ -3379,7 +3388,6 @@ $('#dataDiv').append(str);
         // rather than a fixed per-class list
         function svgSSDWeapons(ship, x, y, width) {
             var str = '<text x="' + x + '" y="' + (y - 5) + '" font-size="12" font-weight="bold">Weapons</text>';
-            var bx = x, by = y;
             var perRow = Math.floor(width / (SSD_BOX_SIZE + SSD_BOX_GAP + 30));
             for (var i = 0; i < ship.shipWeapons.length; i++) {
                 var wEntry = ship.shipWeapons[i];
@@ -3400,6 +3408,37 @@ $('#dataDiv').append(str);
             return str;
         }
 
+        // one shield marker at a hex-ring position - color-coded green/
+        // yellow/red by remaining percentage (same convention writeShields
+        // already uses elsewhere), oriented wide (horizontal bar) for the
+        // top/bottom facings and narrow (vertical bar) for the four side
+        // facings, matching how they're drawn everywhere else in the app
+        function svgShieldMarker(cx, cy, wide, current, max, num) {
+            var pct = max > 0 ? current / max : 0;
+            var color = '#c0392b';
+            if (pct > 0.33) color = '#e0b400';
+            if (pct > 0.66) color = '#2e8b3d';
+            var w = wide ? 70 : 26, h = wide ? 22 : 70;
+            var x = cx - w / 2, y = cy - h / 2;
+            var str = '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + color + '" stroke="#333" rx="4"/>';
+            str += '<text x="' + cx + '" y="' + (cy + 4) + '" font-size="11" fill="white" text-anchor="middle" font-weight="bold">' + current + '</text>';
+            str += '<text x="' + cx + '" y="' + (y - 4) + '" font-size="9" text-anchor="middle">Shield #' + num + '</text>';
+            return str;
+        }
+
+        // the six shields, arranged in the same hex ring positions used
+        // throughout the rest of the app (1=front/top, going clockwise)
+        function svgShieldRing(internals) {
+            var str = '';
+            str += svgShieldMarker(320, 22, true, internals.shield1, internals.mShield1, 1);
+            str += svgShieldMarker(600, 120, false, internals.shield2, internals.mShield2, 2);
+            str += svgShieldMarker(600, 580, false, internals.shield3, internals.mShield3, 3);
+            str += svgShieldMarker(320, 678, true, internals.shield4, internals.mShield4, 4);
+            str += svgShieldMarker(40, 580, false, internals.shield5, internals.mShield5, 5);
+            str += svgShieldMarker(40, 120, false, internals.shield6, internals.mShield6, 6);
+            return str;
+        }
+
         function showSSD(sId) {
             var arrId = findInternalsArrId(sId);
             var shipArrId = findShipArrId(sId);
@@ -3411,15 +3450,14 @@ $('#dataDiv').append(str);
             str += '<div style="float:right;" onclick="$(\'#ssdPopUpDiv\').css(\'display\',\'none\');"><i class="fa-light fa-circle-xmark"></i></div>';
             str += '<div style="clear:both;"></div>';
 
-            str += '<svg viewBox="0 0 640 460" style="width:100%;height:400px;">';
+            str += '<svg viewBox="0 0 640 700" style="width:100%;height:600px;">';
+            str += svgShieldRing(internals);
             str += svgSSDSection(internals, SSD_SECTIONS.control);
-            str += svgSSDSection(internals, SSD_SECTIONS.power);
             str += svgSSDSection(internals, SSD_SECTIONS.systems);
+            str += svgSSDSection(internals, SSD_SECTIONS.power);
             str += svgSSDSection(internals, SSD_SECTIONS.other);
-            str += svgSSDWeapons(ship, 15, 420, 610);
+            str += svgSSDWeapons(ship, 100, 540, 440);
             str += '</svg>';
-
-            str += '<div style="text-align:center;">' + writeShields(sId) + '</div>';
 
             $('#ssdPopUpDiv').html(str).css('display', 'block');
         }
@@ -5104,7 +5142,7 @@ $('#dataDiv').append(str);
             </div>
         </div>
         <div id="shipInternalsPopUpDiv" class="popUpDiv" style="border:1px solid #DDD;"></div>
-        <div id="ssdPopUpDiv" class="popUpDiv" style="width:640px;max-height:520px;border:1px solid #333;display:none;"></div>
+        <div id="ssdPopUpDiv" class="popUpDiv" style="width:660px;max-height:680px;border:1px solid #333;display:none;"></div>
         <div id="energyAllocPopUpDiv" class="popUpDiv" style="width:360px;border:1px solid #4a90d9;max-height:650px;display:none;"></div>
 
 
