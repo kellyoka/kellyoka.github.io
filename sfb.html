@@ -3323,19 +3323,17 @@ $('#dataDiv').append(str);
             excess: 'Excess', sensor: 'Sensor', scanner: 'Scanner', damageCon: 'Damage Con'
         };
         var SSD_ARRAY_SYSTEMS = { sensor: true, scanner: true, damageCon: true };
-        // Control/Systems sit as side-by-side columns near the top; Power
-        // below them split into two visually separate groups (Imp/APR/Bty,
-        // then the three Warp engines - gapAfter adds extra vertical space
-        // after that row index); Other likewise split (Sensor/Scanner over
-        // Damage Con/Excess). All of this nests inside the shield ring
+        // Control/Systems sit as side-by-side columns near the top. Power
+        // and the sensor/damage area below get custom renderers (see
+        // svgPowerSection/svgSensorDamageSection) since their layout isn't
+        // just a stack of rows - all of this nests inside the shield ring
         // drawn separately by svgShieldRing().
         var SSD_SECTIONS = {
             control: { title: 'Control', x: 100, y: 70, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
-            systems: { title: 'Systems', x: 330, y: 70, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] },
-            power: { title: 'Power', x: 180, y: 260, systems: ['imp', 'apr', 'bty', 'lWarp', 'cWarp', 'rWarp'], gapAfter: [2] },
-            other: { title: 'Other', x: 180, y: 400, systems: ['sensor', 'scanner', 'damageCon', 'excess'], gapAfter: [1] }
+            systems: { title: 'Systems', x: 330, y: 70, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] }
         };
         var SSD_BOX_SIZE = 13, SSD_BOX_GAP = 1, SSD_ROW_HEIGHT = 18, SSD_LABEL_WIDTH = 60, SSD_SECTION_GAP = 10;
+        var SSD_CENTER_X = 320;
 
         // one row of boxes: either a plain point-pool (current/max, boxes
         // are otherwise interchangeable) or a box-array system (each box
@@ -3358,11 +3356,18 @@ $('#dataDiv').append(str);
             return str;
         }
 
+        // width a plain point-pool row's boxes alone would take up (not
+        // counting the label) - used to center groups of these rows as a
+        // block, e.g. Imp/APR/Bty under the Power title
+        function svgRowBoxWidth(max) {
+            return max * (SSD_BOX_SIZE + SSD_BOX_GAP) - SSD_BOX_GAP;
+        }
+
         // stacks every applicable system in a section top-to-bottom,
         // skipping any the ship doesn't have (mSystem == 0, or an empty
-        // array for box-array systems). gapAfter adds extra space after
-        // specific row indices, to visually separate sub-groups within one
-        // section (e.g. Imp/APR/Bty vs the three Warp engines in Power).
+        // array for box-array systems). Returns the y position right
+        // after the last rendered row, so the caller can stack the next
+        // section tightly against actual content instead of a guess.
         function svgSSDSection(internals, section) {
             var str = '<text x="' + section.x + '" y="' + (section.y - 5) + '" font-size="12" font-weight="bold">' + section.title + '</text>';
             var y = section.y;
@@ -3379,7 +3384,99 @@ $('#dataDiv').append(str);
                 }
                 y += SSD_ROW_HEIGHT + (gapAfter.indexOf(i) != -1 ? SSD_SECTION_GAP : 0);
             }
-            return str;
+            return { html: str, endY: y };
+        }
+
+        // a warp engine's own label sits ABOVE its boxes (unlike every
+        // other system, label-to-the-left), and its boxes wrap into rows
+        // of 5 instead of one long row - centered under centerX. Returns
+        // enough to position whatever comes next.
+        function svgWarpGrid(centerX, topY, label, current, max) {
+            var perRow = 5;
+            var rows = Math.ceil(max / perRow);
+            var gridWidth = Math.min(max, perRow) * (SSD_BOX_SIZE + SSD_BOX_GAP) - SSD_BOX_GAP;
+            var startX = centerX - gridWidth / 2;
+            var boxTopY = topY + 12;
+            var str = '<text x="' + centerX + '" y="' + topY + '" font-size="10" text-anchor="middle" font-weight="bold">' + label + '</text>';
+            for (var i = 0; i < max; i++) {
+                var r = Math.floor(i / perRow), c = i % perRow;
+                var destroyed = i >= current;
+                var bx = startX + c * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                var by = boxTopY + r * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                str += '<rect x="' + bx + '" y="' + by + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (destroyed ? '#ccc' : '#eaffea') + '" stroke="#333"/>';
+                if (destroyed) {
+                    str += '<line x1="' + bx + '" y1="' + by + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + by + '" x2="' + bx + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                }
+            }
+            var bottomY = boxTopY + rows * (SSD_BOX_SIZE + SSD_BOX_GAP);
+            return { html: str, width: gridWidth, bottomY: (max > 0 ? bottomY : topY) };
+        }
+
+        // Power: title and the Imp/APR/Bty group centered under it; L Warp
+        // to its left, R Warp to its right (both label-above, 5-per-row
+        // grids); C Warp (if the ship has one) centered below all of that.
+        function svgPowerSection(internals, topY) {
+            var str = '<text x="' + SSD_CENTER_X + '" y="' + topY + '" font-size="12" font-weight="bold" text-anchor="middle">Power</text>';
+            var y = topY + 15;
+
+            var centerRows = ['imp', 'apr', 'bty'];
+            var centerBlockWidth = 0;
+            for (var i = 0; i < centerRows.length; i++) {
+                var mVal = internals['m' + centerRows[i].charAt(0).toUpperCase() + centerRows[i].slice(1)];
+                if (mVal > 0) centerBlockWidth = Math.max(centerBlockWidth, SSD_LABEL_WIDTH + svgRowBoxWidth(mVal));
+            }
+            var blockX = SSD_CENTER_X - centerBlockWidth / 2;
+            var blockTopY = y;
+            for (var i = 0; i < centerRows.length; i++) {
+                var sys = centerRows[i];
+                var mKey = 'm' + sys.charAt(0).toUpperCase() + sys.slice(1);
+                if (internals[mKey] == 0) continue;
+                str += svgSSDRow(blockX, y, SSD_LABELS[sys], internals[sys], internals[mKey], null);
+                y += SSD_ROW_HEIGHT;
+            }
+            var centerBlockBottomY = y;
+
+            var sideBottomY = centerBlockBottomY;
+            if (internals.mLWarp > 0) {
+                var lGridWidth = Math.min(internals.mLWarp, 5) * (SSD_BOX_SIZE + SSD_BOX_GAP) - SSD_BOX_GAP;
+                var lCenterX = blockX - 20 - lGridWidth / 2;
+                var lResult = svgWarpGrid(lCenterX, blockTopY, 'L Warp', internals.lWarp, internals.mLWarp);
+                str += lResult.html;
+                sideBottomY = Math.max(sideBottomY, lResult.bottomY);
+            }
+            if (internals.mRWarp > 0) {
+                var rGridWidth = Math.min(internals.mRWarp, 5) * (SSD_BOX_SIZE + SSD_BOX_GAP) - SSD_BOX_GAP;
+                var rCenterX = blockX + centerBlockWidth + 20 + rGridWidth / 2;
+                var rResult = svgWarpGrid(rCenterX, blockTopY, 'R Warp', internals.rWarp, internals.mRWarp);
+                str += rResult.html;
+                sideBottomY = Math.max(sideBottomY, rResult.bottomY);
+            }
+
+            var bottomY = sideBottomY;
+            if (internals.mCWarp > 0) {
+                var cResult = svgWarpGrid(SSD_CENTER_X, sideBottomY + 15, 'C Warp', internals.cWarp, internals.mCWarp);
+                str += cResult.html;
+                bottomY = cResult.bottomY;
+            }
+
+            return { html: str, endY: bottomY };
+        }
+
+        // Sensor+Scanner on the left, Damage Con+Excess on the right - no
+        // section title, per the "remove the word Other" request
+        function svgSensorDamageSection(internals, topY) {
+            var str = '';
+            var leftY = topY, rightY = topY;
+            var leftX = 100, rightX = 330;
+
+            if (internals.sensor.length > 0) { str += svgSSDRow(leftX, leftY, 'Sensor', null, null, internals.sensor); leftY += SSD_ROW_HEIGHT; }
+            if (internals.scanner.length > 0) { str += svgSSDRow(leftX, leftY, 'Scanner', null, null, internals.scanner); leftY += SSD_ROW_HEIGHT; }
+
+            if (internals.damageCon.length > 0) { str += svgSSDRow(rightX, rightY, 'Damage Con', null, null, internals.damageCon); rightY += SSD_ROW_HEIGHT; }
+            if (internals.mExcess > 0) { str += svgSSDRow(rightX, rightY, 'Excess', internals.excess, internals.mExcess, null); rightY += SSD_ROW_HEIGHT; }
+
+            return { html: str, endY: Math.max(leftY, rightY) };
         }
 
         // weapon mounts aren't part of shipInternals (they're tracked per-
@@ -3452,10 +3549,21 @@ $('#dataDiv').append(str);
 
             str += '<svg viewBox="0 0 640 700" style="width:100%;height:600px;">';
             str += svgShieldRing(internals);
-            str += svgSSDSection(internals, SSD_SECTIONS.control);
-            str += svgSSDSection(internals, SSD_SECTIONS.systems);
-            str += svgSSDSection(internals, SSD_SECTIONS.power);
-            str += svgSSDSection(internals, SSD_SECTIONS.other);
+
+            var controlResult = svgSSDSection(internals, SSD_SECTIONS.control);
+            var systemsResult = svgSSDSection(internals, SSD_SECTIONS.systems);
+            str += controlResult.html + systemsResult.html;
+
+            // tight gap to whichever of Control/Systems ran longer, rather
+            // than a fixed guess
+            var powerTopY = Math.max(controlResult.endY, systemsResult.endY) + SSD_SECTION_GAP;
+            var powerResult = svgPowerSection(internals, powerTopY);
+            str += powerResult.html;
+
+            var sdTopY = powerResult.endY + SSD_SECTION_GAP + 10;
+            var sdResult = svgSensorDamageSection(internals, sdTopY);
+            str += sdResult.html;
+
             str += svgSSDWeapons(ship, 100, 540, 440);
             str += '</svg>';
 
