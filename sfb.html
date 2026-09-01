@@ -13,6 +13,7 @@
     <script src="js/weapons.js"></script>
     <script src="js/dac-chart.js"></script>
     <script src="js/drone-types.js"></script>
+    <script src="js/ships.js"></script>
 
     <script type="text/javascript">
         function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap, sizeClass) {
@@ -45,6 +46,14 @@
             // simple depleting/refillable count, no per-shuttle-type
             // magazine complexity like drone racks have.
             this.isShuttle = false;
+            // isMonster marks an AI-controlled monster (e.g. the planet
+            // crusher) - also flat HP, no shields/DAC (shares the same
+            // applyDamage() bypass shuttles use), also skips energy
+            // allocation, but unlike a shuttle it's never player-piloted:
+            // see aiMoveMonster()/aiFireMonster(), hooked into
+            // moveShips()/fireShips() to move/attack automatically instead
+            // of showing the normal popups.
+            this.isMonster = false;
             this.ownerShipId = null;
             this.hitPoints = 0;
             this.maxHitPoints = 0;
@@ -243,88 +252,94 @@
         var shipInternals = [];
 
 
-        shipList[0] = new shipType(1, 'CA', 10, 10, 0, 7, 7, 8, 3);  // FED CA
-        shipList[0].shuttleHangar = 4;
-        shipList[0].shuttleHangarMax = 4;
-        shipList[0].shuttleIconSrc = 'images/sfb/shuttle.svg';
-        shipList[0].shuttleBgColor = 'blue'; // matches CA's own .shipDiv default (no inline override on #ship1)
-        shipInternals[0] = new shipSystemsType(1, 2, 2, 2, 2, 0, 0, 12, 4, 0, 8, 1, 2, 3, 4, 15, 15, 0, 4, 2, 4, 30, 24, 20, 20, 20, 24, 6);
+        // --- Planet Crusher monster scenario ---
+        // AI-controlled: moves toward the planet each impulse unless a
+        // ship is within 2 hexes, in which case it moves toward that ship
+        // instead (see aiMoveMonster(), hooked into moveShips()). Fires
+        // its one weapon at the nearest ship within range 6 every impulse
+        // it gets a turn in the fire queue (see aiFireMonster(), hooked
+        // into fireShips()) - flat 1d6 roll for damage, not range-based.
+        // 200 HP, no shields (shares the same flat-HP applyDamage()
+        // bypass shuttles use). Ships also can't engage it beyond range 6
+        // regardless of their own weapon's normal range - see the
+        // isMonster check in shipFirePopUp()'s ship-targeting gate.
+        var MONSTER_USER_ID = 999;
+        var MONSTER_WEAPON_TYPE_ID = 60;
+        var MONSTER_WEAPON_DAMAGE_TABLE = [35, 30, 25, 20, 15, 10]; // indexed by (1d6 roll - 1)
+        var MONSTER_ENGAGEMENT_RANGE = 6; // no ship can fire on it beyond this, regardless of weapon range
+        var MONSTER_AGGRO_RANGE = 2; // switches from heading to the planet to heading for a ship within this range
+        var PLANET_HEX = { x: 25, y: 2 }; // hex 2502
+        var planetHitPoints = 200; // if this reaches 0 from the monster's weapon, the player loses
+        var planetMaxHitPoints = 200;
+        var monsterFiredThisTurn = false; // reset in endTurn() - the monster gets exactly one shot per turn, taken the first impulse something (a ship or the planet) is in range
 
-        shipList[1] = new shipType(2, 'D7', 11, 7, 180, 5, 16, 9, 3);    //KLI D7
-        shipList[1].shuttleHangar = 2;
-        shipList[1].shuttleHangarMax = 2;
-        shipList[1].shuttleIconSrc = 'images/sfb/shuttle2.svg';
-        shipList[1].shuttleBgColor = 'black'; // matches D7's own #ship2 inline background-color
-        shipInternals[1] = new shipSystemsType(2, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
-        /* DEAD CODE - ships 3-9 (NCA, F5, C9, three D6s) are commented out.
-           Only CA (ship 1) and D7 (ship 2) above are actually live right
-           now - the game currently runs as a 2-ship engagement. This block
-           would need un-commenting (and the matching plotShip() calls
-           below re-enabled) to bring more ships into play.
-       shipList[2] = new shipType(3, 'NCA', 12, 10, 60, 7, 13, 6);  // FED NCA
-       shipInternals[2] = new shipSystemsType(3, 0, 2, 2, 1, 0, 0, 0, 0, 10, 4, 1, 2, 2, 4, 12, 12, 0, 4, 4, 2, 24, 24, 24, 24, 24, 24, 6);
+        // builds a real shipType + shipSystemsType + weapon mounts from a
+        // named entry in data/ships.json (see js/ships.js) - only callable
+        // once weaponList (weapons.js) AND shipClassList (ships.js) have
+        // both finished loading, since it resolves weapon names against
+        // the catalog and ship class data against shipClassesByName.
+        // Position/facing are supplied here rather than living in the
+        // class data, since the same hull type can start a scenario
+        // anywhere - they're a scenario choice, not a property of the hull.
+        function createShipFromClass(className, userId, xCord, yCord, facing) {
+            var cls = getShipClass(className);
 
-       shipList[3] = new shipType(4, 'F5', 12, 11, 120, 4, 24, 5);  // KLI F5
-       shipInternals[3] = new shipSystemsType(4, 0, 1, 1, 1, 2, 2, 0, 5, 0, 2, 1, 1, 2, 1, 8, 8, 0, 3, 1, 2, 30, 22, 15, 13, 15, 22, 4);
+            var ship = new shipType(userId, cls.displayName || cls.className, xCord, yCord, facing, cls.turnMode, cls.baseSpeed, cls.phaserCap, cls.sizeClass);
+            ship.shuttleHangar = cls.shuttleHangarMax || 0;
+            ship.shuttleHangarMax = cls.shuttleHangarMax || 0;
+            ship.shuttleIconSrc = cls.shuttleIconSrc;
+            ship.shuttleBgColor = cls.shuttleBgColor;
 
-       shipList[4] = new shipType(5, 'C9', 10, 12, 0, 7, 8, 14);  // KLI C9
-       shipInternals[4] = new shipSystemsType(5, 0, 4, 2, 2, 4, 0, 12, 20, 0, 6, 1, 3, 8, 4, 15, 15, 15, 8, 4, 8, 44, 36, 30, 30, 30, 36, 8);
+            for (var i = 0; i < cls.weapons.length; i++) {
+                var wDef = cls.weapons[i];
+                var catalogEntry = null;
+                for (var y = 0; y < weaponList.length; y++) {
+                    if (weaponList[y].weaponName == wDef.weaponName) catalogEntry = weaponList[y];
+                }
+                if (!catalogEntry) throw new Error('Ship class "' + className + '" references unknown weapon "' + wDef.weaponName + '"');
+                var entry = new weaponEntryType(i + 1, catalogEntry.weaponTypeId, catalogEntry.weaponClassId, wDef.startP, wDef.arc, wDef.startP2 || 0, wDef.arc2 || 0, wDef.extraArcs || []);
+                if (wDef.droneInitialLoadout) entry.droneInitialLoadout = wDef.droneInitialLoadout;
+                ship.shipWeapons[i] = entry;
+            }
 
-       shipList[5] = new shipType(6, 'D6', 9, 12, 240, 5, 20, 7);   // KLI D6
-       shipInternals[5] = new shipSystemsType(6, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+            var s = cls.systems;
+            var internals = new shipSystemsType(userId, s.flag, s.bridge, s.aux, s.emer, s.scrty, s.armor, s.fHull, s.aHull, s.hull, s.lab, s.probe, s.trac, s.tran, s.shut, s.rWarp, s.lWarp, s.cWarp, s.imp, s.apr, s.bty, s.shield1, s.shield2, s.shield3, s.shield4, s.shield5, s.shield6, s.excess);
+            if (cls.sensor) internals.sensor = JSON.parse(JSON.stringify(cls.sensor));
+            if (cls.scanner) internals.scanner = JSON.parse(JSON.stringify(cls.scanner));
+            if (cls.damageCon) internals.damageCon = JSON.parse(JSON.stringify(cls.damageCon));
 
-       shipList[6] = new shipType(7, 'D6', 3, 11, 300, 5, 20, 7);   // KLI D6
-       shipInternals[6] = new shipSystemsType(7, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+            return { ship: ship, internals: internals };
+        }
 
-       shipList[7] = new shipType(8, 'D6', 9, 9, 0, 5, 20, 7);   // KLI D6
-       shipInternals[7] = new shipSystemsType(8, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
+        // actually builds this scenario's ships - called from initGame(),
+        // once weaponList/shipClassList are both loaded. To bring D7 back
+        // for a normal 2-ship engagement instead of the Planet Crusher
+        // solo scenario, uncomment its block below (and its plotShip(2)
+        // call in initGame()). Adding a whole new ship to a scenario is now
+        // just one more createShipFromClass() call + assignment, rather
+        // than dozens of hand-written lines - see data/ships.json for the
+        // hull types already defined (CA, D7, NCA, F5, C9, D6 - though the
+        // last three are systems-only for now, no weapons/sensor/scanner/
+        // damageCon layout).
+        function setupScenario() {
+            var caResult = createShipFromClass('CA', 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
+            shipList[0] = caResult.ship;
+            shipInternals[0] = caResult.internals;
 
-       shipList[8] = new shipType(9, 'D6', 7, 9, 0, 5, 23, 7);   // KLI D6
-       shipInternals[8] = new shipSystemsType(9, 0, 2, 2, 1, 2, 0, 4, 7, 0, 4, 1, 3, 5, 2, 15, 15, 0, 5, 2, 3, 30, 22, 15, 13, 15, 22, 4);
-      */
-        shipList[0].shipWeapons[0] = new weaponEntryType(1, 13, 2, 300, 120, 0, 0);
-        shipList[0].shipWeapons[1] = new weaponEntryType(2, 13, 2, 300, 120, 0, 0);
-        shipList[0].shipWeapons[2] = new weaponEntryType(3, 13, 2, 300, 120, 0, 0);
-        shipList[0].shipWeapons[3] = new weaponEntryType(4, 13, 2, 300, 120, 0, 0);
-        shipList[0].shipWeapons[4] = new weaponEntryType(5, 1, 1, 0, 360, 0, 0);
-        shipList[0].shipWeapons[5] = new weaponEntryType(6, 1, 1, 0, 360, 0, 0);
-        shipList[0].shipWeapons[6] = new weaponEntryType(7, 1, 1, 300, 120, 0, 0);
-        shipList[0].shipWeapons[7] = new weaponEntryType(8, 1, 1, 300, 120, 0, 0);
-        shipList[0].shipWeapons[8] = new weaponEntryType(9, 1, 1, 240, 120, 0, 0);
-        shipList[0].shipWeapons[9] = new weaponEntryType(10, 1, 1, 240, 120, 0, 0);
-        shipList[0].shipWeapons[10] = new weaponEntryType(11, 1, 1, 0, 120, 0, 0);
-        shipList[0].shipWeapons[11] = new weaponEntryType(12, 1, 1, 0, 120, 0, 0);
-        shipInternals[0].sensor = [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]];
-        shipInternals[0].scanner = [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]];
-        shipInternals[0].damageCon = [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]];
+            /* DEAD CODE - D7 commented out for the Planet Crusher scenario,
+               which is CA-vs-monster only. Uncomment to bring it back.
+            var d7Result = createShipFromClass('D7', 2, 11, 7, 180);
+            shipList[1] = d7Result.ship;
+            shipInternals[1] = d7Result.internals;
+            */
 
-        shipList[1].shipWeapons[0] = new weaponEntryType(1, 10, 2, 300, 120, 0, 0);
-        shipList[1].shipWeapons[1] = new weaponEntryType(2, 10, 2, 300, 120, 0, 0);
-        shipList[1].shipWeapons[2] = new weaponEntryType(3, 10, 2, 300, 120, 0, 0);
-        shipList[1].shipWeapons[3] = new weaponEntryType(4, 10, 2, 300, 120, 0, 0);
-        shipList[1].shipWeapons[4] = new weaponEntryType(5, 35, 4, 0, 360, 0, 0);
-        shipList[1].shipWeapons[5] = new weaponEntryType(6, 35, 4, 0, 360, 0, 0);
-        // custom initial loadout for the D7's drone racks - each Drone F
-        // rack has 4 spaces (weapons.json powerCost). setupDroneLoadouts()
-        // (see below) leaves this alone instead of overwriting it with the
-        // all-Type-I default, since it's not empty. Total spaces used must
-        // not exceed the rack's capacity (4 here): 2 Type-I (1 sp each) + 1
-        // Type-IV (2 sp) = 4.
-        shipList[1].shipWeapons[4].droneInitialLoadout = { 'Type-I': 2, 'Type-IV': 1 };
-        shipList[1].shipWeapons[5].droneInitialLoadout = { 'Type-I': 2, 'Type-IV': 1 };
-        shipList[1].shipWeapons[6] = new weaponEntryType(7, 2, 1, 240, 240, 0, 0);
-        shipList[1].shipWeapons[7] = new weaponEntryType(8, 2, 1, 240, 240, 0, 0);
-        shipList[1].shipWeapons[8] = new weaponEntryType(9, 2, 1, 240, 240, 0, 0);
-        shipList[1].shipWeapons[9] = new weaponEntryType(10, 2, 1, 240, 120, 120, 60);
-        shipList[1].shipWeapons[10] = new weaponEntryType(11, 2, 1, 0, 120, 180, 60);
-        shipList[1].shipWeapons[11] = new weaponEntryType(12, 2, 1, 180, 120, 0, 0);
-        shipList[1].shipWeapons[12] = new weaponEntryType(13, 2, 1, 180, 120, 0, 0);
-        shipList[1].shipWeapons[13] = new weaponEntryType(14, 2, 1, 60, 120, 0, 0);
-        shipList[1].shipWeapons[14] = new weaponEntryType(15, 2, 1, 60, 120, 0, 0);
-        shipInternals[1].sensor = [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]];
-        shipInternals[1].scanner = [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]];
-        shipInternals[1].damageCon = [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]];
-
+            shipList[shipList.length] = new shipType(MONSTER_USER_ID, 'Planet Crusher', 2, 30, 0, 1, 6, 0, 1); // hex 0230, speed 6 fixed
+            var monsterArrIdAtSetup = shipList.length - 1;
+            shipList[monsterArrIdAtSetup].isMonster = true;
+            shipList[monsterArrIdAtSetup].hitPoints = 200;
+            shipList[monsterArrIdAtSetup].maxHitPoints = 200;
+            shipList[monsterArrIdAtSetup].shipWeapons[0] = new weaponEntryType(1, MONSTER_WEAPON_TYPE_ID, 7, 0, 360, 0, 0);
+        }
 
         var curShipId = 1;
         var curShipArrId = 0;
@@ -332,10 +347,15 @@
         $(function () {
             // Load weapon damage tables + Damage Allocation Chart before
             // anything that might reference weaponList/dacChart runs.
+            // Ship classes must also be loaded before initGame() runs,
+            // since setupScenario() (called from it) resolves weapon
+            // names against weaponList and hull data against
+            // shipClassesByName - see createShipFromClass().
             Promise.all([
                 loadWeapons('data/weapons.json'),
                 loadDacChart('data/dac-chart.json'),
-                loadDroneTypes('data/drone-types.json')
+                loadDroneTypes('data/drone-types.json'),
+                loadShipClasses('data/ships.json')
             ]).then(function () {
                 try {
                     initGame();
@@ -511,10 +531,23 @@
         }
 
         function initGame() {
+            setupScenario();
             setupDroneLoadouts();
             setupADDCharges();
             plotShip(1);
-            plotShip(2);
+            // plotShip(2); // D7 commented out for the Planet Crusher scenario
+
+            // Planet Crusher's marker (no pre-built div like ship1/ship2,
+            // same situation shuttles are in - created dynamically)
+            var monsterMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="background-color:#800080;width:24px;height:24px;font-size:9px;color:white;text-align:center;line-height:24px;" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');">PC</div>';
+            $('#shipLayer').append(monsterMarker);
+            plotShip(MONSTER_USER_ID);
+
+            // the planet itself is just a static visual reference for the
+            // monster's AI targeting, not an interactive game object
+            var planetPos = seekingWeaponPixelPos(PLANET_HEX.x, PLANET_HEX.y);
+            var planetMarker = '<div id="planetMarker" style="position:absolute;left:' + (planetPos.x - 10) + 'px;top:' + (planetPos.y - 10) + 'px;width:20px;height:20px;border-radius:50%;background-color:#2a6f2a;border:2px solid #1a4a1a;z-index:4;" title="Planet (hex 2502)"></div>';
+            $('#shipLayer').append(planetMarker);
             /* DEAD CODE - matches the disabled ships 3-9 above; would need
                re-enabling together with that block.
             plotShip(3);
@@ -1390,9 +1423,46 @@ $('#dataDiv').append(str);
                 clearSelfHexHighlight();
                 moveSeeking();
             } else {
-                setSelfHexHighlight(moveShipList[0]);
-                shipMovePopUp(moveShipList[0]);
+                var sId = moveShipList[0];
+                var mArrId = findShipArrId(sId);
+                if (mArrId != -1 && shipList[mArrId].isMonster) {
+                    aiMoveMonster(sId);
+                    return;
+                }
+                setSelfHexHighlight(sId);
+                shipMovePopUp(sId);
             }
+        }
+
+        // moves the planet crusher one hex for this impulse: heads for the
+        // nearest ship within MONSTER_AGGRO_RANGE if one exists, otherwise
+        // heads for the planet. Snaps its facing directly toward the
+        // target (no turn-mode restriction, unlike player ships) and then
+        // reuses the normal moveShip() stepping/redraw/queue-advance -
+        // same idea as how drones always turn as hard as they can toward
+        // their target every impulse.
+        function aiMoveMonster(sId) {
+            var arrId = findShipArrId(sId);
+            var monster = shipList[arrId];
+
+            var targetX = PLANET_HEX.x, targetY = PLANET_HEX.y;
+            var closestDist = Infinity;
+            for (var z = 0; z < shipList.length; z++) {
+                var other = shipList[z];
+                if (other.userId == sId || other.isMonster) continue;
+                var d = findDist(sId, other.userId);
+                if (d <= MONSTER_AGGRO_RANGE && d < closestDist) {
+                    closestDist = d;
+                    targetX = other.xCord;
+                    targetY = other.yCord;
+                }
+            }
+
+            if (!(monster.xCord == targetX && monster.yCord == targetY)) {
+                var bearing = bearingBetweenCoords(monster.xCord, monster.yCord, targetX, targetY);
+                monster.facing = nearestHexDirection(bearing);
+            }
+            moveShip(sId, 0); // reuses the normal hex-step/redraw/queue-advance, then calls moveShips() again
         }
         // move seeking weapons
         function moveSeeking() {
@@ -1779,6 +1849,11 @@ $('#dataDiv').append(str);
                 damageShips();
             } else {
                 var candidateShipId = fireShipList[0];
+                var mArrId = findShipArrId(candidateShipId);
+                if (mArrId != -1 && shipList[mArrId].isMonster) {
+                    aiFireMonster(candidateShipId);
+                    return;
+                }
                 if (!shipHasFireableWeapon(candidateShipId)) {
                     // nothing left to fire - skip this ship's popup
                     // entirely rather than showing an all-dimmed list
@@ -1795,6 +1870,73 @@ $('#dataDiv').append(str);
                 clearTargetHexHighlight();
                 shipFirePopUp();
             }
+        }
+
+        // fires the planet crusher's one weapon exactly once per turn, at
+        // the first impulse something is in range (MONSTER_ENGAGEMENT_
+        // RANGE) - a ship, if one's in range (nearest one, same priority
+        // order as its movement AI), otherwise the planet itself once it's
+        // close enough. If nothing's in range yet this impulse, it just
+        // waits and checks again next impulse - still only ever gets the
+        // one shot for the turn once something qualifies. Damage is a flat
+        // 1d6 roll (not range-based, per the scenario rules). A ship hit
+        // goes through the normal shield/damageList pipeline; the planet
+        // has no shields of its own to speak of here - it just has a flat
+        // HP pool, and reaching 0 ends the scenario in a loss.
+        function aiFireMonster(sId) {
+            if (monsterFiredThisTurn) {
+                fireShipList.shift();
+                fireShips();
+                return;
+            }
+
+            var arrId = findShipArrId(sId);
+            var monster = shipList[arrId];
+
+            var targetId = null, closestDist = Infinity;
+            for (var z = 0; z < shipList.length; z++) {
+                var other = shipList[z];
+                if (other.userId == sId || other.isMonster) continue;
+                var d = findDist(sId, other.userId);
+                if (d <= MONSTER_ENGAGEMENT_RANGE && d < closestDist) { closestDist = d; targetId = other.userId; }
+            }
+
+            if (targetId != null) {
+                var targetArrId = findShipArrId(targetId);
+                var roll = rollD6();
+                var dmg = MONSTER_WEAPON_DAMAGE_TABLE[roll - 1];
+                var shieldFacingBearing = findFacing(targetId, sId);
+                var shieldNum = shieldFacing(shieldFacingBearing);
+
+                $('#dataDiv').append('<div>' + monster.name + ' fires on ' + shipList[targetArrId].name + ' - roll ' + roll + ' -- ' + dmg + ' damage to shield #' + shieldNum + '</div>');
+
+                var bAdded = false;
+                for (var i = 0; i < damageList.length; i++) {
+                    if (damageList[i].targetId == targetId && damageList[i].shield == shieldNum) {
+                        damageList[i].damage += dmg;
+                        bAdded = true;
+                    }
+                }
+                if (!bAdded) damageList[damageList.length] = new damageListType(targetId, shieldNum, dmg);
+                monsterFiredThisTurn = true;
+            } else {
+                var planetDist = hexDistanceCoords(monster.xCord, monster.yCord, PLANET_HEX.x, PLANET_HEX.y);
+                if (planetDist <= MONSTER_ENGAGEMENT_RANGE) {
+                    var pRoll = rollD6();
+                    var pDmg = MONSTER_WEAPON_DAMAGE_TABLE[pRoll - 1];
+                    planetHitPoints -= pDmg;
+                    $('#dataDiv').append('<div>' + monster.name + ' fires on the planet - roll ' + pRoll + ' -- ' + pDmg + ' damage (planet ' + Math.max(planetHitPoints, 0) + '/' + planetMaxHitPoints + ')</div>');
+                    monsterFiredThisTurn = true;
+                    if (planetHitPoints <= 0) {
+                        $('#dataDiv').append('<div style="color:#900;font-weight:bold;">The planet has been destroyed - YOU LOSE</div>');
+                    }
+                }
+                // else: nothing in range yet this impulse - don't fire,
+                // don't set the flag, it'll check again next impulse
+            }
+
+            fireShipList.shift();
+            fireShips();
         }
         // resolve direct-fire weapons
         function damageShips() {
@@ -1824,6 +1966,7 @@ $('#dataDiv').append(str);
         function endTurn() {
             turnNumber++;
             impulse = 1;
+            monsterFiredThisTurn = false;
 
             // shuttles skip energy allocation entirely (see
             // startEnergyAllocation()), so their one Phaser-3 refills for
@@ -2167,6 +2310,10 @@ $('#dataDiv').append(str);
                         var isOverloadedPhoton = isPhotonWeaponTypeId(thisWeaponEntry.weaponTypeId) && thisWeaponEntry.loadType == 'overload';
                         var effMinRange = (isOverloadedDisruptor || isOverloadedPhoton) ? 0 : thisMinRange;
                         var effMaxRange = isOverloadedDisruptor ? DISRUPTOR_OVERLOAD_MAX_RANGE : (isOverloadedPhoton ? PHOTON_OVERLOAD_MAX_RANGE : thisMaxRange);
+                        // no ship can engage the planet crusher beyond
+                        // MONSTER_ENGAGEMENT_RANGE, regardless of what the
+                        // firing weapon's own normal range would allow
+                        if (selTargetShipId == MONSTER_USER_ID) effMaxRange = Math.min(effMaxRange, MONSTER_ENGAGEMENT_RANGE);
                         if (rangeToTarget < effMinRange || rangeToTarget > effMaxRange) {
                             str += ' dimWeapon';
                         }
@@ -3003,15 +3150,16 @@ $('#dataDiv').append(str);
                     if (shipList[zz].userId == damageList[0].targetId) { targetName = shipList[zz].name; targetArrId = zz; }
                 }
 
-                // shuttles have no shields/armor/DAC at all - full incoming
-                // damage applies straight to flat HP, same idea as a drone
-                if (targetArrId != -1 && shipList[targetArrId].isShuttle) {
-                    var shuttle = shipList[targetArrId];
-                    shuttle.hitPoints -= d;
-                    $('#dataDiv').append('<div>' + targetName + ' takes ' + d + ' damage (HP ' + Math.max(shuttle.hitPoints, 0) + '/' + shuttle.maxHitPoints + ')</div>');
-                    if (shuttle.hitPoints <= 0) {
+                // shuttles and monsters have no shields/armor/DAC at all -
+                // full incoming damage applies straight to flat HP, same
+                // idea as a drone
+                if (targetArrId != -1 && (shipList[targetArrId].isShuttle || shipList[targetArrId].isMonster)) {
+                    var flatHpTarget = shipList[targetArrId];
+                    flatHpTarget.hitPoints -= d;
+                    $('#dataDiv').append('<div>' + targetName + ' takes ' + d + ' damage (HP ' + Math.max(flatHpTarget.hitPoints, 0) + '/' + flatHpTarget.maxHitPoints + ')</div>');
+                    if (flatHpTarget.hitPoints <= 0) {
                         $('#dataDiv').append('<div>' + targetName + ' destroyed</div>');
-                        removeShipEntirely(shuttle.userId);
+                        removeShipEntirely(flatHpTarget.userId);
                     }
                     damageList.shift();
                     damageShips();
@@ -3685,22 +3833,27 @@ $('#dataDiv').append(str);
 
 
         // basic functions
+        // raw hex distance between two coordinate pairs - extracted out of
+        // findDist() so it can also be used against a fixed hex that isn't
+        // a ship (e.g. the planet in the Planet Crusher scenario)
+        function hexDistanceCoords(x1, y1, x2, y2) {
+            var dx = Math.abs(x1 - x2);
+            var dy = Math.abs(y1 - y2);
+            var d = dx;
+            var a = dy - Math.floor(dx / 2);
+            if (((x1 % 2) == 0) && ((x2 % 2) == 1) && (y1 < y2)) a--;
+            if (((x1 % 2) == 1) && ((x2 % 2) == 0) && (y1 > y2)) a--;
+            if (a > 0) d += a;
+            return d;
+        }
+
         function findDist(sId1, sId2) {
             var x1, x2, y1, y2;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId1) { x1 = shipList[z].xCord; y1 = shipList[z].yCord; }
                 if (shipList[z].userId == sId2) { x2 = shipList[z].xCord; y2 = shipList[z].yCord; }
             }
-            var d = 0;
-            var dx = Math.abs(x1 - x2);
-            var dy = Math.abs(y1 - y2);
-            d = dx;
-            var a = dy - Math.floor(dx / 2);
-            if (((x1 % 2) == 0) && ((x2 % 2) == 1) && (y1 < y2)) a--;
-            if (((x1 % 2) == 1) && ((x2 % 2) == 0) && (y1 > y2)) a--;
-            if (a > 0) d += a;
-            //$('#dataDiv').append('<div>x1=' + x1 + ' y1=' + y1 + ' x2=' + x2 + ' y2=' + y2 + ' dx=' + dx + ' dy=' + dy + ' a=' + a + ' d=' + d + '</div>')
-            return d;
+            return hexDistanceCoords(x1, y1, x2, y2);
         }
 
         // --- weapon recycle time: fixed 8-impulse cooldown between shots,
@@ -3767,7 +3920,10 @@ $('#dataDiv').append(str);
                 // they have no power systems to manage. They still get a
                 // normal move-phase turning popup like any ship, via
                 // moveShips()/shipMovePopUp(), which don't touch this list.
-                if (shipList[x].isShuttle) continue;
+                // The monster skips it for the same reason (fixed speed 6)
+                // and additionally never gets a move/fire popup at all -
+                // see aiMoveMonster()/aiFireMonster().
+                if (shipList[x].isShuttle || shipList[x].isMonster) continue;
                 energyAllocList.push(shipList[x].userId);
             }
             setPhase('Energy Allocation');
