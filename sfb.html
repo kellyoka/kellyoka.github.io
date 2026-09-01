@@ -539,14 +539,16 @@
 
             // Planet Crusher's marker (no pre-built div like ship1/ship2,
             // same situation shuttles are in - created dynamically)
-            var monsterMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="background-color:#800080;width:24px;height:24px;font-size:9px;color:white;text-align:center;line-height:24px;" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');">PC</div>';
+            var monsterMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="width:18px;height:18px;background-color:transparent;" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');"><img src="images/sfb/monster.svg" style="width:18px;height:18px;" /></div>';
             $('#shipLayer').append(monsterMarker);
             plotShip(MONSTER_USER_ID);
 
             // the planet itself is just a static visual reference for the
-            // monster's AI targeting, not an interactive game object
-            var planetPos = seekingWeaponPixelPos(PLANET_HEX.x, PLANET_HEX.y);
-            var planetMarker = '<div id="planetMarker" style="position:absolute;left:' + (planetPos.x - 10) + 'px;top:' + (planetPos.y - 10) + 'px;width:20px;height:20px;border-radius:50%;background-color:#2a6f2a;border:2px solid #1a4a1a;z-index:4;" title="Planet (hex 2502)"></div>';
+            // monster's AI targeting, not an interactive game object.
+            // Positioned at an exact pixel spot rather than computed from
+            // its hex (2502) - the hex-based math was slightly off from
+            // where it should actually sit.
+            var planetMarker = '<div id="planetMarker" style="position:absolute;left:913px;top:61.3px;width:20px;height:20px;border-radius:50%;background-color:#2a6f2a;border:2px solid #1a4a1a;z-index:4;" title="Planet (hex 2502)"></div>';
             $('#shipLayer').append(planetMarker);
             /* DEAD CODE - matches the disabled ships 3-9 above; would need
                re-enabling together with that block.
