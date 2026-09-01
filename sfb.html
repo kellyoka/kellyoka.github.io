@@ -3332,34 +3332,45 @@ $('#dataDiv').append(str);
         // by svgShieldRing().
         var SSD_SECTIONS = {
             control: { title: 'Control', x: 100, y: 220, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
-            systemsLeft: { title: 'Systems', x: 330, y: 220, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab'] },
-            systemsRight: { title: '', x: 460, y: 220, systems: ['probe', 'trac', 'tran', 'shut'] }
+            systemsLeft: { title: 'Systems', x: 260, y: 220, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab'], boxDx: -20, wrapAt: 9 },
+            systemsRight: { title: '', x: 430, y: 220, systems: ['probe', 'trac', 'tran', 'shut'], boxDx: -10 }
         };
         var SSD_BOX_SIZE = 13, SSD_BOX_GAP = 1, SSD_ROW_HEIGHT = 18, SSD_LABEL_WIDTH = 60, SSD_SECTION_GAP = 10;
-        var SSD_GAP_TO_POWER = 15; // gap from Control/Systems down to Power - kept tight so Power lands above Shield #4, not below it
-        var SSD_SENSOR_DAMAGE_Y = 500; // fixed, anchored below Shield #4 rather than chained after Power
+        var SSD_GAP_TO_POWER = 45; // gap from Control/Systems down to Power (15 base + 30 requested additional drop)
+        var SSD_SENSOR_DAMAGE_Y = 530; // fixed, anchored below Shield #4 (500 base + 30 requested additional drop)
         var SSD_WEAPONS_Y = 55; // fixed, at the top just below Shield #1
         var SSD_CENTER_X = 320;
 
         // one row of boxes: either a plain point-pool (current/max, boxes
         // are otherwise interchangeable) or a box-array system (each box
-        // has its own point value and status, e.g. Damage Control)
-        function svgSSDRow(x, y, label, current, max, arrayData) {
-            var str = '<text x="' + x + '" y="' + (y + 11) + '" font-size="10">' + label + '</text>';
-            var boxX = x + SSD_LABEL_WIDTH;
+        // has its own point value and status, e.g. Damage Control).
+        // labelDx/boxDx nudge the label and box-start independently from
+        // the base x (so the gap between them can differ from the default
+        // SSD_LABEL_WIDTH). wrapAt, if given, wraps boxes into a new row
+        // every N boxes instead of one long row - returns how many visual
+        // rows were used so the caller can stack the next system properly.
+        function svgSSDRow(x, y, label, current, max, arrayData, labelDx, boxDx, wrapAt) {
+            labelDx = labelDx || 0;
+            boxDx = boxDx || 0;
+            var str = '<text x="' + (x + labelDx) + '" y="' + (y + 11) + '" font-size="10">' + label + '</text>';
+            var boxX = x + SSD_LABEL_WIDTH + boxDx;
             var count = arrayData ? arrayData.length : max;
+            var perRow = wrapAt || count || 1;
             for (var i = 0; i < count; i++) {
                 var destroyed = arrayData ? (arrayData[i][1] == 0) : (i >= current);
-                var bx = boxX + i * (SSD_BOX_SIZE + SSD_BOX_GAP);
-                str += '<rect x="' + bx + '" y="' + y + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (destroyed ? '#ccc' : '#eaffea') + '" stroke="#333"/>';
+                var r = Math.floor(i / perRow), c = i % perRow;
+                var bx = boxX + c * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                var by = y + r * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                str += '<rect x="' + bx + '" y="' + by + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (destroyed ? '#ccc' : '#eaffea') + '" stroke="#333"/>';
                 if (destroyed) {
-                    str += '<line x1="' + bx + '" y1="' + y + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
-                    str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + y + '" x2="' + bx + '" y2="' + (y + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    str += '<line x1="' + bx + '" y1="' + by + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + by + '" x2="' + bx + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
                 } else if (arrayData) {
-                    str += '<text x="' + (bx + SSD_BOX_SIZE / 2) + '" y="' + (y + SSD_BOX_SIZE - 3) + '" font-size="8" text-anchor="middle">' + arrayData[i][0] + '</text>';
+                    str += '<text x="' + (bx + SSD_BOX_SIZE / 2) + '" y="' + (by + SSD_BOX_SIZE - 3) + '" font-size="8" text-anchor="middle">' + arrayData[i][0] + '</text>';
                 }
             }
-            return str;
+            var rows = count > 0 ? Math.ceil(count / perRow) : 1;
+            return { html: str, rows: rows };
         }
 
         // width a plain point-pool row's boxes alone would take up (not
@@ -3374,6 +3385,8 @@ $('#dataDiv').append(str);
         // array for box-array systems). Returns the y position right
         // after the last rendered row, so the caller can stack the next
         // section tightly against actual content instead of a guess.
+        // section.labelDx/boxDx/wrapAt (all optional) pass straight
+        // through to every row in the section.
         function svgSSDSection(internals, section) {
             var str = section.title ? ('<text x="' + section.x + '" y="' + (section.y - 5) + '" font-size="12" font-weight="bold">' + section.title + '</text>') : '';
             var y = section.y;
@@ -3381,14 +3394,16 @@ $('#dataDiv').append(str);
             for (var i = 0; i < section.systems.length; i++) {
                 var sys = section.systems[i];
                 var label = SSD_LABELS[sys];
+                var result;
                 if (SSD_ARRAY_SYSTEMS[sys]) {
                     if (internals[sys].length == 0) continue;
-                    str += svgSSDRow(section.x, y, label, null, null, internals[sys]);
+                    result = svgSSDRow(section.x, y, label, null, null, internals[sys], section.labelDx, section.boxDx, section.wrapAt);
                 } else {
                     if (internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)] == 0) continue;
-                    str += svgSSDRow(section.x, y, label, internals[sys], internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)], null);
+                    result = svgSSDRow(section.x, y, label, internals[sys], internals['m' + sys.charAt(0).toUpperCase() + sys.slice(1)], null, section.labelDx, section.boxDx, section.wrapAt);
                 }
-                y += SSD_ROW_HEIGHT + (gapAfter.indexOf(i) != -1 ? SSD_SECTION_GAP : 0);
+                str += result.html;
+                y += result.rows * SSD_ROW_HEIGHT + (gapAfter.indexOf(i) != -1 ? SSD_SECTION_GAP : 0);
             }
             return { html: str, endY: y };
         }
@@ -3425,6 +3440,8 @@ $('#dataDiv').append(str);
         function svgPowerSection(internals, topY) {
             var str = '<text x="' + SSD_CENTER_X + '" y="' + topY + '" font-size="12" font-weight="bold" text-anchor="middle">Power</text>';
             var y = topY + 15;
+            var blockTopY = y; // L/R Warp's reference - NOT shifted by the Imp/APR/Bty-only offset below
+            var centerBlockTopY = y + 12; // Imp/APR/Bty specifically sits 12px lower than L/R Warp's top
 
             var centerRows = ['imp', 'apr', 'bty'];
             var centerBlockWidth = 0;
@@ -3433,15 +3450,16 @@ $('#dataDiv').append(str);
                 if (mVal > 0) centerBlockWidth = Math.max(centerBlockWidth, SSD_LABEL_WIDTH + svgRowBoxWidth(mVal));
             }
             var blockX = SSD_CENTER_X - centerBlockWidth / 2;
-            var blockTopY = y;
+            var cy = centerBlockTopY;
             for (var i = 0; i < centerRows.length; i++) {
                 var sys = centerRows[i];
                 var mKey = 'm' + sys.charAt(0).toUpperCase() + sys.slice(1);
                 if (internals[mKey] == 0) continue;
-                str += svgSSDRow(blockX, y, SSD_LABELS[sys], internals[sys], internals[mKey], null);
-                y += SSD_ROW_HEIGHT;
+                var rowResult = svgSSDRow(blockX, cy, SSD_LABELS[sys], internals[sys], internals[mKey], null, 10, -10);
+                str += rowResult.html;
+                cy += SSD_ROW_HEIGHT;
             }
-            var centerBlockBottomY = y;
+            var centerBlockBottomY = cy;
 
             var sideBottomY = centerBlockBottomY;
             if (internals.mLWarp > 0) {
@@ -3476,11 +3494,11 @@ $('#dataDiv').append(str);
             var leftY = topY, rightY = topY;
             var leftX = 100, rightX = 330;
 
-            if (internals.sensor.length > 0) { str += svgSSDRow(leftX, leftY, 'Sensor', null, null, internals.sensor); leftY += SSD_ROW_HEIGHT; }
-            if (internals.scanner.length > 0) { str += svgSSDRow(leftX, leftY, 'Scanner', null, null, internals.scanner); leftY += SSD_ROW_HEIGHT; }
+            if (internals.sensor.length > 0) { str += svgSSDRow(leftX, leftY, 'Sensor', null, null, internals.sensor).html; leftY += SSD_ROW_HEIGHT; }
+            if (internals.scanner.length > 0) { str += svgSSDRow(leftX, leftY, 'Scanner', null, null, internals.scanner).html; leftY += SSD_ROW_HEIGHT; }
 
-            if (internals.damageCon.length > 0) { str += svgSSDRow(rightX, rightY, 'Damage Con', null, null, internals.damageCon); rightY += SSD_ROW_HEIGHT; }
-            if (internals.mExcess > 0) { str += svgSSDRow(rightX, rightY, 'Excess', internals.excess, internals.mExcess, null); rightY += SSD_ROW_HEIGHT; }
+            if (internals.damageCon.length > 0) { str += svgSSDRow(rightX, rightY, 'Damage Con', null, null, internals.damageCon).html; rightY += SSD_ROW_HEIGHT; }
+            if (internals.mExcess > 0) { str += svgSSDRow(rightX, rightY, 'Excess', internals.excess, internals.mExcess, null).html; rightY += SSD_ROW_HEIGHT; }
 
             return { html: str, endY: Math.max(leftY, rightY) };
         }
@@ -3495,9 +3513,11 @@ $('#dataDiv').append(str);
         // group, in the order those distinct arcs first appear on the
         // mount list.
         function svgSSDWeapons(ship, x, y, width) {
+            var col2X = 330;
             var str = '<text x="' + x + '" y="' + (y - 5) + '" font-size="12" font-weight="bold">Weapons</text>';
             var labelWidth = 100;
-            var perRow = Math.max(1, Math.floor((width - labelWidth) / (SSD_BOX_SIZE + SSD_BOX_GAP)));
+            var perRow1 = Math.max(1, Math.floor((col2X - x - labelWidth) / (SSD_BOX_SIZE + SSD_BOX_GAP)));
+            var perRow2 = Math.max(1, Math.floor((x + width - col2X - labelWidth) / (SSD_BOX_SIZE + SSD_BOX_GAP)));
 
             var groupOrder = [];
             var groupsByKey = {};
@@ -3508,31 +3528,39 @@ $('#dataDiv').append(str);
                 groupsByKey[key].push(i);
             }
 
-            var cy = y;
-            for (var g = 0; g < groupOrder.length; g++) {
-                var indices = groupsByKey[groupOrder[g]];
-                var firstEntry = ship.shipWeapons[indices[0]];
-                var wName = '?';
-                for (var y2 = 0; y2 < weaponList.length; y2++) {
-                    if (weaponList[y2].weaponTypeId == firstEntry.weaponTypeId) wName = weaponList[y2].weaponName;
-                }
-                var label = wName + ' ' + displayWeaponArc(firstEntry);
-                str += '<text x="' + x + '" y="' + (cy + 11) + '" font-size="9">' + label + '</text>';
-
-                for (var j = 0; j < indices.length; j++) {
-                    var wEntry = ship.shipWeapons[indices[j]];
-                    var col = j % perRow, row = Math.floor(j / perRow);
-                    var bx = x + labelWidth + col * (SSD_BOX_SIZE + SSD_BOX_GAP);
-                    var by = cy + row * (SSD_BOX_SIZE + SSD_BOX_GAP);
-                    str += '<rect x="' + bx + '" y="' + by + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (wEntry.bDestroyed ? '#ccc' : '#eaf2ff') + '" stroke="#333"/>';
-                    if (wEntry.bDestroyed) {
-                        str += '<line x1="' + bx + '" y1="' + by + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
-                        str += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + by + '" x2="' + bx + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+            function renderWeaponColumn(colX, groupKeys, perRow) {
+                var colStr = '';
+                var cy = y;
+                for (var g = 0; g < groupKeys.length; g++) {
+                    var indices = groupsByKey[groupKeys[g]];
+                    var firstEntry = ship.shipWeapons[indices[0]];
+                    var wName = '?';
+                    for (var y2 = 0; y2 < weaponList.length; y2++) {
+                        if (weaponList[y2].weaponTypeId == firstEntry.weaponTypeId) wName = weaponList[y2].weaponName;
                     }
+                    var label = wName + ' ' + displayWeaponArc(firstEntry);
+                    colStr += '<text x="' + colX + '" y="' + (cy + 11) + '" font-size="9">' + label + '</text>';
+
+                    for (var j = 0; j < indices.length; j++) {
+                        var wEntry = ship.shipWeapons[indices[j]];
+                        var col = j % perRow, row = Math.floor(j / perRow);
+                        var bx = colX + labelWidth + col * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                        var by = cy + row * (SSD_BOX_SIZE + SSD_BOX_GAP);
+                        colStr += '<rect x="' + bx + '" y="' + by + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (wEntry.bDestroyed ? '#ccc' : '#eaf2ff') + '" stroke="#333"/>';
+                        if (wEntry.bDestroyed) {
+                            colStr += '<line x1="' + bx + '" y1="' + by + '" x2="' + (bx + SSD_BOX_SIZE) + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                            colStr += '<line x1="' + (bx + SSD_BOX_SIZE) + '" y1="' + by + '" x2="' + bx + '" y2="' + (by + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                        }
+                    }
+                    var rowsUsed = Math.ceil(indices.length / perRow);
+                    cy += rowsUsed * SSD_ROW_HEIGHT + 6;
                 }
-                var rowsUsed = Math.ceil(indices.length / perRow);
-                cy += rowsUsed * SSD_ROW_HEIGHT + 6;
+                return colStr;
             }
+
+            var half = Math.ceil(groupOrder.length / 2);
+            str += renderWeaponColumn(x, groupOrder.slice(0, half), perRow1);
+            str += renderWeaponColumn(col2X, groupOrder.slice(half), perRow2);
             return str;
         }
 
