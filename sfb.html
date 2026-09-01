@@ -3329,10 +3329,13 @@ $('#dataDiv').append(str);
         // just a stack of rows - all of this nests inside the shield ring
         // drawn separately by svgShieldRing().
         var SSD_SECTIONS = {
-            control: { title: 'Control', x: 100, y: 70, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
-            systems: { title: 'Systems', x: 330, y: 70, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] }
+            control: { title: 'Control', x: 100, y: 220, systems: ['flag', 'bridge', 'aux', 'emer', 'scrty'] },
+            systems: { title: 'Systems', x: 330, y: 220, systems: ['armor', 'fHull', 'aHull', 'hull', 'lab', 'probe', 'trac', 'tran', 'shut'] }
         };
         var SSD_BOX_SIZE = 13, SSD_BOX_GAP = 1, SSD_ROW_HEIGHT = 18, SSD_LABEL_WIDTH = 60, SSD_SECTION_GAP = 10;
+        var SSD_GAP_TO_POWER = 200; // gap from Control/Systems down to Power
+        var SSD_SENSOR_DAMAGE_Y = 500; // fixed, anchored below Shield #4 rather than chained after Power
+        var SSD_WEAPONS_Y = 55; // fixed, at the top just below Shield #1
         var SSD_CENTER_X = 320;
 
         // one row of boxes: either a plain point-pool (current/max, boxes
@@ -3482,25 +3485,44 @@ $('#dataDiv').append(str);
         // weapon mounts aren't part of shipInternals (they're tracked per-
         // instance on shipWeapons, since loadout varies by scenario), so
         // this section is generated from whatever's actually mounted
-        // rather than a fixed per-class list
+        // rather than a fixed per-class list. Weapons sharing the exact
+        // same arc coverage (startP/arc/startP2/arc2/extraArcs) are
+        // grouped together, each group starting on its own row, in the
+        // order those distinct arcs first appear on the mount list.
         function svgSSDWeapons(ship, x, y, width) {
             var str = '<text x="' + x + '" y="' + (y - 5) + '" font-size="12" font-weight="bold">Weapons</text>';
             var perRow = Math.floor(width / (SSD_BOX_SIZE + SSD_BOX_GAP + 30));
+
+            var groupOrder = [];
+            var groupsByKey = {};
             for (var i = 0; i < ship.shipWeapons.length; i++) {
-                var wEntry = ship.shipWeapons[i];
-                var wName = '?';
-                for (var y2 = 0; y2 < weaponList.length; y2++) {
-                    if (weaponList[y2].weaponTypeId == wEntry.weaponTypeId) wName = weaponList[y2].weaponName;
+                var w = ship.shipWeapons[i];
+                var key = w.startP + '|' + w.arc + '|' + (w.startP2 || 0) + '|' + (w.arc2 || 0) + '|' + JSON.stringify(w.extraArcs || []);
+                if (!(key in groupsByKey)) { groupsByKey[key] = []; groupOrder.push(key); }
+                groupsByKey[key].push(i);
+            }
+
+            var cy = y;
+            for (var g = 0; g < groupOrder.length; g++) {
+                var indices = groupsByKey[groupOrder[g]];
+                for (var j = 0; j < indices.length; j++) {
+                    var wEntry = ship.shipWeapons[indices[j]];
+                    var wName = '?';
+                    for (var y2 = 0; y2 < weaponList.length; y2++) {
+                        if (weaponList[y2].weaponTypeId == wEntry.weaponTypeId) wName = weaponList[y2].weaponName;
+                    }
+                    var col = j % perRow, row = Math.floor(j / perRow);
+                    var cx = x + col * (width / perRow), cRowY = cy + row * SSD_ROW_HEIGHT;
+                    str += '<text x="' + cx + '" y="' + (cRowY + 11) + '" font-size="9">' + wName + '</text>';
+                    var boxX = cx + 42;
+                    str += '<rect x="' + boxX + '" y="' + cRowY + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (wEntry.bDestroyed ? '#ccc' : '#eaf2ff') + '" stroke="#333"/>';
+                    if (wEntry.bDestroyed) {
+                        str += '<line x1="' + boxX + '" y1="' + cRowY + '" x2="' + (boxX + SSD_BOX_SIZE) + '" y2="' + (cRowY + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                        str += '<line x1="' + (boxX + SSD_BOX_SIZE) + '" y1="' + cRowY + '" x2="' + boxX + '" y2="' + (cRowY + SSD_BOX_SIZE) + '" stroke="#333"/>';
+                    }
                 }
-                var col = i % perRow, row = Math.floor(i / perRow);
-                var cx = x + col * (width / perRow), cy = y + row * SSD_ROW_HEIGHT;
-                str += '<text x="' + cx + '" y="' + (cy + 11) + '" font-size="9">' + wName + '</text>';
-                var boxX = cx + 42;
-                str += '<rect x="' + boxX + '" y="' + cy + '" width="' + SSD_BOX_SIZE + '" height="' + SSD_BOX_SIZE + '" fill="' + (wEntry.bDestroyed ? '#ccc' : '#eaf2ff') + '" stroke="#333"/>';
-                if (wEntry.bDestroyed) {
-                    str += '<line x1="' + boxX + '" y1="' + cy + '" x2="' + (boxX + SSD_BOX_SIZE) + '" y2="' + (cy + SSD_BOX_SIZE) + '" stroke="#333"/>';
-                    str += '<line x1="' + (boxX + SSD_BOX_SIZE) + '" y1="' + cy + '" x2="' + boxX + '" y2="' + (cy + SSD_BOX_SIZE) + '" stroke="#333"/>';
-                }
+                var rowsUsed = Math.ceil(indices.length / perRow);
+                cy += rowsUsed * SSD_ROW_HEIGHT + 6;
             }
             return str;
         }
@@ -3529,9 +3551,9 @@ $('#dataDiv').append(str);
             var str = '';
             str += svgShieldMarker(320, 22, true, internals.shield1, internals.mShield1, 1);
             str += svgShieldMarker(600, 120, false, internals.shield2, internals.mShield2, 2);
-            str += svgShieldMarker(600, 580, false, internals.shield3, internals.mShield3, 3);
-            str += svgShieldMarker(320, 678, true, internals.shield4, internals.mShield4, 4);
-            str += svgShieldMarker(40, 580, false, internals.shield5, internals.mShield5, 5);
+            str += svgShieldMarker(600, 380, false, internals.shield3, internals.mShield3, 3);
+            str += svgShieldMarker(320, 478, true, internals.shield4, internals.mShield4, 4);
+            str += svgShieldMarker(40, 380, false, internals.shield5, internals.mShield5, 5);
             str += svgShieldMarker(40, 120, false, internals.shield6, internals.mShield6, 6);
             return str;
         }
@@ -3550,21 +3572,19 @@ $('#dataDiv').append(str);
             str += '<svg viewBox="0 0 640 700" style="width:100%;height:600px;">';
             str += svgShieldRing(internals);
 
+            str += svgSSDWeapons(ship, 100, SSD_WEAPONS_Y, 440);
+
             var controlResult = svgSSDSection(internals, SSD_SECTIONS.control);
             var systemsResult = svgSSDSection(internals, SSD_SECTIONS.systems);
             str += controlResult.html + systemsResult.html;
 
-            // tight gap to whichever of Control/Systems ran longer, rather
-            // than a fixed guess
-            var powerTopY = Math.max(controlResult.endY, systemsResult.endY) + SSD_SECTION_GAP;
+            var powerTopY = Math.max(controlResult.endY, systemsResult.endY) + SSD_GAP_TO_POWER;
             var powerResult = svgPowerSection(internals, powerTopY);
             str += powerResult.html;
 
-            var sdTopY = powerResult.endY + SSD_SECTION_GAP + 10;
-            var sdResult = svgSensorDamageSection(internals, sdTopY);
+            var sdResult = svgSensorDamageSection(internals, SSD_SENSOR_DAMAGE_Y);
             str += sdResult.html;
 
-            str += svgSSDWeapons(ship, 100, 540, 440);
             str += '</svg>';
 
             $('#ssdPopUpDiv').html(str).css('display', 'block');
