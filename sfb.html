@@ -1451,7 +1451,11 @@ $('#dataDiv').append(str);
             var closestDist = Infinity;
             for (var z = 0; z < shipList.length; z++) {
                 var other = shipList[z];
-                if (other.userId == sId || other.isMonster) continue;
+                // ignores shuttles/fighters (sizeClass 6+) entirely - only
+                // "real" ships draw its attention away from the planet.
+                // Drones aren't in shipList at all, so they're naturally
+                // already excluded here without needing a separate check.
+                if (other.userId == sId || other.isMonster || other.sizeClass >= 6) continue;
                 var d = findDist(sId, other.userId);
                 if (d <= MONSTER_AGGRO_RANGE && d < closestDist) {
                     closestDist = d;
@@ -1898,7 +1902,10 @@ $('#dataDiv').append(str);
             var targetId = null, closestDist = Infinity;
             for (var z = 0; z < shipList.length; z++) {
                 var other = shipList[z];
-                if (other.userId == sId || other.isMonster) continue;
+                // ignores shuttles/fighters (sizeClass 6+) - for now it only
+                // fires on "real" ships (and, failing that, the planet).
+                // Drones aren't in shipList, so already excluded here too.
+                if (other.userId == sId || other.isMonster || other.sizeClass >= 6) continue;
                 var d = findDist(sId, other.userId);
                 if (d <= MONSTER_ENGAGEMENT_RANGE && d < closestDist) { closestDist = d; targetId = other.userId; }
             }
@@ -2665,6 +2672,12 @@ $('#dataDiv').append(str);
             targetType = targetType || 'ship'; // existing callers only ever target ships, so default preserves them
             var wClass = 0;
             var weapon = null;
+            // captured BEFORE the arming-reset below zeroes them out - a
+            // Photon's damage is investedPower*2, computed further down,
+            // and needs the value it was actually loaded with, not the
+            // post-fire "unarmed" state
+            var preFireLoadType = shipList[sArrId].shipWeapons[wArrId].loadType;
+            var preFireInvestedPower = shipList[sArrId].shipWeapons[wArrId].investedPower;
             shipList[sArrId].shipWeapons[wArrId].bFired = true;
             shipList[sArrId].shipWeapons[wArrId].impFired = impulse;
             shipList[sArrId].shipWeapons[wArrId].lastFiredAbsImpulse = currentAbsoluteImpulse();
@@ -2723,14 +2736,17 @@ $('#dataDiv').append(str);
                 // (already present in the data). Photon: damage is always
                 // investedPower*2 - this naturally reproduces the normal
                 // case too, since normal load is always exactly 4 power
-                // (4*2=8, matching the existing fixed damage value).
+                // (4*2=8, matching the existing fixed damage value). Uses
+                // preFireLoadType/preFireInvestedPower (captured above,
+                // before this same weapon's arming got reset) rather than
+                // reading them off the entry now - by this point they've
+                // already been zeroed back to "unarmed" for next turn.
                 r = rollD6();
                 var hits = getDamage(weapon, h);
-                var thisWeaponEntry = shipList[sArrId].shipWeapons[wArrId];
-                var isOverload = (thisWeaponEntry.loadType == 'overload');
+                var isOverload = (preFireLoadType == 'overload');
                 if (hits[0] >= r) {
                     if (isPhotonWeaponTypeId(weapon.weaponTypeId)) {
-                        d = thisWeaponEntry.investedPower * 2;
+                        d = preFireInvestedPower * 2;
                     } else {
                         d = isOverload ? (hits[2] || 0) : hits[1];
                     }
@@ -2815,13 +2831,17 @@ $('#dataDiv').append(str);
                 // overloaded heavy weapons take feedback damage on certain
                 // close-range shots - "as if the target fired back". For
                 // disruptors: range 0 only, flat 2 damage. For photon:
-                // ranges 0-1, damage = investedPower - 4 (1 to 4).
+                // ranges 0-1, damage = investedPower - 4 (1 to 4). Uses
+                // preFireLoadType/preFireInvestedPower (captured before
+                // this weapon's arming got reset earlier in this same
+                // function) for the same reason the wClass==2 damage calc
+                // above does - by this point the entry itself already
+                // reads back as unarmed.
                 var feedbackDamage = 0;
-                var thisEntry = shipList[sArrId].shipWeapons[wArrId];
-                if (h == 0 && isDisruptorWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload') {
+                if (h == 0 && isDisruptorWeaponTypeId(weapon.weaponTypeId) && preFireLoadType == 'overload') {
                     feedbackDamage = DISRUPTOR_OVERLOAD_FEEDBACK_DAMAGE;
-                } else if ((h == 0 || h == 1) && isPhotonWeaponTypeId(weapon.weaponTypeId) && thisEntry.loadType == 'overload') {
-                    feedbackDamage = thisEntry.investedPower - PHOTON_NORMAL_TOTAL;
+                } else if ((h == 0 || h == 1) && isPhotonWeaponTypeId(weapon.weaponTypeId) && preFireLoadType == 'overload') {
+                    feedbackDamage = preFireInvestedPower - PHOTON_NORMAL_TOTAL;
                 }
                 if (feedbackDamage > 0) {
                     // feedback shield: as if the target fired back at the
