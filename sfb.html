@@ -54,6 +54,12 @@
             // moveShips()/fireShips() to move/attack automatically instead
             // of showing the normal popups.
             this.isMonster = false;
+            // generic hook for the engagement-range ring toggle in
+            // shipClick() - 0 means "no ring available" (every normal
+            // ship/shuttle). Set per-monster at creation time, so future
+            // monster types can each have their own value/behavior without
+            // hardcoding a single constant into the UI.
+            this.engagementRange = 0;
             this.ownerShipId = null;
             this.hitPoints = 0;
             this.maxHitPoints = 0;
@@ -339,6 +345,7 @@
             shipList[monsterArrIdAtSetup].hitPoints = 200;
             shipList[monsterArrIdAtSetup].maxHitPoints = 200;
             shipList[monsterArrIdAtSetup].shipWeapons[0] = new weaponEntryType(1, MONSTER_WEAPON_TYPE_ID, 7, 0, 360, 0, 0);
+            shipList[monsterArrIdAtSetup].engagementRange = MONSTER_ENGAGEMENT_RANGE;
         }
 
         var curShipId = 1;
@@ -699,6 +706,7 @@ $('#dataDiv').append(str);
             var name = '';
             var isTargetShuttle = false;
             var targetHP = 0, targetMaxHP = 0;
+            var targetEngagementRange = 0;
             for (var z = 0; z < shipList.length; z++) {
                 if (shipList[z].userId == sId) {
                     speed = shipList[z].speed;
@@ -706,6 +714,7 @@ $('#dataDiv').append(str);
                     isTargetShuttle = shipList[z].isShuttle;
                     targetHP = shipList[z].hitPoints;
                     targetMaxHP = shipList[z].maxHitPoints;
+                    targetEngagementRange = shipList[z].engagementRange;
                 }
             }
 
@@ -717,6 +726,11 @@ $('#dataDiv').append(str);
             str += '<div>Distance to target: ' + d + '</div>';
             if (!isTargetShuttle) {
                 str += '<div class="button" onclick="showSSD(' + sId + ');">View SSD</div>';
+                str += '<div style="clear:both;"></div>';
+            }
+            if (targetEngagementRange > 0) {
+                var ringShown = (visibleRangeRingShipId == sId);
+                str += '<div class="button" onclick="toggleRangeRing(' + sId + ', ' + targetEngagementRange + ');">' + (ringShown ? 'Hide' : 'Show') + ' Engagement Range</div>';
                 str += '<div style="clear:both;"></div>';
             }
             if (!isOwnTeam && !isTargetShuttle) {
@@ -1185,6 +1199,46 @@ $('#dataDiv').append(str);
             writeImpulseChart();
         }
 
+        // shows/hides a shaded circular overlay around a ship representing
+        // its engagement range (e.g. the planet crusher's 6-hex weapon
+        // range) - works like the existing weapon-arc overlay
+        // (showWeaponArc) but as a full 360-degree ring sized to an actual
+        // hex distance rather than a fixed decorative circle. Generic over
+        // any ship's own engagementRange, not hardcoded to one monster -
+        // a future monster with different range/shape behavior can reuse
+        // this the same way, or replace renderRangeRing() with something
+        // else for its own case.
+        var visibleRangeRingShipId = null; // which ship's ring is currently shown (null = none)
+        var visibleRangeRingHexes = 0;
+
+        function toggleRangeRing(shipUserId, rangeHexes) {
+            if (visibleRangeRingShipId == shipUserId) {
+                visibleRangeRingShipId = null; // already showing this one's ring - toggle off
+            } else {
+                visibleRangeRingShipId = shipUserId;
+                visibleRangeRingHexes = rangeHexes;
+            }
+            renderRangeRing();
+            shipClick(shipUserId); // refresh the popup so the button's label flips (Show/Hide)
+        }
+
+        function renderRangeRing() {
+            $('#rangeRing').remove();
+            if (visibleRangeRingShipId == null) return;
+
+            var arrId = findShipArrId(visibleRangeRingShipId);
+            if (arrId == -1) { visibleRangeRingShipId = null; return; } // its ship was destroyed/gone
+
+            // same pixel math plotShip() uses to position a ship's own
+            // marker, so the ring lines up with it exactly
+            var mx = ((shipList[arrId].xCord - 1) * 37.5) + 13;
+            var my = ((shipList[arrId].yCord - 1) * 43.3) + ((shipList[arrId].xCord % 2 == 1) ? 0 : 22) + 16;
+            var radiusPx = visibleRangeRingHexes * 37.5; // approximate - a hex grid's true "N hexes away" boundary is a hexagon, not a circle, but a circle reads fine as a rough shaded danger zone
+
+            var str = '<div id="rangeRing" style="position:absolute;left:' + (mx - radiusPx) + 'px;top:' + (my - radiusPx) + 'px;width:' + (radiusPx * 2) + 'px;height:' + (radiusPx * 2) + 'px;border-radius:50%;background-color:rgba(128,0,128,0.15);border:2px dashed rgba(128,0,128,0.6);pointer-events:none;z-index:2;"></div>';
+            $('#shipLayer').append(str);
+        }
+
         function plotShip(sId) {
             var f = 0; var x = 0; var y = 0;
 
@@ -1204,6 +1258,7 @@ $('#dataDiv').append(str);
                 'transform': 'rotate(' + f + 'deg)'
             });
             updateStackBadges();
+            if (sId == visibleRangeRingShipId) renderRangeRing(); // keep the ring lined up as this ship moves
         }
 
         // pixel center of a hex, in the same coordinate space plotShip() uses
