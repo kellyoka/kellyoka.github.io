@@ -317,35 +317,36 @@
             return { ship: ship, internals: internals };
         }
 
-        // actually builds this scenario's ships - called from initGame(),
-        // once weaponList/shipClassList are both loaded. To bring D7 back
-        // for a normal 2-ship engagement instead of the Planet Crusher
-        // solo scenario, uncomment its block below (and its plotShip(2)
-        // call in initGame()). Adding a whole new ship to a scenario is now
-        // just one more createShipFromClass() call + assignment, rather
-        // than dozens of hand-written lines - see data/ships.json for the
-        // hull types already defined (CA, D7, NCA, F5, C9, D6 - though the
-        // last three are systems-only for now, no weapons/sensor/scanner/
-        // damageCon layout).
-        function setupScenario() {
-            var caResult = createShipFromClass('CA', 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
-            shipList[0] = caResult.ship;
-            shipInternals[0] = caResult.internals;
+        // scenario registry - each entry knows which ship classes are
+        // valid to pilot in it and how to actually build its ships/
+        // monster/etc. This is the first monster scenario; adding another
+        // one later means adding another key here, not touching this one.
+        var SCENARIOS = {
+            planet_crusher: {
+                name: 'The Planet Crusher',
+                description: 'A rampaging monster is bearing down on a nearby colony. Stop it, defend the planet, or hold out as long as you can - if the planet takes 200 points of damage, you lose.',
+                playableShips: ['CA'], // only hull types with real weapon data in ships.json belong here - see its _note fields for which are systems-only so far
+                setup: function (shipClassName) {
+                    var playerResult = createShipFromClass(shipClassName, 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
+                    shipList[0] = playerResult.ship;
+                    shipInternals[0] = playerResult.internals;
 
-            /* DEAD CODE - D7 commented out for the Planet Crusher scenario,
-               which is CA-vs-monster only. Uncomment to bring it back.
-            var d7Result = createShipFromClass('D7', 2, 11, 7, 180);
-            shipList[1] = d7Result.ship;
-            shipInternals[1] = d7Result.internals;
-            */
+                    shipList[shipList.length] = new shipType(MONSTER_USER_ID, 'Planet Crusher', 2, 30, 0, 1, 6, 0, 1); // hex 0230, speed 6 fixed
+                    var monsterArrIdAtSetup = shipList.length - 1;
+                    shipList[monsterArrIdAtSetup].isMonster = true;
+                    shipList[monsterArrIdAtSetup].hitPoints = 200;
+                    shipList[monsterArrIdAtSetup].maxHitPoints = 200;
+                    shipList[monsterArrIdAtSetup].shipWeapons[0] = new weaponEntryType(1, MONSTER_WEAPON_TYPE_ID, 7, 0, 360, 0, 0);
+                    shipList[monsterArrIdAtSetup].engagementRange = MONSTER_ENGAGEMENT_RANGE;
+                }
+            }
+        };
 
-            shipList[shipList.length] = new shipType(MONSTER_USER_ID, 'Planet Crusher', 2, 30, 0, 1, 6, 0, 1); // hex 0230, speed 6 fixed
-            var monsterArrIdAtSetup = shipList.length - 1;
-            shipList[monsterArrIdAtSetup].isMonster = true;
-            shipList[monsterArrIdAtSetup].hitPoints = 200;
-            shipList[monsterArrIdAtSetup].maxHitPoints = 200;
-            shipList[monsterArrIdAtSetup].shipWeapons[0] = new weaponEntryType(1, MONSTER_WEAPON_TYPE_ID, 7, 0, 360, 0, 0);
-            shipList[monsterArrIdAtSetup].engagementRange = MONSTER_ENGAGEMENT_RANGE;
+        // builds the chosen scenario's ships - called from initGame(), once
+        // weaponList/shipClassList are both loaded and the player has
+        // picked a scenario + ship on the cover page
+        function setupScenario(scenarioKey, shipClassName) {
+            SCENARIOS[scenarioKey].setup(shipClassName);
         }
 
         var curShipId = 1;
@@ -364,17 +365,48 @@
                 loadDroneTypes('data/drone-types.json'),
                 loadShipClasses('data/ships.json')
             ]).then(function () {
-                try {
-                    initGame();
-                } catch (err) {
-                    console.error('Game failed to initialize:', err);
-                    $('#dataDiv').append('<div style="color:red;">Game failed to initialize: ' + err.message + '</div>');
-                }
+                showCoverPage();
             }).catch(function (err) {
                 console.error('Failed to load chart data:', err);
                 $('#dataDiv').append('<div style="color:red;">Failed to load chart data: ' + err.message + '</div>');
             });
         });
+
+        // renders the scenario picker on the cover page - one card per
+        // entry in SCENARIOS, each with a ship-to-pilot dropdown (built
+        // from that scenario's own playableShips list) and a Start button
+        function showCoverPage() {
+            var str = '';
+            for (var key in SCENARIOS) {
+                var sc = SCENARIOS[key];
+                str += '<div style="border:1px solid #ccc;border-radius:6px;padding:14px;margin-bottom:14px;">';
+                str += '<div style="font-weight:bold;font-size:16px;">' + sc.name + '</div>';
+                str += '<div style="margin:8px 0;color:#444;">' + sc.description + '</div>';
+                str += '<div style="margin-bottom:8px;">Pilot: <select id="shipSelect_' + key + '">';
+                for (var i = 0; i < sc.playableShips.length; i++) {
+                    str += '<option value="' + sc.playableShips[i] + '">' + sc.playableShips[i] + '</option>';
+                }
+                str += '</select></div>';
+                str += '<div class="button" onclick="startScenario(\'' + key + '\');">Start Scenario</div>';
+                str += '<div style="clear:both;"></div>';
+                str += '</div>';
+            }
+            $('#scenarioSelectDiv').html(str);
+        }
+
+        // called when the player clicks Start on a scenario card - swaps
+        // the cover page out for the actual game and hands off to initGame()
+        function startScenario(scenarioKey) {
+            var shipClassName = $('#shipSelect_' + scenarioKey).val();
+            $('#coverPageDiv').css('display', 'none');
+            $('#gameContainerDiv').css('display', 'block');
+            try {
+                initGame(scenarioKey, shipClassName);
+            } catch (err) {
+                console.error('Game failed to initialize:', err);
+                $('#dataDiv').append('<div style="color:red;">Game failed to initialize: ' + err.message + '</div>');
+            }
+        }
 
         // --- drone loadout helpers (mixed drone types per rack) ---
 
@@ -537,8 +569,8 @@
             }
         }
 
-        function initGame() {
-            setupScenario();
+        function initGame(scenarioKey, shipClassName) {
+            setupScenario(scenarioKey, shipClassName);
             setupDroneLoadouts();
             setupADDCharges();
             plotShip(1);
@@ -5497,6 +5529,11 @@ $('#dataDiv').append(str);
 </head>
 <body>
     <form id="form1" runat="server">
+        <div id="coverPageDiv" style="max-width:520px;margin:60px auto;font-family:Arial,sans-serif;">
+            <h1 style="text-align:center;">Star Fleet Battles</h1>
+            <div id="scenarioSelectDiv"></div>
+        </div>
+        <div id="gameContainerDiv" style="display:none;">
         <!--<div style="width:1202px;height:812px;">-->
         <div id="hexLayer" style="position:absolute;z-index:1;"><canvas id="cvsResize" width="1700" height="1350"></canvas></div>
         <div id="numberLayer" style="position:absolute;z-index:1;"></div>
@@ -5556,5 +5593,6 @@ $('#dataDiv').append(str);
             var ctx = document.getElementById('cvsResize').getContext('2d');
 
         </script>
+        </div>
     </form>
 </html>
