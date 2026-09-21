@@ -296,6 +296,23 @@
             ship.shuttleHangarMax = cls.shuttleHangarMax || 0;
             ship.shuttleIconSrc = cls.shuttleIconSrc;
             ship.shuttleBgColor = cls.shuttleBgColor;
+            ship.markerIconSrc = cls.markerIconSrc;
+            ship.markerBgColor = cls.markerBgColor;
+            ship.markerIconClass = cls.markerIconClass;
+
+            // ship1/ship2 have pre-built marker divs in the static page
+            // (used for whichever ship class the player picks on the
+            // cover page, or a scripted D7 opponent) - swap the icon/
+            // background/filter to match this class rather than always
+            // showing whatever ship1's markup happened to be built with.
+            // Ships without a pre-built marker (a dynamically-created
+            // scenario ship) just skip this - nothing to update yet since
+            // their marker doesn't exist until whatever creates it calls
+            // its own $('#shipLayer').append(...), same as launchShuttle().
+            if ($('#ship' + userId).length > 0 && cls.markerIconSrc) {
+                $('#ship' + userId + ' img').attr('src', cls.markerIconSrc).attr('class', cls.markerIconClass || '');
+                $('#ship' + userId).css('background-color', cls.markerBgColor || '');
+            }
 
             for (var i = 0; i < cls.weapons.length; i++) {
                 var wDef = cls.weapons[i];
@@ -1290,11 +1307,12 @@ $('#dataDiv').append(str);
             var centerPxY = (ship.yCord - 1) * 43.3 + ((ship.xCord % 2 == 1) ? 0 : 22) + 16;
 
             // the corner hexes' own centers mark where the Nth ring starts,
-            // not where it ends - extending each point outward by roughly
-            // another half-hex-step makes the shaded area actually cover
-            // those outermost hex cells instead of stopping at their
-            // midpoints (visually cutting them in half)
-            var extendFactor = (visibleRangeRingHexes + 1.6) / visibleRangeRingHexes;
+            // not where it ends - extending each point outward by a
+            // fraction of a hex-step makes the shaded area cover those
+            // outermost hex cells rather than stopping at their midpoints.
+            // 0.4 measured against a real render at range 6 (488x556px) -
+            // an earlier 1.6 was noticeably oversized.
+            var extendFactor = (visibleRangeRingHexes + 0.4) / visibleRangeRingHexes;
 
             var pts = [];
             var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
