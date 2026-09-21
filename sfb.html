@@ -325,7 +325,7 @@
             planet_crusher: {
                 name: 'The Planet Crusher',
                 description: 'A rampaging monster is bearing down on a nearby colony. Stop it, defend the planet, or hold out as long as you can - if the planet takes 200 points of damage, you lose.',
-                playableShips: ['CA'], // only hull types with real weapon data in ships.json belong here - see its _note fields for which are systems-only so far
+                playableShips: ['CA', 'D7'], // only hull types with real weapon data in ships.json belong here - see its _note fields for which are systems-only so far
                 setup: function (shipClassName) {
                     var playerResult = createShipFromClass(shipClassName, 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
                     shipList[0] = playerResult.ship;
