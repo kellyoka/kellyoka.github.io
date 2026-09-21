@@ -1332,7 +1332,15 @@ $('#dataDiv').append(str);
             var boxW = (maxX - minX) + pad * 2, boxH = (maxY - minY) + pad * 2;
             var polyPoints = pts.map(function (p) { return (p.x - boxX) + ',' + (p.y - boxY); }).join(' ');
 
-            var str = '<svg id="rangeRing" style="position:absolute;left:' + boxX + 'px;top:' + boxY + 'px;pointer-events:none;z-index:2;" width="' + boxW + '" height="' + boxH + '">';
+            // manual calibration against the real grid - the underlying
+            // hex-boundary math is correct (verified against
+            // hexDistanceCoords), this just nudges the on-screen container
+            // to line up exactly. Only the container's screen position/
+            // size are adjusted here; the polygon's own points (above)
+            // are untouched, so the shape itself doesn't distort.
+            var RING_OFFSET_X = 16, RING_OFFSET_Y = 10, RING_WIDTH_ADJUST = -8;
+
+            var str = '<svg id="rangeRing" style="position:absolute;left:' + (boxX + RING_OFFSET_X) + 'px;top:' + (boxY + RING_OFFSET_Y) + 'px;pointer-events:none;z-index:2;" width="' + (boxW + RING_WIDTH_ADJUST) + '" height="' + boxH + '">';
             str += '<polygon points="' + polyPoints + '" fill="rgba(128,0,128,0.15)" stroke="rgba(128,0,128,0.6)" stroke-width="2" stroke-dasharray="6,4"/>';
             str += '</svg>';
             $('#shipLayer').append(str);
