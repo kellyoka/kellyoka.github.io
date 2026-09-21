@@ -273,6 +273,7 @@
         var MONSTER_WEAPON_TYPE_ID = 60;
         var MONSTER_WEAPON_DAMAGE_TABLE = [35, 30, 25, 20, 15, 10]; // indexed by (1d6 roll - 1)
         var MONSTER_ENGAGEMENT_RANGE = 6; // no ship can fire on it beyond this, regardless of weapon range
+        var MONSTER_CIDS_RANGE = 3; // Close-in Defense System range - drones/shuttles only, see aiFireMonsterCIDS()
         var MONSTER_AGGRO_RANGE = 2; // switches from heading to the planet to heading for a ship within this range
         var PLANET_HEX = { x: 25, y: 2 }; // hex 2502
         var planetHitPoints = 200; // if this reaches 0 from the monster's weapon, the player loses
@@ -1965,6 +1966,64 @@ $('#dataDiv').append(str);
             }
         }
 
+        // Close-in Defense System: unlike the main gun, this fires every
+        // single impulse with no once-per-turn restriction and no charge
+        // pool to manage - it only ever engages drones and shuttles/
+        // fighters (sizeClass 6+), exactly the small craft the main gun
+        // and movement AI both ignore. Up to 3 targets per impulse, never
+        // the same target twice in one impulse, closest targets first when
+        // more than 3 qualify. Drones: 1d6, 1-4 destroyed, 5-6 miss.
+        // Shuttles/fighters: 1d6, 1-2 destroyed, 3-4 takes 5 damage
+        // (through the same flat-HP path everything else uses for them),
+        // 5-6 miss.
+        function aiFireMonsterCIDS(sId) {
+            var monster = shipList[findShipArrId(sId)];
+
+            var candidates = [];
+            for (var i = 0; i < activeDrones.length; i++) {
+                var drone = activeDrones[i];
+                if (drone.bDestroyed) continue;
+                var dDist = hexDistanceCoords(monster.xCord, monster.yCord, drone.xCord, drone.yCord);
+                if (dDist <= MONSTER_CIDS_RANGE) candidates.push({ type: 'drone', obj: drone, dist: dDist });
+            }
+            for (var z = 0; z < shipList.length; z++) {
+                var other = shipList[z];
+                if (!other.isShuttle) continue;
+                var sDist = findDist(sId, other.userId);
+                if (sDist <= MONSTER_CIDS_RANGE) candidates.push({ type: 'shuttle', obj: other, dist: sDist });
+            }
+
+            candidates.sort(function (a, b) { return a.dist - b.dist; });
+            var chosen = candidates.slice(0, 3);
+
+            for (var c = 0; c < chosen.length; c++) {
+                var target = chosen[c];
+                var roll = rollD6();
+                if (target.type == 'drone') {
+                    if (roll <= 4) {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + (target.obj.droneTypeName || 'Drone') + ' #' + target.obj.id + ' - roll ' + roll + ' -- destroyed</div>');
+                        removeActiveDrone(target.obj);
+                    } else {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + (target.obj.droneTypeName || 'Drone') + ' #' + target.obj.id + ' - roll ' + roll + ' -- miss</div>');
+                    }
+                } else {
+                    if (roll <= 2) {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + target.obj.name + ' - roll ' + roll + ' -- destroyed</div>');
+                        removeShipEntirely(target.obj.userId);
+                    } else if (roll <= 4) {
+                        target.obj.hitPoints -= 5;
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + target.obj.name + ' - roll ' + roll + ' -- 5 damage (HP ' + Math.max(target.obj.hitPoints, 0) + '/' + target.obj.maxHitPoints + ')</div>');
+                        if (target.obj.hitPoints <= 0) {
+                            $('#dataDiv').append('<div>' + target.obj.name + ' destroyed</div>');
+                            removeShipEntirely(target.obj.userId);
+                        }
+                    } else {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + target.obj.name + ' - roll ' + roll + ' -- miss</div>');
+                    }
+                }
+            }
+        }
+
         // fires the planet crusher's one weapon exactly once per turn, at
         // the first impulse something is in range (MONSTER_ENGAGEMENT_
         // RANGE) - a ship, if one's in range (nearest one, same priority
@@ -1977,6 +2036,8 @@ $('#dataDiv').append(str);
         // has no shields of its own to speak of here - it just has a flat
         // HP pool, and reaching 0 ends the scenario in a loss.
         function aiFireMonster(sId) {
+            aiFireMonsterCIDS(sId); // independent point-defense system - runs every impulse regardless of the main weapon's once-per-turn state below
+
             if (monsterFiredThisTurn) {
                 fireShipList.shift();
                 fireShips();
