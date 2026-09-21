@@ -1235,12 +1235,11 @@ $('#dataDiv').append(str);
         // shows/hides a shaded circular overlay around a ship representing
         // its engagement range (e.g. the planet crusher's 6-hex weapon
         // range) - works like the existing weapon-arc overlay
-        // (showWeaponArc) but as a full 360-degree ring sized to an actual
-        // hex distance rather than a fixed decorative circle. Generic over
-        // any ship's own engagementRange, not hardcoded to one monster -
-        // a future monster with different range/shape behavior can reuse
-        // this the same way, or replace renderRangeRing() with something
-        // else for its own case.
+        // (showWeaponArc) but shaped like the actual hex-distance boundary
+        // rather than a decorative circle. Generic over any ship's own
+        // engagementRange, not hardcoded to one monster - a future monster
+        // with different range/shape behavior can reuse this the same way,
+        // or replace renderRangeRing() with something else for its own case.
         var visibleRangeRingShipId = null; // which ship's ring is currently shown (null = none)
         var visibleRangeRingHexes = 0;
 
@@ -1255,6 +1254,26 @@ $('#dataDiv').append(str);
             shipClick(shipUserId); // refresh the popup so the button's label flips (Show/Hide)
         }
 
+        // the 6 corner hexes of a range-N boundary, found by stepping N
+        // times in a straight line in each of the 6 principal directions -
+        // this is exactly where a hex grid's "distance N" ring has its
+        // corners, so connecting these 6 points traces the true boundary.
+        // Reuses hexNeighbor() (defined further down, same adjacency math
+        // moveShip() uses for actual movement) rather than duplicating it.
+        function hexRangeCorners(centerX, centerY, range) {
+            var facings = [0, 60, 120, 180, 240, 300];
+            var corners = [];
+            for (var f = 0; f < facings.length; f++) {
+                var x = centerX, y = centerY;
+                for (var i = 0; i < range; i++) {
+                    var next = hexNeighbor(x, y, facings[f]);
+                    x = next.x; y = next.y;
+                }
+                corners.push({ x: x, y: y });
+            }
+            return corners;
+        }
+
         function renderRangeRing() {
             $('#rangeRing').remove();
             if (visibleRangeRingShipId == null) return;
@@ -1262,13 +1281,42 @@ $('#dataDiv').append(str);
             var arrId = findShipArrId(visibleRangeRingShipId);
             if (arrId == -1) { visibleRangeRingShipId = null; return; } // its ship was destroyed/gone
 
-            // same pixel math plotShip() uses to position a ship's own
-            // marker, so the ring lines up with it exactly
-            var mx = ((shipList[arrId].xCord - 1) * 37.5) + 13;
-            var my = ((shipList[arrId].yCord - 1) * 43.3) + ((shipList[arrId].xCord % 2 == 1) ? 0 : 22) + 16;
-            var radiusPx = visibleRangeRingHexes * 37.5; // approximate - a hex grid's true "N hexes away" boundary is a hexagon, not a circle, but a circle reads fine as a rough shaded danger zone
+            var ship = shipList[arrId];
+            var cornersHex = hexRangeCorners(ship.xCord, ship.yCord, visibleRangeRingHexes);
 
-            var str = '<div id="rangeRing" style="position:absolute;left:' + (mx - radiusPx) + 'px;top:' + (my - radiusPx) + 'px;width:' + (radiusPx * 2) + 'px;height:' + (radiusPx * 2) + 'px;border-radius:50%;background-color:rgba(128,0,128,0.15);border:2px dashed rgba(128,0,128,0.6);pointer-events:none;z-index:2;"></div>';
+            // same pixel math plotShip() uses to position a ship's own
+            // marker, so the shape lines up with the grid exactly
+            var centerPxX = (ship.xCord - 1) * 37.5 + 13;
+            var centerPxY = (ship.yCord - 1) * 43.3 + ((ship.xCord % 2 == 1) ? 0 : 22) + 16;
+
+            // the corner hexes' own centers mark where the Nth ring starts,
+            // not where it ends - extending each point outward by roughly
+            // another half-hex-step makes the shaded area actually cover
+            // those outermost hex cells instead of stopping at their
+            // midpoints (visually cutting them in half)
+            var extendFactor = (visibleRangeRingHexes + 1.6) / visibleRangeRingHexes;
+
+            var pts = [];
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (var i = 0; i < cornersHex.length; i++) {
+                var c = cornersHex[i];
+                var px = (c.x - 1) * 37.5 + 13;
+                var py = (c.y - 1) * 43.3 + ((c.x % 2 == 1) ? 0 : 22) + 16;
+                px = centerPxX + (px - centerPxX) * extendFactor;
+                py = centerPxY + (py - centerPxY) * extendFactor;
+                pts.push({ x: px, y: py });
+                minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+                minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+            }
+
+            var pad = 4;
+            var boxX = minX - pad, boxY = minY - pad;
+            var boxW = (maxX - minX) + pad * 2, boxH = (maxY - minY) + pad * 2;
+            var polyPoints = pts.map(function (p) { return (p.x - boxX) + ',' + (p.y - boxY); }).join(' ');
+
+            var str = '<svg id="rangeRing" style="position:absolute;left:' + boxX + 'px;top:' + boxY + 'px;pointer-events:none;z-index:2;" width="' + boxW + '" height="' + boxH + '">';
+            str += '<polygon points="' + polyPoints + '" fill="rgba(128,0,128,0.15)" stroke="rgba(128,0,128,0.6)" stroke-width="2" stroke-dasharray="6,4"/>';
+            str += '</svg>';
             $('#shipLayer').append(str);
         }
 
