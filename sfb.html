@@ -60,6 +60,14 @@
             // monster types can each have their own value/behavior without
             // hardcoding a single constant into the UI.
             this.engagementRange = 0;
+            // power cost per hex of speed - historically always 1 (speed
+            // chosen = power spent, 1:1), but this varies ship to ship in
+            // practice, so it's data-driven per class now rather than
+            // assumed. Set from ships.json in createShipFromClass(); 1
+            // here is just the safe default for anything built another way
+            // (e.g. the monster, which never goes through energy
+            // allocation at all so this never actually gets read for it).
+            this.movementCostPerHex = 1;
             this.ownerShipId = null;
             this.hitPoints = 0;
             this.maxHitPoints = 0;
@@ -299,6 +307,7 @@
             ship.markerIconSrc = cls.markerIconSrc;
             ship.markerBgColor = cls.markerBgColor;
             ship.markerIconClass = cls.markerIconClass;
+            ship.movementCostPerHex = (cls.movementCostPerHex != null) ? cls.movementCostPerHex : 1;
 
             // ship1/ship2 have pre-built marker divs in the static page
             // (used for whichever ship class the player picks on the
@@ -4153,7 +4162,56 @@ $('#dataDiv').append(str);
         var SHIELD_ACTIVATION_COST = 2;
         var GENERAL_REINFORCEMENT_COST = 2; // power per point, absorbs a hit from any facing
         var SPECIFIC_REINFORCEMENT_COST = 1; // power per point, only absorbs hits to its own facing
-        var LIFE_SUPPORT_COST = 1;
+        // Movement can only be funded from warp and impulse (never reactor/
+        // APR or battery). Impulse funds at most IMPULSE_MOVEMENT_HEXES
+        // hexes, always at a flat 1 power point per hex regardless of the
+        // ship's own movementCostPerHex - it's the same for every ship,
+        // large or small. Anything beyond that must come from warp, at
+        // movementCostPerHex power per hex, capped at WARP_MOVEMENT_CAP
+        // points of warp power per turn no matter how much warp the ship
+        // actually generates. For CA/D7 (warpAvail exactly 30,
+        // movementCostPerHex 1.0) this cap never actually binds - it only
+        // starts to matter once ships with different ratios or more warp
+        // generation show up.
+        var WARP_MOVEMENT_CAP = 30;
+        var IMPULSE_MOVEMENT_HEXES = 1;
+
+        function getMaxSpeed(warpAvail, impAvail, movementCostPerHex) {
+            var impulseHexes = (impAvail >= 1) ? IMPULSE_MOVEMENT_HEXES : 0;
+            var warpPointsUsable = Math.min(warpAvail, WARP_MOVEMENT_CAP);
+            var warpHexes = Math.floor(warpPointsUsable / movementCostPerHex);
+            return impulseHexes + warpHexes;
+        }
+
+        // the power cost of a chosen speed - impulse hexes are used first
+        // (up to IMPULSE_MOVEMENT_HEXES, if any impulse power is
+        // available), any remaining hexes come from warp
+        function getMovementCost(speed, impAvail, movementCostPerHex) {
+            var impulseHexes = Math.min(speed, (impAvail >= 1) ? IMPULSE_MOVEMENT_HEXES : 0);
+            var warpHexes = speed - impulseHexes;
+            var warpCost = warpHexes * movementCostPerHex;
+            var impulseCost = impulseHexes; // always flat 1:1, unlike warp
+            return { impulseHexes: impulseHexes, impulseCost: impulseCost, warpHexes: warpHexes, warpCost: warpCost, totalCost: impulseCost + warpCost };
+        }
+
+        function formatMovementCost(cost) {
+            var parts = [];
+            if (cost.impulseHexes > 0) parts.push(cost.impulseHexes + ' imp');
+            if (cost.warpHexes > 0) parts.push(cost.warpHexes + ' warp');
+            if (parts.length == 0) return '(0 pts)';
+            return '(' + parts.join(' + ') + ' = ' + cost.totalCost + ' pts)';
+        }
+
+        var LIFE_SUPPORT_COST_BY_SIZE_CLASS = { 1: 3, 2: 1.5, 3: 1, 4: 0.5, 5: 0 };
+        // life support is mandatory every turn, unlike everything else in
+        // this popup - its cost scales with hull size rather than being a
+        // flat number. Anything smaller than size class 5 (6/7 - shuttles/
+        // fighters, which skip energy allocation entirely anyway) costs
+        // nothing, continuing the trend of smaller ships needing less.
+        function getLifeSupportCost(sizeClass) {
+            if (sizeClass in LIFE_SUPPORT_COST_BY_SIZE_CLASS) return LIFE_SUPPORT_COST_BY_SIZE_CLASS[sizeClass];
+            return 0;
+        }
         var FIRE_CONTROL_COST = 1;
 
         function startEnergyAllocation() {
@@ -4326,7 +4384,7 @@ $('#dataDiv').append(str);
             var impAvail = internals.imp;
             var aprAvail = internals.apr;
             var generated = warpAvail + impAvail + aprAvail;
-            var maxSpeed = warpAvail + Math.min(1, impAvail);
+            var maxSpeed = getMaxSpeed(warpAvail, impAvail, ship.movementCostPerHex);
 
             var batteryMax = internals.mBty;
             var batteryStored = internals.batteryStored;
@@ -4346,9 +4404,10 @@ $('#dataDiv').append(str);
             str += '<div style="clear:both;"></div>';
 
             str += '<div class="dividerLine"></div>';
-            str += '<div style="float:left;">Life Support: ' + LIFE_SUPPORT_COST + '</div>';
+            var lifeSupportCost = getLifeSupportCost(ship.sizeClass);
+            str += '<div style="float:left;">Life Support (size class ' + ship.sizeClass + ', mandatory): ' + lifeSupportCost + '</div>';
             str += '<div style="float:left;padding-left:20px;">Active Fire Control: ' + FIRE_CONTROL_COST + '</div>';
-            str += '<div style="float:right;width:35px;text-align:center;">' + (LIFE_SUPPORT_COST + FIRE_CONTROL_COST) + '</div>';
+            str += '<div style="float:right;width:35px;text-align:center;">' + (lifeSupportCost + FIRE_CONTROL_COST) + '</div>';
             str += '<div style="clear:both;"></div>';
 
             var shieldsCurrentlyActive = internals.shieldsActive;
@@ -4476,7 +4535,9 @@ $('#dataDiv').append(str);
 
             str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only):</div>';
-            str += '<div style="float:right;"><input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + Math.min(ship.speed, maxSpeed) + '" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
+            var initialSpeed = Math.min(ship.speed, maxSpeed);
+            var initialCost = getMovementCost(initialSpeed, impAvail, ship.movementCostPerHex);
+            str += '<div style="float:right;"><span id="eaSpeedCost" style="color:#666;">' + formatMovementCost(initialCost) + '</span> <input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + initialSpeed + '" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Turn mode: ' + turnBracketsDisplay(turnMode[ship.turnMode]) + '</div>';
             str += '<div style="float:left;">Recharge batteries (max ' + batteryHeadroom + '):</div>';
@@ -4596,6 +4657,9 @@ $('#dataDiv').append(str);
             var recharge = parseInt($('#eaBattRecharge').val()) || 0;
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
+            var movementCost = getMovementCost(speed, impAvail, shipList[arrId].movementCostPerHex);
+            var speedCost = movementCost.totalCost;
+            $('#eaSpeedCost').text(formatMovementCost(movementCost));
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
@@ -4622,7 +4686,7 @@ $('#dataDiv').append(str);
             $('#displayShieldCost').html((shieldsActive ? SHIELD_ACTIVATION_COST : 0));
 
             var available = generated + discharge;
-            var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
+            var used = getLifeSupportCost(shipList[arrId].sizeClass) + FIRE_CONTROL_COST + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + generalReinforcePower
@@ -4651,8 +4715,9 @@ $('#dataDiv').append(str);
             var recharge = parseInt($('#eaBattRecharge').val()) || 0;
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
             var speed = parseInt($('#eaSpeed').val()) || 0;
+            var movementCost = getMovementCost(speed, impAvail, ship.movementCostPerHex);
+            var speedCost = movementCost.totalCost;
             var shieldsActive = $('#eaShieldsActive').is(':checked');
-            var generalReinforcePower = parseInt($('#eaGeneralReinforce').val()) || 0;
             var specificReinforce = [0, 0, 0, 0, 0, 0, 0]; // 1-indexed, [0] unused
             for (var s = 1; s <= 6; s++) {
                 var $inp = $('#eaSpecificReinforce' + s);
@@ -4750,7 +4815,7 @@ $('#dataDiv').append(str);
             }
 
             var available = generated + discharge;
-            var used = LIFE_SUPPORT_COST + FIRE_CONTROL_COST + phaserAdd + recharge + speed
+            var used = getLifeSupportCost(ship.sizeClass) + FIRE_CONTROL_COST + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + generalReinforcePower
