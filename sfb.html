@@ -68,6 +68,12 @@
             // (e.g. the monster, which never goes through energy
             // allocation at all so this never actually gets read for it).
             this.movementCostPerHex = 1;
+            // whether this ship's Active Fire Control is on this turn - set
+            // from the energy allocation checkbox each turn for player
+            // ships; defaults true so shuttles/the monster (which never go
+            // through energy allocation) aren't accidentally blocked from
+            // firing. See shipHasFireableWeapon()'s gate on this.
+            this.fireControlActive = true;
             this.ownerShipId = null;
             this.hitPoints = 0;
             this.maxHitPoints = 0;
@@ -1999,6 +2005,11 @@ $('#dataDiv').append(str);
             var arrId = findShipArrId(sId);
             if (arrId == -1) return false;
             var ship = shipList[arrId];
+
+            // no fire control, no firing this turn - for now a flat "can't
+            // fire at all" rule; more nuanced rules for firing without
+            // fire control (e.g. degraded accuracy) may come later
+            if (!ship.fireControlActive) return false;
 
             for (var z = 0; z < ship.shipWeapons.length; z++) {
                 var wEntry = ship.shipWeapons[z];
@@ -4405,10 +4416,14 @@ $('#dataDiv').append(str);
 
             str += '<div class="dividerLine"></div>';
             var lifeSupportCost = getLifeSupportCost(ship.sizeClass);
-            str += '<div style="float:left;">Life Support (size class ' + ship.sizeClass + ', mandatory): ' + lifeSupportCost + '</div>';
-            str += '<div style="float:left;padding-left:20px;">Active Fire Control: ' + FIRE_CONTROL_COST + '</div>';
-            str += '<div style="float:right;width:35px;text-align:center;">' + (lifeSupportCost + FIRE_CONTROL_COST) + '</div>';
+            str += '<div style="float:left;">Life Support:</div>';
+            str += '<div style="float:right;width:35px;text-align:center;">' + lifeSupportCost + '</div>';
             str += '<div style="clear:both;"></div>';
+            var fireControlCurrentlyActive = (ship.fireControlActive !== false);
+            str += '<div style="float:left;"><input type="checkbox" id="eaFireControlActive"' + (fireControlCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Active Fire Control</div>';
+            str += '<div id="displayFireControlCost" style="float:right;width:35px;text-align:center;">' + (fireControlCurrentlyActive ? FIRE_CONTROL_COST : 0) + '</div>';
+            str += '<div style="clear:both;"></div>';
+            if (!fireControlCurrentlyActive) { str += '<div style="color:#900;font-size:11px;">No fire control - can\'t fire weapons this turn</div>'; }
 
             var shieldsCurrentlyActive = internals.shieldsActive;
             str += '<div style="float:left;"><input type="checkbox" id="eaShieldsActive"' + (shieldsCurrentlyActive ? ' checked' : '') + ' onclick="updateEnergyAllocTotal();"> Active shields(' + SHIELD_ACTIVATION_COST + ') - unchecking drops shields</div>';
@@ -4419,21 +4434,21 @@ $('#dataDiv').append(str);
 
             str += '<div class="dividerLine"></div>';
             str += '<div style="float:left;">General Reinforcement (' + GENERAL_REINFORCEMENT_COST + 'pt/pt):</div>';
-            str += '<div style="float:right;"><span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span> <input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
+            str += '<div style="float:right;"><span id="eaGeneralReinforcePts" style="color:#666;">(+0 pts)</span> <input type="number" id="eaGeneralReinforce" min="0" value="0" style="width:35px;text-align:center;"' + (shieldsCurrentlyActive ? '' : ' disabled') + ' oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
 
             var damageConTotal = getDamageConMax(internals);
-            str += '<div>Damage Control (<span id="eaDamageConRemaining">' + damageConTotal + '</span>/' + damageConTotal + ' pts available, 2pt repairs 1pt of shield, applied end of round):</div>';
-            str += '<div>Specific Reinforcement (1pt/pt):</div>';
+            str += '<div>Damage Control (<span id="eaDamageConRemaining">' + damageConTotal + '</span>/' + damageConTotal + ' pts available):</div>';
+            str += '<div>Specific Reinforcement (1pt/pt)' + (shieldsCurrentlyActive ? '' : ' - shields down') + ':</div>';
             for (var s = 1; s <= 6; s++) {
                 var curShieldVal = internals['shield' + s];
                 var maxShieldVal = internals['mShield' + s];
                 str += '<div style="float:left;">Shield #' + s + ' (' + curShieldVal + '):</div>';
                 if (curShieldVal < maxShieldVal) {
-                    str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
+                    str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;text-align:center;"' + (shieldsCurrentlyActive ? '' : ' disabled') + ' oninput="updateEnergyAllocTotal();"></div>';
                     str += '<div style="float:right;margin-right:4px;"><input type="number" id="eaDamageControl' + s + '" min="0" value="0" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
                 } else if (curShieldVal > 0) {
-                    str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
+                    str += '<div style="float:right;"><input type="number" id="eaSpecificReinforce' + s + '" min="0" value="0" style="width:35px;text-align:center;"' + (shieldsCurrentlyActive ? '' : ' disabled') + ' oninput="updateEnergyAllocTotal();"></div>';
                     str += '<div style="float:right;margin-right:4px;color:#999;line-height:21px;">n/a</div>';
                 } else {
                     str += '<div style="float:right;color:#999;line-height:21px;">n/a</div>';
@@ -4534,7 +4549,9 @@ $('#dataDiv').append(str);
             }
 
             str += '<div class="dividerLine"></div>';
-            str += '<div style="float:left;">Speed (max ' + maxSpeed + ', warp + up to 1 impulse only):</div>';
+            str += '<div style="float:left;"><input type="checkbox" id="eaUseImpulseForMovement" checked onclick="updateEnergyAllocTotal();"> Use impulse power for movement</div>';
+            str += '<div style="clear:both;"></div>';
+            str += '<div style="float:left;">Desired Movement (max <span id="eaMaxSpeedLabel">' + maxSpeed + '</span>):</div>';
             var initialSpeed = Math.min(ship.speed, maxSpeed);
             var initialCost = getMovementCost(initialSpeed, impAvail, ship.movementCostPerHex);
             str += '<div style="float:right;"><span id="eaSpeedCost" style="color:#666;">' + formatMovementCost(initialCost) + '</span> <input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + initialSpeed + '" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
@@ -4656,24 +4673,43 @@ $('#dataDiv').append(str);
             var discharge = parseInt($('#eaBattDischarge').val()) || 0;
             var recharge = parseInt($('#eaBattRecharge').val()) || 0;
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
-            var speed = parseInt($('#eaSpeed').val()) || 0;
-            var movementCost = getMovementCost(speed, impAvail, shipList[arrId].movementCostPerHex);
+
+            var useImpulseForMovement = $('#eaUseImpulseForMovement').is(':checked');
+            var effectiveImpAvail = useImpulseForMovement ? impAvail : 0;
+            var maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, shipList[arrId].movementCostPerHex);
+            $('#eaMaxSpeedLabel').text(maxSpeed);
+            $('#eaSpeed').attr('max', maxSpeed);
+            var speed = Math.min(parseInt($('#eaSpeed').val()) || 0, maxSpeed);
+            var movementCost = getMovementCost(speed, effectiveImpAvail, shipList[arrId].movementCostPerHex);
             var speedCost = movementCost.totalCost;
             $('#eaSpeedCost').text(formatMovementCost(movementCost));
+
+            var fireControlActive = $('#eaFireControlActive').is(':checked');
+            var fireControlCost = fireControlActive ? FIRE_CONTROL_COST : 0;
+            $('#displayFireControlCost').text(fireControlCost);
+
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
-            var generalReinforcePower = parseInt($('#eaGeneralReinforce').val()) || 0;
+
+            // General/Specific Reinforcement require active shields - keep
+            // the inputs disabled (and their contribution zeroed) whenever
+            // shields are off, even if a value is still sitting in them
+            // from before they were unchecked
+            $('#eaGeneralReinforce').prop('disabled', !shieldsActive);
+            var generalReinforcePower = shieldsActive ? (parseInt($('#eaGeneralReinforce').val()) || 0) : 0;
             $('#eaGeneralReinforcePts').text('(+' + Math.floor(generalReinforcePower / GENERAL_REINFORCEMENT_COST) + ' pts)');
             var specificReinforceCost = 0;
             for (var s = 1; s <= 6; s++) {
                 var $inp = $('#eaSpecificReinforce' + s);
-                if ($inp.length) specificReinforceCost += (parseInt($inp.val()) || 0) * SPECIFIC_REINFORCEMENT_COST;
+                $inp.prop('disabled', !shieldsActive);
+                if ($inp.length && shieldsActive) specificReinforceCost += (parseInt($inp.val()) || 0) * SPECIFIC_REINFORCEMENT_COST;
             }
 
             // damage control isn't a power cost - tracked and validated
             // against its own separate budget (sum of intact damageCon
-            // box values), not folded into the power used/remaining below
+            // box values), not folded into the power used/remaining below.
+            // Unlike reinforcement, it doesn't need shields active at all.
             var damageConTotal = getDamageConMax(shipInternals[iArrId]);
             var damageConUsed = 0;
             for (var dcS = 1; dcS <= 6; dcS++) {
@@ -4686,7 +4722,7 @@ $('#dataDiv').append(str);
             $('#displayShieldCost').html((shieldsActive ? SHIELD_ACTIVATION_COST : 0));
 
             var available = generated + discharge;
-            var used = getLifeSupportCost(shipList[arrId].sizeClass) + FIRE_CONTROL_COST + phaserAdd + recharge + speedCost
+            var used = getLifeSupportCost(shipList[arrId].sizeClass) + fireControlCost + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + generalReinforcePower
@@ -4714,14 +4750,34 @@ $('#dataDiv').append(str);
             var discharge = parseInt($('#eaBattDischarge').val()) || 0;
             var recharge = parseInt($('#eaBattRecharge').val()) || 0;
             var phaserAdd = parseInt($('#eaPhaserAdd').val()) || 0;
+
+            // recomputed fresh from the live checkbox state rather than
+            // trusting the maxSpeed passed in from the button's onclick -
+            // that value was fixed at render time assuming the impulse
+            // checkbox's default (checked), so it goes stale the moment
+            // the player unchecks it
+            var useImpulseForMovement = $('#eaUseImpulseForMovement').is(':checked');
+            var effectiveImpAvail = useImpulseForMovement ? impAvail : 0;
+            maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, ship.movementCostPerHex);
             var speed = parseInt($('#eaSpeed').val()) || 0;
-            var movementCost = getMovementCost(speed, impAvail, ship.movementCostPerHex);
+            var movementCost = getMovementCost(speed, effectiveImpAvail, ship.movementCostPerHex);
             var speedCost = movementCost.totalCost;
+
+            var fireControlActive = $('#eaFireControlActive').is(':checked');
+            var fireControlCost = fireControlActive ? FIRE_CONTROL_COST : 0;
+
             var shieldsActive = $('#eaShieldsActive').is(':checked');
+            // General/Specific Reinforcement require active shields - a
+            // value left in either input while shields are off doesn't
+            // count (this was also missing generalReinforcePower's own
+            // declaration entirely before - it only existed in
+            // updateEnergyAllocTotal()'s separate scope, so confirming
+            // would throw a ReferenceError)
+            var generalReinforcePower = shieldsActive ? (parseInt($('#eaGeneralReinforce').val()) || 0) : 0;
             var specificReinforce = [0, 0, 0, 0, 0, 0, 0]; // 1-indexed, [0] unused
             for (var s = 1; s <= 6; s++) {
                 var $inp = $('#eaSpecificReinforce' + s);
-                if ($inp.length) {
+                if ($inp.length && shieldsActive) {
                     var v = parseInt($inp.val()) || 0;
                     if (v > 0 && internals['shield' + s] <= 0) {
                         alert('Cannot specifically reinforce shield #' + s + ' - it is currently at 0');
@@ -4803,19 +4859,17 @@ $('#dataDiv').append(str);
                 }
             }
 
-            // photon loading must come from warp specifically. Speed draws
-            // from warp too (beyond the 1pt impulse allowance), so we
-            // assume the free impulse point covers speed first and warp
-            // covers the rest, to check remaining warp headroom.
-            var warpUsedForSpeed = Math.max(0, speed - Math.min(1, impAvail));
-            var warpRemaining = warpAvail - warpUsedForSpeed;
+            // photon loading must come from warp specifically - reuse
+            // movementCost's own warp/impulse split rather than re-deriving
+            // it, so this automatically respects the impulse checkbox too
+            var warpRemaining = warpAvail - movementCost.warpCost;
             if (photonLoading.warpCost > warpRemaining) {
                 alert('Photon loading requires warp power specifically - only ' + warpRemaining + ' warp remaining after speed');
                 return;
             }
 
             var available = generated + discharge;
-            var used = getLifeSupportCost(ship.sizeClass) + FIRE_CONTROL_COST + phaserAdd + recharge + speedCost
+            var used = getLifeSupportCost(ship.sizeClass) + fireControlCost + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + generalReinforcePower
@@ -4831,6 +4885,7 @@ $('#dataDiv').append(str);
             internals.batteryStored = internals.batteryStored - discharge + recharge;
             ship.phaserCap = ship.phaserCap + phaserAdd;
             ship.speed = speed;
+            ship.fireControlActive = fireControlActive;
             internals.generalReinforcement = Math.floor(generalReinforcePower / GENERAL_REINFORCEMENT_COST); // doesn't carry over - always a fresh value, not additive
             for (var s = 1; s <= 6; s++) {
                 internals['specificShield' + s] = specificReinforce[s]; // same - fresh each turn
