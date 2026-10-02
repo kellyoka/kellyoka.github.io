@@ -43,84 +43,9 @@
       "shield6": 24,
       "excess": 6
     },
-    "sensor": [
-      [
-        6,
-        1
-      ],
-      [
-        6,
-        1
-      ],
-      [
-        5,
-        1
-      ],
-      [
-        3,
-        1
-      ],
-      [
-        1,
-        1
-      ],
-      [
-        0,
-        1
-      ]
-    ],
-    "scanner": [
-      [
-        0,
-        1
-      ],
-      [
-        0,
-        1
-      ],
-      [
-        1,
-        1
-      ],
-      [
-        3,
-        1
-      ],
-      [
-        5,
-        1
-      ],
-      [
-        9,
-        1
-      ]
-    ],
-    "damageCon": [
-      [
-        4,
-        1
-      ],
-      [
-        4,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        0,
-        1
-      ]
-    ],
+    "sensor": [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]],
+    "scanner": [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]],
+    "damageCon": [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]],
     "weapons": [
       {
         "weaponName": "Photon",
@@ -228,84 +153,9 @@
       "shield6": 22,
       "excess": 4
     },
-    "sensor": [
-      [
-        6,
-        1
-      ],
-      [
-        6,
-        1
-      ],
-      [
-        5,
-        1
-      ],
-      [
-        3,
-        1
-      ],
-      [
-        1,
-        1
-      ],
-      [
-        0,
-        1
-      ]
-    ],
-    "scanner": [
-      [
-        0,
-        1
-      ],
-      [
-        0,
-        1
-      ],
-      [
-        1,
-        1
-      ],
-      [
-        3,
-        1
-      ],
-      [
-        5,
-        1
-      ],
-      [
-        9,
-        1
-      ]
-    ],
-    "damageCon": [
-      [
-        4,
-        1
-      ],
-      [
-        4,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        2,
-        1
-      ],
-      [
-        0,
-        1
-      ]
-    ],
+    "sensor": [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]],
+    "scanner": [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]],
+    "damageCon": [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]],
     "weapons": [
       {
         "weaponName": "Disruptor",
@@ -397,16 +247,16 @@
     ]
   },
   {
-    "className": "NCA",
-    "displayName": "NCA",
+    "className": "NCL",
+    "displayName": "NCL",
     "faction": "Federation",
-    "markerIconSrc": "images/sfb/ship.svg",
+    "markerIconSrc": "images/sfb/ncl.svg",
     "markerBgColor": "",
     "markerIconClass": "",
     "turnMode": 7,
     "baseSpeed": 13,
     "phaserCap": 6,
-    "movementCostPerHex": 1.0,
+    "movementCostPerHex": "2/3",
     "sizeClass": 3,
     "shuttleHangarMax": 0,
     "shuttleIconSrc": "images/sfb/shuttle.svg",
@@ -440,11 +290,79 @@
       "shield6": 24,
       "excess": 6
     },
-    "sensor": [],
-    "scanner": [],
-    "damageCon": [],
-    "weapons": [],
-    "_note": "carried over from the old dead-code block as systems-only - it never had a weapons/sensor/scanner/damageCon layout defined, so those are empty until someone fills them in"
+    "sensor": [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]],
+    "scanner": [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]],
+    "damageCon": [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]],
+    "weapons": [
+      {
+        "weaponName": "Photon",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Photon",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Photon",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Photon",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 270,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 270,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 0,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 0,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 180,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 180,
+        "arc": 180
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 0,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 0,
+        "arc": 120
+      },
+      {
+        "weaponName": "Drone G",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I-M": 4
+        }
+      }
+    ]
   },
   {
     "className": "F5",
@@ -456,8 +374,8 @@
     "turnMode": 4,
     "baseSpeed": 24,
     "phaserCap": 5,
-    "movementCostPerHex": 1.0,
-    "sizeClass": 5,
+    "movementCostPerHex": 0.5,
+    "sizeClass": 4,
     "shuttleHangarMax": 0,
     "shuttleIconSrc": "images/sfb/shuttle2.svg",
     "shuttleBgColor": "black",
@@ -467,8 +385,8 @@
       "aux": 1,
       "emer": 1,
       "scrty": 2,
-      "armor": 2,
-      "fHull": 0,
+      "armor": 0,
+      "fHull": 2,
       "aHull": 5,
       "hull": 0,
       "lab": 2,
@@ -482,19 +400,52 @@
       "imp": 3,
       "apr": 1,
       "bty": 2,
-      "shield1": 30,
-      "shield2": 22,
-      "shield3": 15,
-      "shield4": 13,
-      "shield5": 15,
-      "shield6": 22,
+      "shield1": 21,
+      "shield2": 16,
+      "shield3": 9,
+      "shield4": 9,
+      "shield5": 9,
+      "shield6": 16,
       "excess": 4
     },
-    "sensor": [],
-    "scanner": [],
-    "damageCon": [],
-    "weapons": [],
-    "_note": "same as NCA - systems only, no weapons/sensor/scanner/damageCon defined yet"
+    "sensor": [[6, 1], [5, 1], [3, 1], [0, 1]],
+    "scanner": [[0, 1], [1, 1], [3, 1], [9, 1]],
+    "damageCon": [[2, 1], [2, 1], [2, 1], [0, 1]],
+    "weapons": [
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I-M": 4
+        }
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 240
+      }
+    ]
   },
   {
     "className": "C9",
@@ -506,7 +457,7 @@
     "turnMode": 7,
     "baseSpeed": 8,
     "phaserCap": 14,
-    "movementCostPerHex": 1.0,
+    "movementCostPerHex": 1.5,
     "sizeClass": 2,
     "shuttleHangarMax": 0,
     "shuttleIconSrc": "images/sfb/shuttle2.svg",
@@ -540,11 +491,165 @@
       "shield6": 36,
       "excess": 8
     },
-    "sensor": [],
-    "scanner": [],
-    "damageCon": [],
-    "weapons": [],
-    "_note": "same as NCA - systems only, no weapons/sensor/scanner/damageCon defined yet"
+    "sensor": [[6, 1], [6, 1], [6, 1], [5, 1], [3, 1], [2, 1], [1, 1], [0, 1]],
+    "scanner": [[0, 1], [0, 1], [0, 1], [1, 1], [2, 1], [3, 1], [5, 1], [9, 1]],
+    "damageCon": [[6, 1], [6, 1], [4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]],
+    "weapons": [
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 240,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 1",
+        "startP": 240,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 0,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 0,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 120,
+        "startP2": 120,
+        "arc2": 60
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 120,
+        "startP2": 120,
+        "arc2": 60
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 0,
+        "arc": 120,
+        "startP2": 180,
+        "arc2": 60
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 0,
+        "arc": 120,
+        "startP2": 180,
+        "arc2": 60
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 180,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 3",
+        "startP": 60,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 3",
+        "startP": 60,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 3",
+        "startP": 180,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 3",
+        "startP": 180,
+        "arc": 120
+      }
+    ]
   },
   {
     "className": "D6",
@@ -580,7 +685,7 @@
       "lWarp": 15,
       "cWarp": 0,
       "imp": 5,
-      "apr": 2,
+      "apr": 0,
       "bty": 3,
       "shield1": 30,
       "shield2": 22,
@@ -590,10 +695,83 @@
       "shield6": 22,
       "excess": 4
     },
-    "sensor": [],
-    "scanner": [],
-    "damageCon": [],
-    "weapons": [],
-    "_note": "same as NCA - systems only, no weapons/sensor/scanner/damageCon defined yet. The old dead code had 3 instances of this class at speed 20, 20, and 23 respectively - used the more common 20 here as the class default; a scenario can still override an individual instance's speed after creating it if needed"
+    "sensor": [[6, 1], [6, 1], [5, 1], [3, 1], [1, 1], [0, 1]],
+    "scanner": [[0, 1], [0, 1], [1, 1], [3, 1], [5, 1], [9, 1]],
+    "damageCon": [[4, 1], [4, 1], [2, 1], [2, 1], [2, 1], [0, 1]],
+    "weapons": [
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Disruptor",
+        "startP": 300,
+        "arc": 120
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Drone F",
+        "startP": 0,
+        "arc": 360,
+        "droneInitialLoadout": {
+          "Type-I": 2,
+          "Type-IV": 1
+        }
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 240,
+        "arc": 240
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 180,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 180,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 120
+      },
+      {
+        "weaponName": "Phaser 2",
+        "startP": 60,
+        "arc": 120
+      }
+    ]
   }
 ]

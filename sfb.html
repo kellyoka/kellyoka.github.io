@@ -67,7 +67,9 @@
             // here is just the safe default for anything built another way
             // (e.g. the monster, which never goes through energy
             // allocation at all so this never actually gets read for it).
-            this.movementCostPerHex = 1;
+            this.movementCostPerHex = 1; // decimal approximation - kept for display; actual cost math uses the exact fraction below
+            this.movementCostNumerator = 1;
+            this.movementCostDenominator = 1;
             // whether this ship's Active Fire Control is on this turn - set
             // from the energy allocation checkbox each turn for player
             // ships; defaults true so shuttles/the monster (which never go
@@ -302,6 +304,23 @@
         // Position/facing are supplied here rather than living in the
         // class data, since the same hull type can start a scenario
         // anywhere - they're a scenario choice, not a property of the hull.
+        // parses ships.json's movementCostPerHex - either a plain number
+        // (1, 0.75, 1.5...) or a fraction string like "2/3" for ratios
+        // that don't terminate cleanly in decimal. The decimal is kept
+        // as a convenience approximation for display; the exact num/den
+        // pair is what the actual cost math uses, so results come out
+        // exact at clean multiples (e.g. a 2/3 ratio at speed 3 gives
+        // exactly 2, not 2.0000999999999998 from pre-rounding to 0.6667).
+        function parseMovementCostRatio(value) {
+            if (typeof value === 'string' && value.indexOf('/') != -1) {
+                var parts = value.split('/');
+                var num = parseFloat(parts[0]), den = parseFloat(parts[1]);
+                return { decimal: num / den, num: num, den: den };
+            }
+            var n = parseFloat(value);
+            return { decimal: n, num: n, den: 1 };
+        }
+
         function createShipFromClass(className, userId, xCord, yCord, facing) {
             var cls = getShipClass(className);
 
@@ -313,7 +332,10 @@
             ship.markerIconSrc = cls.markerIconSrc;
             ship.markerBgColor = cls.markerBgColor;
             ship.markerIconClass = cls.markerIconClass;
-            ship.movementCostPerHex = (cls.movementCostPerHex != null) ? cls.movementCostPerHex : 1;
+            var movementRatio = parseMovementCostRatio(cls.movementCostPerHex != null ? cls.movementCostPerHex : 1);
+            ship.movementCostPerHex = movementRatio.decimal;
+            ship.movementCostNumerator = movementRatio.num;
+            ship.movementCostDenominator = movementRatio.den;
 
             // ship1/ship2 have pre-built marker divs in the static page
             // (used for whichever ship class the player picks on the
@@ -358,7 +380,7 @@
             planet_crusher: {
                 name: 'The Planet Crusher',
                 description: 'A rampaging monster is bearing down on a nearby colony. Stop it, defend the planet, or hold out as long as you can - if the planet takes 200 points of damage, you lose.',
-                playableShips: ['CA', 'D7'], // only hull types with real weapon data in ships.json belong here - see its _note fields for which are systems-only so far
+                playableShips: ['CA', 'D7', 'NCL', 'F5', 'C9', 'D6'], // all six classes now have full weapon/sensor/scanner/damageCon data in ships.json
                 setup: function (shipClassName) {
                     var playerResult = createShipFromClass(shipClassName, 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
                     shipList[0] = playerResult.ship;
@@ -4187,20 +4209,30 @@ $('#dataDiv').append(str);
         var WARP_MOVEMENT_CAP = 30;
         var IMPULSE_MOVEMENT_HEXES = 1;
 
-        function getMaxSpeed(warpAvail, impAvail, movementCostPerHex) {
+        // costNum/costDen is the exact movement cost ratio (e.g. 2/3 power
+        // per hex is costNum=2, costDen=3) - kept as a fraction rather than
+        // a pre-divided decimal so results come out exact at clean
+        // multiples (speed 3 at a 2/3 ratio costs exactly 2, not
+        // 2.0000999999999998 from floating-point drift on a rounded 0.6667)
+        function getMaxSpeed(warpAvail, impAvail, costNum, costDen) {
             var impulseHexes = (impAvail >= 1) ? IMPULSE_MOVEMENT_HEXES : 0;
             var warpPointsUsable = Math.min(warpAvail, WARP_MOVEMENT_CAP);
-            var warpHexes = Math.floor(warpPointsUsable / movementCostPerHex);
+            var warpHexes = Math.floor((warpPointsUsable * costDen) / costNum);
             return impulseHexes + warpHexes;
         }
 
         // the power cost of a chosen speed - impulse hexes are used first
         // (up to IMPULSE_MOVEMENT_HEXES, if any impulse power is
-        // available), any remaining hexes come from warp
-        function getMovementCost(speed, impAvail, movementCostPerHex) {
+        // available), any remaining hexes come from warp. Rounded to 4
+        // decimal places purely to clean up display noise on ratios that
+        // don't divide evenly (e.g. speed 1 at a 2/3 ratio genuinely costs
+        // a repeating decimal) - exact results at clean multiples are
+        // untouched by this, since rounding an already-exact value changes
+        // nothing.
+        function getMovementCost(speed, impAvail, costNum, costDen) {
             var impulseHexes = Math.min(speed, (impAvail >= 1) ? IMPULSE_MOVEMENT_HEXES : 0);
             var warpHexes = speed - impulseHexes;
-            var warpCost = warpHexes * movementCostPerHex;
+            var warpCost = Math.round(((warpHexes * costNum) / costDen) * 10000) / 10000;
             var impulseCost = impulseHexes; // always flat 1:1, unlike warp
             return { impulseHexes: impulseHexes, impulseCost: impulseCost, warpHexes: warpHexes, warpCost: warpCost, totalCost: impulseCost + warpCost };
         }
@@ -4395,7 +4427,7 @@ $('#dataDiv').append(str);
             var impAvail = internals.imp;
             var aprAvail = internals.apr;
             var generated = warpAvail + impAvail + aprAvail;
-            var maxSpeed = getMaxSpeed(warpAvail, impAvail, ship.movementCostPerHex);
+            var maxSpeed = getMaxSpeed(warpAvail, impAvail, ship.movementCostNumerator, ship.movementCostDenominator);
 
             var batteryMax = internals.mBty;
             var batteryStored = internals.batteryStored;
@@ -4553,7 +4585,7 @@ $('#dataDiv').append(str);
             str += '<div style="clear:both;"></div>';
             str += '<div style="float:left;">Desired Movement (max <span id="eaMaxSpeedLabel">' + maxSpeed + '</span>):</div>';
             var initialSpeed = Math.min(ship.speed, maxSpeed);
-            var initialCost = getMovementCost(initialSpeed, impAvail, ship.movementCostPerHex);
+            var initialCost = getMovementCost(initialSpeed, impAvail, ship.movementCostNumerator, ship.movementCostDenominator);
             str += '<div style="float:right;"><span id="eaSpeedCost" style="color:#666;">' + formatMovementCost(initialCost) + '</span> <input type="number" id="eaSpeed" min="0" max="' + maxSpeed + '" value="' + initialSpeed + '" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
             str += '<div style="clear:both;"></div>';
             str += '<div style="font-size:11px;color:#666;padding-bottom:6px;">Turn mode: ' + turnBracketsDisplay(turnMode[ship.turnMode]) + '</div>';
@@ -4676,11 +4708,11 @@ $('#dataDiv').append(str);
 
             var useImpulseForMovement = $('#eaUseImpulseForMovement').is(':checked');
             var effectiveImpAvail = useImpulseForMovement ? impAvail : 0;
-            var maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, shipList[arrId].movementCostPerHex);
+            var maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, shipList[arrId].movementCostNumerator, shipList[arrId].movementCostDenominator);
             $('#eaMaxSpeedLabel').text(maxSpeed);
             $('#eaSpeed').attr('max', maxSpeed);
             var speed = Math.min(parseInt($('#eaSpeed').val()) || 0, maxSpeed);
-            var movementCost = getMovementCost(speed, effectiveImpAvail, shipList[arrId].movementCostPerHex);
+            var movementCost = getMovementCost(speed, effectiveImpAvail, shipList[arrId].movementCostNumerator, shipList[arrId].movementCostDenominator);
             var speedCost = movementCost.totalCost;
             $('#eaSpeedCost').text(formatMovementCost(movementCost));
 
@@ -4758,9 +4790,9 @@ $('#dataDiv').append(str);
             // the player unchecks it
             var useImpulseForMovement = $('#eaUseImpulseForMovement').is(':checked');
             var effectiveImpAvail = useImpulseForMovement ? impAvail : 0;
-            maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, ship.movementCostPerHex);
+            maxSpeed = getMaxSpeed(warpAvail, effectiveImpAvail, ship.movementCostNumerator, ship.movementCostDenominator);
             var speed = parseInt($('#eaSpeed').val()) || 0;
-            var movementCost = getMovementCost(speed, effectiveImpAvail, ship.movementCostPerHex);
+            var movementCost = getMovementCost(speed, effectiveImpAvail, ship.movementCostNumerator, ship.movementCostDenominator);
             var speedCost = movementCost.totalCost;
 
             var fireControlActive = $('#eaFireControlActive').is(':checked');
