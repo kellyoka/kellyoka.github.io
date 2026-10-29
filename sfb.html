@@ -10,10 +10,10 @@
     <link href="https://cdn.jsdelivr.net/npm/swiper@9.4.1/modules/scrollbar/scrollbar.min.css" rel="stylesheet" />
 
     <!-- weapon damage tables + damage allocation chart, loaded from data/*.json -->
-    <script src="js/weapons.js"></script>
     <script src="js/dac-chart.js"></script>
     <script src="js/drone-types.js"></script>
     <script src="js/ships.js"></script>
+    <script src="js/weapons.js"></script>
 
     <script type="text/javascript">
         function shipType(userId, name, xCord, yCord, facing, turnMode, speed, phaserCap, sizeClass) {
@@ -29,6 +29,12 @@
             this.phaserCap = phaserCap;
             this.maxPhaserCap = phaserCap; // starting value, restored each turn in endTurn()
             this.sizeClass = sizeClass; // 1 (biggest) - 7 (smallest)
+            // Basic Point Value: what the ship is worth in combat. baseBpv
+            // is the hull's value from ships.json; bpv is the current total,
+            // which future ship upgrades will add to (use bpv, not baseBpv,
+            // for anything that scales with the ship's worth)
+            this.baseBpv = 0;
+            this.bpv = 0;
             this.shipWeapons = [];
             // team: defaults to the ship's own userId (so today, with one
             // ship per side, "same team" and "same ship" are equivalent).
@@ -281,20 +287,462 @@
         // its one weapon at the nearest ship within range 6 every impulse
         // it gets a turn in the fire queue (see aiFireMonster(), hooked
         // into fireShips()) - flat 1d6 roll for damage, not range-based.
-        // 200 HP, no shields (shares the same flat-HP applyDamage()
-        // bypass shuttles use). Ships also can't engage it beyond range 6
-        // regardless of their own weapon's normal range - see the
-        // isMonster check in shipFirePopUp()'s ship-targeting gate.
-        var MONSTER_USER_ID = 999;
+        // PLANET_CRUSHER_HIT_POINTS HP, no shields (shares the same flat-HP
+        // applyDamage() bypass shuttles use). Ships also can't engage it
+        // beyond its engagementRange regardless of their own weapon's
+        // normal range - see the engagementRange check in shipFirePopUp().
+        var MONSTER_USER_ID = 999; // shared by every monster scenario - only one monster is on the map at a time
+        var PLANET_CRUSHER_HIT_POINTS = 200; // tune here - the monster's own HP pool
+        var PLANET_HIT_POINTS = 200; // tune here - the colony's HP; 0 = player loses
         var MONSTER_WEAPON_TYPE_ID = 60;
         var MONSTER_WEAPON_DAMAGE_TABLE = [35, 30, 25, 20, 15, 10]; // indexed by (1d6 roll - 1)
         var MONSTER_ENGAGEMENT_RANGE = 6; // no ship can fire on it beyond this, regardless of weapon range
         var MONSTER_CIDS_RANGE = 3; // Close-in Defense System range - drones/shuttles only, see aiFireMonsterCIDS()
         var MONSTER_AGGRO_RANGE = 2; // switches from heading to the planet to heading for a ship within this range
         var PLANET_HEX = { x: 25, y: 2 }; // hex 2502
-        var planetHitPoints = 200; // if this reaches 0 from the monster's weapon, the player loses
-        var planetMaxHitPoints = 200;
+        var planetHitPoints = PLANET_HIT_POINTS; // if this reaches 0 from the monster's weapon, the player loses
+        var planetMaxHitPoints = PLANET_HIT_POINTS;
         var monsterFiredThisTurn = false; // reset in endTurn() - the monster gets exactly one shot per turn, taken the first impulse something (a ship or the planet) is in range
+
+        // --- Space Amoeba monster scenario ---
+        // Drifts at a fixed speed in a completely random direction: every
+        // time it moves it rolls 1d6 and steps one hex that way (see
+        // aiMoveAmoeba()). It has no attack yet - its damage rules tie into
+        // the lab rules still to come (see aiFireAmoeba()). The player wins
+        // by gathering enough scientific information, not by killing it.
+        var SPACE_AMOEBA_START_HEX = { x: 22, y: 15 }; // hex 2215
+        var SPACE_AMOEBA_SPEED = 4;
+        // the Amoeba can't be destroyed until the defeat chart (see
+        // rollAmoebaDefeatChart()) reveals how - damage still accumulates
+        // in amoebaDamageTaken the whole game, since two chart results care
+        var AMOEBA_DESTROY_DAMAGE = 200; // chart result 3: destroyed once total damage taken reaches this
+        var AMOEBA_FRIENDLY_DAMAGE_LIMIT = 50; // chart result 6: friendly = win, unless it has taken MORE than this, then = loss
+        var AMOEBA_EXTRA_SCIENCE = 100; // chart result 5: this many more science points, then roll again
+        var amoebaDamageTaken = 0;
+        var amoebaWeakness = null; // null until the chart reveals it: 'suicideShuttle' | 'tractor' | 'damage' | 'probe'
+        var AMOEBA_WEAKNESS_LABELS = { suicideShuttle: 'Suicide shuttle', tractor: 'Tractor beam', damage: AMOEBA_DESTROY_DAMAGE + ' pts of damage', probe: 'Probe' };
+
+        // map size in hexes - matches writeGridNumbers() (43 columns x 30 rows)
+        var MAP_COLS = 43;
+        var MAP_ROWS = 30;
+        function isHexOnMap(x, y) {
+            return x >= 1 && x <= MAP_COLS && y >= 1 && y <= MAP_ROWS;
+        }
+
+        // --- scientific information (science points) ---
+        // Only scenarios that call startScienceTracking() use this; for
+        // every other scenario sciencePointsTarget stays 0 and nothing
+        // shows. The target scales with the player ship's BPV:
+        //   target = BPV / SCIENCE_BPV_DIVISOR * SCIENCE_POINTS_BASE
+        // so a BPV-125 ship (the CA) needs exactly 400. Rounded to the
+        // nearest whole point. Uses the ship's current bpv, so future
+        // upgrades that raise BPV raise the target too.
+        var SCIENCE_POINTS_BASE = 400;
+        var SCIENCE_BPV_DIVISOR = 125;
+        var sciencePoints = 0;
+        var sciencePointsTarget = 0; // 0 = this scenario doesn't track science
+
+        function getSciencePointsTarget(ship) {
+            if (!ship || !ship.bpv) return SCIENCE_POINTS_BASE; // no BPV on file - fall back to the base target
+            return Math.round(ship.bpv / SCIENCE_BPV_DIVISOR * SCIENCE_POINTS_BASE);
+        }
+
+        // subjectId: the userId of whatever is being studied (the monster)
+        function startScienceTracking(ship, subjectId) {
+            sciencePoints = 0;
+            sciencePointsTarget = getSciencePointsTarget(ship);
+            scienceShipId = ship.userId;
+            scienceSubjectId = subjectId;
+            resetClosestApproach();
+            $('#dataDiv').append('<div style="color:#069;">Science target: ' + sciencePointsTarget + ' pts (' + ship.name + ' BPV ' + ship.bpv + ' / ' + SCIENCE_BPV_DIVISOR + ' x ' + SCIENCE_POINTS_BASE + ')</div>');
+        }
+
+        // --- lab rules (scientific investigation) ---
+        // Used in any scenario that calls startScienceTracking() (monster
+        // scenarios only, for now). Labs are 360 degree and cost no power.
+        //   1) during the turn, track the closest each investigating craft
+        //      gets to the subject (checked after every move, either side)
+        //   2) at end of turn each craft rolls 1d6 and reads the lab chart
+        //      at its own closest range: chart = 11 - roll - range, min 0
+        //      (range 0: 10..5, each extra hex is 1 less, nothing at 10+)
+        //   3) science gained = that craft's intact lab boxes x chart value
+        // Investigating craft = the player ship plus any of its team's
+        // shuttles. A shuttle counts as one lab box and follows the same
+        // rules as a ship (its own closest approach, its own roll).
+        var LAB_CHART_BASE = 11;
+        var SHUTTLE_LAB_BOXES = 1;
+
+        // --- probes ---
+        // Every probe launcher (probe box) carries PROBES_PER_BOX probes
+        // unless its ship class sets its own "probesPerBox" in ships.json
+        // (the special cases). Probes are 360 degree.
+        // Science probes (only offered in scenarios that gather scientific
+        // information):
+        //   - arming takes 1 power on each of 2 consecutive turns (any
+        //     power source); it can be launched on the 2nd turn
+        //   - not launched by the end of that 2nd turn: the 1st turn's
+        //     point is lost, so it drops back to half-armed and needs
+        //     another point next turn to be launchable again (skip that
+        //     and the arming is lost completely)
+        //   - launched within PROBE_SCIENCE_RANGE of the subject: +20 science;
+        //     launched further out it's used up for nothing
+        // Anti-matter bomb probes (same scenarios) - the launcher arms one
+        // instead of a science probe:
+        //   - 2 WARP power on each of 2 consecutive turns
+        //   - must be fired on the 2nd turn; if not, the whole arming is lost
+        //   - only hits targets in the hexes straight ahead (0 degrees),
+        //     range 0 allowed; hits if 1d6 >= range (so range 6 is the max)
+        //   - 8 damage, or destroys the monster outright when the defeat
+        //     chart said a probe can (result 4)
+        // Each launcher arms one probe at a time, in one mode or the other.
+        // launcher.stage: 0 = unarmed, 1 = half-armed (1 turn paid),
+        //                 2 = armed (launchable this turn)
+        // launcher.mode:  'science' | 'bomb' (null while unarmed)
+        var PROBES_PER_BOX = 5;
+        var PROBE_ARM_COST_PER_TURN = 1;
+        var PROBE_SCIENCE_RANGE = 6;
+        var PROBE_SCIENCE_POINTS = 20;
+        var PROBE_BOMB_WARP_PER_TURN = 2;
+        var PROBE_BOMB_DAMAGE = 8;
+        var PROBE_BOMB_MAX_RANGE = 6; // needs 1d6 >= range, so range 6 (a 6) is the furthest it can hit
+
+        // science probes only exist in scenarios that track science
+        function scienceProbesInUse() {
+            return sciencePointsTarget > 0;
+        }
+
+        // launchers whose probe box is still intact (internals.probe = intact boxes)
+        function getIntactProbeLauncherCount(ship) {
+            var iArrId = findInternalsArrId(ship.userId);
+            if (iArrId == -1 || !ship.probeLaunchers) return 0;
+            return Math.min(shipInternals[iArrId].probe, ship.probeLaunchers.length);
+        }
+
+        // launchers that are armed and have something to do right now:
+        // a science probe can always launch; a bomb only when a target
+        // sits dead ahead within range (otherwise there's no point asking
+        // every impulse). Returns an array of launcher indexes.
+        function getLaunchableProbes(ship) {
+            var list = [];
+            if (!scienceProbesInUse() || !ship.probeLaunchers || ship.probeAmmo <= 0) return list;
+            var intact = getIntactProbeLauncherCount(ship);
+            var bombTargets = null;
+            for (var i = 0; i < intact; i++) {
+                var l = ship.probeLaunchers[i];
+                if (l.stage != 2) continue;
+                if (l.mode == 'bomb') {
+                    if (bombTargets === null) bombTargets = getProbeBombTargets(ship);
+                    if (bombTargets.length == 0) continue;
+                }
+                list.push(i);
+            }
+            return list;
+        }
+        function findLaunchableProbe(ship) {
+            var list = getLaunchableProbes(ship);
+            return list.length ? list[0] : -1;
+        }
+
+        // monsters in the hexes straight ahead of the ship (its own hex is
+        // range 0), out to PROBE_BOMB_MAX_RANGE. Returns [{ userId, name, range }].
+        function getProbeBombTargets(ship) {
+            var targets = [];
+            var x = ship.xCord, y = ship.yCord;
+            for (var range = 0; range <= PROBE_BOMB_MAX_RANGE; range++) {
+                if (range > 0) {
+                    var next = hexNeighbor(x, y, ship.facing);
+                    x = next.x; y = next.y;
+                    if (!isHexOnMap(x, y)) break;
+                }
+                for (var z = 0; z < shipList.length; z++) {
+                    var t = shipList[z];
+                    if (t.isMonster && t.xCord == x && t.yCord == y) targets.push({ userId: t.userId, name: t.name, range: range });
+                }
+            }
+            return targets;
+        }
+
+        function fireProbeBomb(sArrId, launcherIdx, targetId) {
+            var ship = shipList[sArrId];
+            var launcher = ship.probeLaunchers[launcherIdx];
+            if (!launcher || launcher.stage != 2 || launcher.mode != 'bomb' || ship.probeAmmo <= 0) return;
+            var target = null;
+            var targets = getProbeBombTargets(ship);
+            for (var i = 0; i < targets.length; i++) { if (targets[i].userId == targetId) target = targets[i]; }
+            if (!target) return;
+
+            ship.probeAmmo -= 1;
+            launcher.stage = 0;
+            launcher.mode = null;
+
+            var roll = rollD6();
+            var hit = roll >= target.range;
+            $('#dataDiv').append('<div style="font-weight:bold;">' + ship.name + ' fires an anti-matter probe at ' + target.name + ' - range ' + target.range + ', roll ' + roll + ' (needs ' + target.range + ' or more): ' + (hit ? 'HIT' : 'miss') + ' (' + ship.probeAmmo + ' probe' + (ship.probeAmmo == 1 ? '' : 's') + ' left)</div>');
+
+            if (hit) {
+                var tArrId = findShipArrId(target.userId);
+                var defeated = false;
+                if (target.userId == MONSTER_USER_ID && amoebaWeakness == 'probe') {
+                    defeated = tryDefeatAmoebaBy('probe'); // defeat chart result 4 - the probe destroys it outright
+                }
+                if (!defeated && tArrId != -1) {
+                    var t = shipList[tArrId];
+                    if (typeof t.onDamaged === 'function') {
+                        t.onDamaged(PROBE_BOMB_DAMAGE);
+                    } else {
+                        t.hitPoints -= PROBE_BOMB_DAMAGE;
+                        $('#dataDiv').append('<div>' + t.name + ' takes ' + PROBE_BOMB_DAMAGE + ' damage (HP ' + Math.max(t.hitPoints, 0) + '/' + t.maxHitPoints + ')</div>');
+                        if (t.hitPoints <= 0) {
+                            $('#dataDiv').append('<div>' + t.name + ' destroyed</div>');
+                            removeShipEntirely(t.userId);
+                        }
+                    }
+                }
+            }
+
+            if (gameOver) { $('#fireShipPopUpDiv').css('display', 'none'); return; }
+            if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
+                launchShuttlecraftPopUp(ship.userId);
+            } else {
+                doneLaunchShuttlecraft();
+            }
+        }
+
+        function launchProbe(sArrId, launcherIdx) {
+            var ship = shipList[sArrId];
+            var launcher = ship.probeLaunchers[launcherIdx];
+            if (!launcher || launcher.stage != 2 || launcher.mode != 'science' || ship.probeAmmo <= 0) return;
+
+            ship.probeAmmo -= 1;
+            launcher.stage = 0;
+            launcher.mode = null;
+
+            var range = (findShipArrId(scienceSubjectId) != -1) ? findDist(ship.userId, scienceSubjectId) : Infinity;
+            var msg = ship.name + ' launches a science probe' + (ship.probeLaunchers.length > 1 ? ' from launcher ' + (launcherIdx + 1) : '') + ' (' + ship.probeAmmo + ' probe' + (ship.probeAmmo == 1 ? '' : 's') + ' left)';
+            if (range <= PROBE_SCIENCE_RANGE) {
+                $('#dataDiv').append('<div style="color:#069;">' + msg + ' - range ' + range + ', within ' + PROBE_SCIENCE_RANGE + '</div>');
+                addSciencePoints(PROBE_SCIENCE_POINTS, 'probe');
+            } else {
+                $('#dataDiv').append('<div>' + msg + ' - range ' + (range == Infinity ? '-' : range) + ', too far (max ' + PROBE_SCIENCE_RANGE + ') - no information gathered</div>');
+            }
+
+            if (gameOver) { $('#fireShipPopUpDiv').css('display', 'none'); return; }
+            if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
+                launchShuttlecraftPopUp(ship.userId); // something else still available - offer it
+            } else {
+                doneLaunchShuttlecraft();
+            }
+        }
+        var scienceShipId = null;
+        var scienceSubjectId = null;
+        var closestApproachThisTurn = Infinity; // the main ship's - shown in the status bar
+        var closestApproachByCraft = {}; // userId -> closest range this turn, for the ship and each shuttle
+
+        function labChartValue(roll, range) {
+            return Math.max(0, LAB_CHART_BASE - roll - range);
+        }
+
+        // the player ship and every shuttle on its team currently on the map
+        function getScienceCraft() {
+            var mainArrId = findShipArrId(scienceShipId);
+            if (mainArrId == -1) return [];
+            var team = shipList[mainArrId].team;
+            var craft = [];
+            for (var z = 0; z < shipList.length; z++) {
+                var sh = shipList[z];
+                if (sh.userId == scienceShipId || (sh.isShuttle && sh.team === team)) craft.push(sh);
+            }
+            return craft;
+        }
+
+        function getCraftLabBoxes(craft) {
+            if (craft.isShuttle) return SHUTTLE_LAB_BOXES;
+            var iArrId = findInternalsArrId(craft.userId);
+            return (iArrId == -1) ? 0 : shipInternals[iArrId].lab; // current value = intact lab boxes
+        }
+
+        function resetClosestApproach() {
+            closestApproachThisTurn = Infinity;
+            closestApproachByCraft = {};
+            updateClosestApproach(); // the starting positions count as an approach too
+        }
+
+        // called after every hex of movement and when a shuttle launches -
+        // cheap, and only does anything in a science scenario
+        function updateClosestApproach() {
+            if (sciencePointsTarget <= 0 || scienceShipId == null || scienceSubjectId == null) return;
+            if (findShipArrId(scienceSubjectId) == -1) return;
+            var craft = getScienceCraft();
+            var changed = false;
+            for (var i = 0; i < craft.length; i++) {
+                var d = findDist(craft[i].userId, scienceSubjectId);
+                var prev = closestApproachByCraft[craft[i].userId];
+                if (prev === undefined || d < prev) {
+                    closestApproachByCraft[craft[i].userId] = d;
+                    changed = true;
+                }
+            }
+            if (scienceShipId in closestApproachByCraft) closestApproachThisTurn = closestApproachByCraft[scienceShipId];
+            if (changed) updateImpulseStatusBar();
+        }
+
+        // end-of-turn lab rolls - see endTurn(). One roll per investigating
+        // craft still on the map (a shuttle that docked or was destroyed
+        // during the turn doesn't roll).
+        function resolveLabInvestigation() {
+            if (sciencePointsTarget <= 0 || gameOver || scienceComplete) return;
+            if (findShipArrId(scienceSubjectId) == -1) {
+                $('#dataDiv').append('<div style="color:#069;">Lab investigation: no subject to study this turn</div>');
+                return;
+            }
+
+            var craft = getScienceCraft();
+            var totalGained = 0;
+            for (var i = 0; i < craft.length; i++) {
+                var c = craft[i];
+                var range = closestApproachByCraft[c.userId];
+                if (range === undefined) continue;
+                var labs = getCraftLabBoxes(c);
+                var roll = rollD6();
+                var chart = labChartValue(roll, range);
+                var gained = labs * chart;
+                totalGained += gained;
+                $('#dataDiv').append('<div style="color:#069;">' + c.name + ' lab investigation: closest approach ' + range + ', roll ' + roll + ' -> chart ' + chart + ' x ' + labs + ' lab' + (labs == 1 ? '' : 's') + ' = ' + gained + ' pts</div>');
+            }
+            if (totalGained > 0) addSciencePoints(totalGained, 'labs');
+        }
+
+        // the single entry point for awarding science - the lab rules and
+        // any other sources of scientific information should all call this
+        function addSciencePoints(amount, source) {
+            if (gameOver || scienceComplete || sciencePointsTarget <= 0 || amount <= 0) return;
+            sciencePoints += amount;
+            $('#dataDiv').append('<div style="color:#069;">+' + amount + ' science' + (source ? ' (' + source + ')' : '') + ' - ' + sciencePoints + ' / ' + sciencePointsTarget + '</div>');
+            updateImpulseStatusBar();
+            if (sciencePoints >= sciencePointsTarget) {
+                // each science scenario decides what reaching the target
+                // means (the Amoeba rolls its defeat chart); with no hook,
+                // reaching it is simply a win
+                var sc = SCENARIOS[activeScenarioKey];
+                if (sc && typeof sc.onScienceTargetReached === 'function') {
+                    sc.onScienceTargetReached();
+                } else {
+                    scienceComplete = true;
+                    declareGameOver(true, 'Scientific investigation complete (' + sciencePoints + ' / ' + sciencePointsTarget + ' pts)');
+                }
+                updateImpulseStatusBar();
+            }
+        }
+
+        // set once the investigation is finished - lab rolls stop and no
+        // more science is awarded
+        var scienceComplete = false;
+
+        // --- Space Amoeba defeat chart ---
+        // rolled when the science target is reached:
+        //   1 suicide shuttle destroys it    2 tractor beam destroys it
+        //   3 200 pts of total damage        4 a probe destroys it
+        //   5 gather 100 more science, then roll again
+        //   6 communication: it becomes friendly - player wins, unless it
+        //     has taken more than 50 damage, then the player loses
+        function rollAmoebaDefeatChart() {
+            var roll = rollD6();
+            var log = function (msg) { $('#dataDiv').append('<div style="color:#069;font-weight:bold;">Analysis complete - defeat chart roll ' + roll + ': ' + msg + '</div>'); };
+
+            if (roll >= 1 && roll <= 4) {
+                amoebaWeakness = ['suicideShuttle', 'tractor', 'damage', 'probe'][roll - 1];
+                scienceComplete = true;
+                log('the Amoeba can be destroyed by: ' + AMOEBA_WEAKNESS_LABELS[amoebaWeakness]);
+                if (amoebaWeakness == 'damage') checkAmoebaDamageDefeat(); // damage taken earlier counts toward it
+            } else if (roll == 5) {
+                sciencePointsTarget = sciencePoints + AMOEBA_EXTRA_SCIENCE;
+                log('inconclusive - gather ' + AMOEBA_EXTRA_SCIENCE + ' more points (new target ' + sciencePointsTarget + ') and roll again');
+            } else {
+                scienceComplete = true;
+                if (amoebaDamageTaken > AMOEBA_FRIENDLY_DAMAGE_LIMIT) {
+                    log('communication established, but the Amoeba has taken ' + amoebaDamageTaken + ' damage');
+                    declareGameOver(false, 'Communication was established, but the Amoeba had taken ' + amoebaDamageTaken + ' damage (more than ' + AMOEBA_FRIENDLY_DAMAGE_LIMIT + ') and turned on you');
+                } else {
+                    log('communication established - the Amoeba is friendly');
+                    declareGameOver(true, 'Communication established - the Amoeba is friendly (damage taken: ' + amoebaDamageTaken + ')');
+                }
+            }
+            updateImpulseStatusBar();
+        }
+
+        // the hook future rules call when they hit the Amoeba with a special
+        // attack: tryDefeatAmoebaBy('suicideShuttle' | 'tractor' | 'probe').
+        // Only works once the defeat chart revealed that weakness.
+        // Returns true if the Amoeba was destroyed.
+        function tryDefeatAmoebaBy(method) {
+            if (gameOver || findShipArrId(MONSTER_USER_ID) == -1) return false;
+            if (amoebaWeakness == method) {
+                destroyAmoeba(AMOEBA_WEAKNESS_LABELS[method]);
+                return true;
+            }
+            $('#dataDiv').append('<div>' + AMOEBA_WEAKNESS_LABELS[method] + ' has no effect on the Space Amoeba' + (amoebaWeakness ? '' : ' - its weakness is still unknown') + '</div>');
+            return false;
+        }
+
+        function checkAmoebaDamageDefeat() {
+            if (amoebaWeakness == 'damage' && amoebaDamageTaken >= AMOEBA_DESTROY_DAMAGE) {
+                destroyAmoeba(amoebaDamageTaken + ' pts of damage');
+            }
+        }
+
+        function destroyAmoeba(how) {
+            $('#dataDiv').append('<div style="font-weight:bold;">The Space Amoeba is destroyed (' + how + ')</div>');
+            removeShipEntirely(MONSTER_USER_ID);
+            declareGameOver(true, 'The Space Amoeba was destroyed by ' + how);
+        }
+
+        // Space Amoeba damage hook (see applyDamage()): damage never
+        // destroys it unless the defeat chart revealed 'damage' as its
+        // weakness - it's always tracked, though, for chart results 3 and 6
+        function amoebaOnDamaged(d) {
+            amoebaDamageTaken += d;
+            $('#dataDiv').append('<div>Space Amoeba takes ' + d + ' damage (total ' + amoebaDamageTaken + (amoebaWeakness == 'damage' ? ' / ' + AMOEBA_DESTROY_DAMAGE : '') + ')</div>');
+            checkAmoebaDamageDefeat();
+            updateImpulseStatusBar();
+        }
+
+        // --- game over ---
+        // once set, endImpluse() stops advancing the game
+        var gameOver = false;
+        var activeScenarioKey = null;
+
+        function declareGameOver(playerWon, message) {
+            if (gameOver) return;
+            gameOver = true;
+            var color = playerWon ? '#090' : '#900';
+            $('#dataDiv').append('<div style="color:' + color + ';font-weight:bold;">' + (playerWon ? 'YOU WIN' : 'YOU LOSE') + ' - ' + message + '</div>');
+            setPhase(playerWon ? 'Victory' : 'Defeat');
+            alert((playerWon ? 'YOU WIN\n\n' : 'YOU LOSE\n\n') + message);
+        }
+
+        // called when a ship with internals runs out of excess damage
+        // boxes. Player ship (userId 1) destroyed = loss in every
+        // scenario so far; scenarios can override with onShipDestroyed.
+        function handleShipDestroyed(sId, shipName) {
+            var sc = SCENARIOS[activeScenarioKey];
+            if (sc && typeof sc.onShipDestroyed === 'function') {
+                sc.onShipDestroyed(sId, shipName);
+                return;
+            }
+            if (sId == 1) {
+                declareGameOver(false, shipName + ' has been destroyed');
+            } else {
+                $('#dataDiv').append('<div style="font-weight:bold;">' + shipName + ' destroyed</div>');
+            }
+        }
+
+        // a random hex along any of the four map edges
+        function randomEdgeHex() {
+            var edges = [];
+            for (var x = 1; x <= MAP_COLS; x++) { edges.push({ x: x, y: 1 }); edges.push({ x: x, y: MAP_ROWS }); }
+            for (var y = 2; y < MAP_ROWS; y++) { edges.push({ x: 1, y: y }); edges.push({ x: MAP_COLS, y: y }); }
+            return edges[Math.floor(Math.random() * edges.length)];
+        }
 
         // builds a real shipType + shipSystemsType + weapon mounts from a
         // named entry in data/ships.json (see js/ships.js) - only callable
@@ -325,6 +773,17 @@
             var cls = getShipClass(className);
 
             var ship = new shipType(userId, cls.displayName || cls.className, xCord, yCord, facing, cls.turnMode, cls.baseSpeed, cls.phaserCap, cls.sizeClass);
+            ship.baseBpv = cls.bpv || 0;
+            ship.bpv = ship.baseBpv;
+            if (!cls.bpv) console.warn('Ship class "' + className + '" has no bpv in ships.json');
+            // probes: one launcher per probe box, PROBES_PER_BOX probes
+            // each unless the class overrides it with "probesPerBox"
+            var probeBoxes = (cls.systems && cls.systems.probe) || 0;
+            ship.probesPerBox = (cls.probesPerBox != null) ? cls.probesPerBox : PROBES_PER_BOX;
+            ship.probeAmmo = probeBoxes * ship.probesPerBox;
+            ship.probeAmmoMax = ship.probeAmmo;
+            ship.probeLaunchers = [];
+            for (var pb = 0; pb < probeBoxes; pb++) ship.probeLaunchers.push({ stage: 0, mode: null });
             ship.shuttleHangar = cls.shuttleHangarMax || 0;
             ship.shuttleHangarMax = cls.shuttleHangarMax || 0;
             ship.shuttleIconSrc = cls.shuttleIconSrc;
@@ -376,11 +835,19 @@
         // valid to pilot in it and how to actually build its ships/
         // monster/etc. This is the first monster scenario; adding another
         // one later means adding another key here, not touching this one.
+        //
+        // Each entry can define:
+        //   setup(shipClassName) - build shipList/shipInternals
+        //   render()             - add any extra map markers (monster, planet...)
+        //   onShipDestroyed()    - optional override of handleShipDestroyed()
+        //   playableShips        - optional roster limit (default: every class)
+        // A monster's own AI lives on the monster ship itself as
+        // monsterAI = { move: fn(sId), fire: fn(sId) }, dispatched from
+        // moveShips()/fireShips() - so each monster brings its own rules.
         var SCENARIOS = {
             planet_crusher: {
                 name: 'The Planet Crusher',
-                description: 'A rampaging monster is bearing down on a nearby colony. Stop it, defend the planet, or hold out as long as you can - if the planet takes 200 points of damage, you lose.',
-                playableShips: ['CA', 'D7', 'NCL', 'F5', 'C9', 'D6'], // all six classes now have full weapon/sensor/scanner/damageCon data in ships.json
+                description: 'A rampaging monster is bearing down on a nearby colony. Stop it, defend the planet, or hold out as long as you can - if the planet takes ' + PLANET_HIT_POINTS + ' points of damage, you lose.',
                 setup: function (shipClassName) {
                     var playerResult = createShipFromClass(shipClassName, 1, 42, 15, 0); // hex 4215 (middle of the 4214-4216 player start zone)
                     shipList[0] = playerResult.ship;
@@ -389,10 +856,58 @@
                     shipList[shipList.length] = new shipType(MONSTER_USER_ID, 'Planet Crusher', 2, 30, 0, 1, 6, 0, 1); // hex 0230, speed 6 fixed
                     var monsterArrIdAtSetup = shipList.length - 1;
                     shipList[monsterArrIdAtSetup].isMonster = true;
-                    shipList[monsterArrIdAtSetup].hitPoints = 200;
-                    shipList[monsterArrIdAtSetup].maxHitPoints = 200;
+                    shipList[monsterArrIdAtSetup].hitPoints = PLANET_CRUSHER_HIT_POINTS;
+                    shipList[monsterArrIdAtSetup].maxHitPoints = PLANET_CRUSHER_HIT_POINTS;
                     shipList[monsterArrIdAtSetup].shipWeapons[0] = new weaponEntryType(1, MONSTER_WEAPON_TYPE_ID, 7, 0, 360, 0, 0);
                     shipList[monsterArrIdAtSetup].engagementRange = MONSTER_ENGAGEMENT_RANGE;
+                    shipList[monsterArrIdAtSetup].monsterAI = { move: aiMoveMonster, fire: aiFireMonster };
+                },
+                render: function () {
+                    // Planet Crusher's marker (no pre-built div like ship1/ship2,
+                    // same situation shuttles are in - created dynamically)
+                    var monsterMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="width:18px;height:18px;background-color:transparent;" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');"><img src="images/sfb/monster.svg" style="width:18px;height:18px;" /></div>';
+                    $('#shipLayer').append(monsterMarker);
+                    plotShip(MONSTER_USER_ID);
+
+                    // the planet itself is just a static visual reference for the
+                    // monster's AI targeting, not an interactive game object.
+                    // Positioned at an exact pixel spot rather than computed from
+                    // its hex (2502) - the hex-based math was slightly off from
+                    // where it should actually sit.
+                    var planetMarker = '<div id="planetMarker" style="position:absolute;left:913px;top:61.3px;width:20px;height:20px;border-radius:50%;background-color:#2a6f2a;border:2px solid #1a4a1a;z-index:4;" title="Planet (hex 2502)"></div>';
+                    $('#shipLayer').append(planetMarker);
+                }
+            },
+            space_amoeba: {
+                name: 'The Space Amoeba',
+                description: 'A vast space amoeba drifts aimlessly through the sector. Your mission is scientific: study it until you understand how to defeat it (' + SCIENCE_POINTS_BASE + ' points of information for a BPV ' + SCIENCE_BPV_DIVISOR + ' ship, scaled by your ship\'s BPV). If your ship is destroyed, you lose.',
+                setup: function (shipClassName) {
+                    // player starts on a random hex along any map edge,
+                    // facing (roughly) toward the amoeba
+                    var start = randomEdgeHex();
+                    var facing = nearestHexDirection(bearingBetweenCoords(start.x, start.y, SPACE_AMOEBA_START_HEX.x, SPACE_AMOEBA_START_HEX.y));
+                    var playerResult = createShipFromClass(shipClassName, 1, start.x, start.y, facing);
+                    shipList[0] = playerResult.ship;
+                    shipInternals[0] = playerResult.internals;
+
+                    var amoeba = new shipType(MONSTER_USER_ID, 'Space Amoeba', SPACE_AMOEBA_START_HEX.x, SPACE_AMOEBA_START_HEX.y, 0, 1, SPACE_AMOEBA_SPEED, 0, 1);
+                    amoeba.isMonster = true;
+                    amoeba.monsterAI = { move: aiMoveAmoeba, fire: aiFireAmoeba };
+                    amoeba.onDamaged = amoebaOnDamaged; // takes over from flat HP - see applyDamage()
+                    shipList.push(amoeba);
+
+                    startScienceTracking(playerResult.ship, MONSTER_USER_ID);
+                },
+                onScienceTargetReached: function () {
+                    rollAmoebaDefeatChart();
+                },
+                render: function () {
+                    // no image asset yet - a translucent green blob drawn in
+                    // CSS. Swap in an <img> (like the Planet Crusher's) once
+                    // there's an amoeba icon.
+                    var amoebaMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="width:18px;height:18px;background-color:rgba(80,190,80,0.75);border:2px solid #2a7a2a;border-radius:45% 55% 50% 40%;" title="Space Amoeba" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');"></div>';
+                    $('#shipLayer').append(amoebaMarker);
+                    plotShip(MONSTER_USER_ID);
                 }
             }
         };
@@ -401,6 +916,7 @@
         // weaponList/shipClassList are both loaded and the player has
         // picked a scenario + ship on the cover page
         function setupScenario(scenarioKey, shipClassName) {
+            activeScenarioKey = scenarioKey;
             SCENARIOS[scenarioKey].setup(shipClassName);
         }
 
@@ -438,8 +954,12 @@
                 str += '<div style="font-weight:bold;font-size:16px;">' + sc.name + '</div>';
                 str += '<div style="margin:8px 0;color:#444;">' + sc.description + '</div>';
                 str += '<div style="margin-bottom:8px;">Pilot: <select id="shipSelect_' + key + '">';
-                for (var i = 0; i < sc.playableShips.length; i++) {
-                    str += '<option value="' + sc.playableShips[i] + '">' + sc.playableShips[i] + '</option>';
+                // a scenario can still restrict its roster with playableShips; if it
+                // doesn't set one, every class in data/ships.json is offered
+                var roster = sc.playableShips || shipClassList.map(function (c) { return c.className; });
+                for (var i = 0; i < roster.length; i++) {
+                    var rosterBpv = shipClassesByName[roster[i]] ? shipClassesByName[roster[i]].bpv : null;
+                    str += '<option value="' + roster[i] + '">' + roster[i] + (rosterBpv ? ' (BPV ' + rosterBpv + ')' : '') + '</option>';
                 }
                 str += '</select></div>';
                 str += '<div class="button" onclick="startScenario(\'' + key + '\');">Start Scenario</div>';
@@ -629,21 +1149,13 @@
             setupDroneLoadouts();
             setupADDCharges();
             plotShip(1);
-            // plotShip(2); // D7 commented out for the Planet Crusher scenario
+            // plotShip(2); // D7 commented out for the monster scenarios
 
-            // Planet Crusher's marker (no pre-built div like ship1/ship2,
-            // same situation shuttles are in - created dynamically)
-            var monsterMarker = '<div id="ship' + MONSTER_USER_ID + '" class="shipDiv" style="width:18px;height:18px;background-color:transparent;" onclick="hexEntityClick(\'ship\', ' + MONSTER_USER_ID + ');"><img src="images/sfb/monster.svg" style="width:18px;height:18px;" /></div>';
-            $('#shipLayer').append(monsterMarker);
-            plotShip(MONSTER_USER_ID);
-
-            // the planet itself is just a static visual reference for the
-            // monster's AI targeting, not an interactive game object.
-            // Positioned at an exact pixel spot rather than computed from
-            // its hex (2502) - the hex-based math was slightly off from
-            // where it should actually sit.
-            var planetMarker = '<div id="planetMarker" style="position:absolute;left:913px;top:61.3px;width:20px;height:20px;border-radius:50%;background-color:#2a6f2a;border:2px solid #1a4a1a;z-index:4;" title="Planet (hex 2502)"></div>';
-            $('#shipLayer').append(planetMarker);
+            // scenario-specific markers (monster, planet, ...) - see each
+            // SCENARIOS entry's render()
+            if (typeof SCENARIOS[scenarioKey].render === 'function') {
+                SCENARIOS[scenarioKey].render();
+            }
             /* DEAD CODE - matches the disabled ships 3-9 above; would need
                re-enabling together with that block.
             plotShip(3);
@@ -1451,6 +1963,16 @@ $('#dataDiv').append(str);
             str += '<span class="statusImpulse">Impulse ' + impulse + ' / 32</span>';
             str += '<span class="statusSep">&middot;</span>';
             str += '<span class="statusPhase phase' + currentPhase.replace(/\s+/g, '') + '">' + currentPhase + '</span>';
+            if (sciencePointsTarget > 0) {
+                str += '<span class="statusSep">&middot;</span>';
+                str += '<span class="statusScience" title="Scientific information gathered">Science ' + sciencePoints + ' / ' + sciencePointsTarget + '</span>';
+                str += '<span class="statusSep">&middot;</span>';
+                str += '<span class="statusScience" title="Closest approach to the subject this turn">Closest ' + (closestApproachThisTurn == Infinity ? '-' : closestApproachThisTurn) + '</span>';
+                if (amoebaWeakness) {
+                    str += '<span class="statusSep">&middot;</span>';
+                    str += '<span class="statusScience" title="How the Space Amoeba can be destroyed">Weakness: ' + AMOEBA_WEAKNESS_LABELS[amoebaWeakness] + (amoebaWeakness == 'damage' ? ' (' + amoebaDamageTaken + ' so far)' : '') + '</span>';
+                }
+            }
             $('#impulseStatusTextDiv').html(str);
         }
 
@@ -1627,7 +2149,7 @@ $('#dataDiv').append(str);
                 var sId = moveShipList[0];
                 var mArrId = findShipArrId(sId);
                 if (mArrId != -1 && shipList[mArrId].isMonster) {
-                    aiMoveMonster(sId);
+                    shipList[mArrId].monsterAI.move(sId); // each monster's own movement rules
                     return;
                 }
                 setSelfHexHighlight(sId);
@@ -1979,7 +2501,7 @@ $('#dataDiv').append(str);
                 var arrId = findShipArrId(sId);
                 if (arrId == -1) { launchShuttleList.shift(); continue; }
                 var ship = shipList[arrId];
-                if (ship.shuttleHangar > 0 && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse) {
+                if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
                     curShipId = sId;
                     setSelfHexHighlight(sId);
                     launchShuttlecraftPopUp(sId);
@@ -1991,14 +2513,39 @@ $('#dataDiv').append(str);
             fireShips();
         }
 
+        function canLaunchShuttleNow(ship) {
+            return ship.shuttleHangar > 0 && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse;
+        }
+
+        // step 9 popup - shuttles, plus armed science probes (same step,
+        // since a probe is launched rather than fired)
         function launchShuttlecraftPopUp(sId) {
             $('#fireShipPopUpDiv').css('background-color', getTeamBgColor(sId));
             var arrId = findShipArrId(sId);
             var ship = shipList[arrId];
-            var str = '<div style="float:left;">Launch Shuttlecraft: ' + ship.name + '</div>';
+            var probeIdxList = getLaunchableProbes(ship);
+            var str = '<div style="float:left;">Launch' + (probeIdxList.length ? ' Shuttlecraft / Probe' : ' Shuttlecraft') + ': ' + ship.name + '</div>';
             str += '<div class="button" style="float:right;padding:2px 8px;" onclick="doneLaunchShuttlecraft();">Done</div>';
             str += '<div style="clear:both;"></div>';
-            str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchShuttle(' + arrId + ');">Launch Shuttle (' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' in hangar)</div>';
+            if (canLaunchShuttleNow(ship)) {
+                str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchShuttle(' + arrId + ');">Launch Shuttle (' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' in hangar)</div>';
+            }
+            for (var pi = 0; pi < probeIdxList.length; pi++) {
+                var probeIdx = probeIdxList[pi];
+                var plTag = (ship.probeLaunchers.length > 1 ? ' [' + (probeIdx + 1) + ']' : '');
+                if (ship.probeLaunchers[probeIdx].mode == 'bomb') {
+                    var bombTargets = getProbeBombTargets(ship);
+                    for (var bt = 0; bt < bombTargets.length; bt++) {
+                        var tg = bombTargets[bt];
+                        str += '<div class="weaponFireDiv canTargetHighlight" onclick="fireProbeBomb(' + arrId + ',' + probeIdx + ',' + tg.userId + ');">Fire Anti-matter Probe' + plTag + ' at ' + tg.name + ' - range ' + tg.range + ', hits on ' + (tg.range <= 1 ? 'any roll' : (tg.range >= 6 ? '6' : tg.range + '-6')) + ' (' + PROBE_BOMB_DAMAGE + ' dmg' + (amoebaWeakness == 'probe' && tg.userId == MONSTER_USER_ID ? ' - DESTROYS it' : '') + ')</div>';
+                    }
+                } else {
+                    var pRange = (findShipArrId(scienceSubjectId) != -1) ? findDist(ship.userId, scienceSubjectId) : null;
+                    var inRange = (pRange != null && pRange <= PROBE_SCIENCE_RANGE);
+                    str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchProbe(' + arrId + ',' + probeIdx + ');">Launch Science Probe' + plTag + ' (' + ship.probeAmmo + '/' + ship.probeAmmoMax + ' left) - range ' + (pRange == null ? '-' : pRange) + ': '
+                        + (inRange ? '+' + PROBE_SCIENCE_POINTS + ' science' : '<span style="color:#900;">too far, max ' + PROBE_SCIENCE_RANGE + ' - no info</span>') + '</div>';
+                }
+            }
             $('#fireShipPopUpDiv').html(str).css('display', 'block');
         }
 
@@ -2061,7 +2608,7 @@ $('#dataDiv').append(str);
                 var candidateShipId = fireShipList[0];
                 var mArrId = findShipArrId(candidateShipId);
                 if (mArrId != -1 && shipList[mArrId].isMonster) {
-                    aiFireMonster(candidateShipId);
+                    shipList[mArrId].monsterAI.fire(candidateShipId); // each monster's own attack rules
                     return;
                 }
                 if (!shipHasFireableWeapon(candidateShipId)) {
@@ -2201,13 +2748,39 @@ $('#dataDiv').append(str);
                     $('#dataDiv').append('<div>' + monster.name + ' fires on the planet - roll ' + pRoll + ' -- ' + pDmg + ' damage (planet ' + Math.max(planetHitPoints, 0) + '/' + planetMaxHitPoints + ')</div>');
                     monsterFiredThisTurn = true;
                     if (planetHitPoints <= 0) {
-                        $('#dataDiv').append('<div style="color:#900;font-weight:bold;">The planet has been destroyed - YOU LOSE</div>');
+                        declareGameOver(false, 'The planet has been destroyed');
                     }
                 }
                 // else: nothing in range yet this impulse - don't fire,
                 // don't set the flag, it'll check again next impulse
             }
 
+            fireShipList.shift();
+            fireShips();
+        }
+
+        // Space Amoeba movement: roll 1d6 each time it moves and step one
+        // hex that way (1 = straight up/0deg, then clockwise: 2 = 60, 3 =
+        // 120, 4 = 180, 5 = 240, 6 = 300). A roll that would carry it off
+        // the map is re-rolled, so it always stays on the board.
+        function aiMoveAmoeba(sId) {
+            var amoeba = shipList[findShipArrId(sId)];
+            var roll, dir, next, tries = 0;
+            do {
+                roll = rollD6();
+                dir = (roll - 1) * 60;
+                next = hexNeighbor(amoeba.xCord, amoeba.yCord, dir);
+                tries++;
+            } while (!isHexOnMap(next.x, next.y) && tries < 50);
+
+            amoeba.facing = dir;
+            $('#dataDiv').append('<div style="color:#2a7a2a;">' + amoeba.name + ' drifts - roll ' + roll + ' (' + dir + '&deg;)</div>');
+            moveShip(sId, 0); // normal hex-step/redraw/queue-advance, then back into moveShips()
+        }
+
+        // Space Amoeba attack: none yet - its damage rules depend on the
+        // lab rules still to be added. Just passes its turn in the fire queue.
+        function aiFireAmoeba(sId) {
             fireShipList.shift();
             fireShips();
         }
@@ -2223,6 +2796,10 @@ $('#dataDiv').append(str);
 
         // end impulse
         function endImpluse() {
+            if (gameOver) {
+                setPhase('Game Over');
+                return; // stop advancing - the scenario has been decided
+            }
             impulse++;
             if (impulse > 32) {
                 endTurn();
@@ -2237,6 +2814,33 @@ $('#dataDiv').append(str);
         // shipWeapons[].bFired, so once a weapon fired it stayed disabled
         // for the rest of the game - this is what actually clears it).
         function endTurn() {
+            // lab rules: end-of-turn science roll, based on this turn's
+            // closest approach (only does anything in a science scenario)
+            resolveLabInvestigation();
+            if (gameOver) {
+                setPhase('Game Over');
+                return; // the science target was just reached - scenario decided
+            }
+
+            // science probes armed this turn but not launched: the first
+            // turn's point is lost - drops back to half armed, so one more
+            // point next turn makes it launchable again
+            for (var sp = 0; sp < shipList.length; sp++) {
+                var pls = shipList[sp].probeLaunchers;
+                if (!pls) continue;
+                for (var pl = 0; pl < pls.length; pl++) {
+                    if (pls[pl].stage == 2 && pls[pl].mode == 'bomb') {
+                        // anti-matter probes must fire on their 2nd turn of arming
+                        pls[pl].stage = 0;
+                        pls[pl].mode = null;
+                        $('#dataDiv').append('<div>' + shipList[sp].name + '\'s anti-matter probe was not fired - arming lost</div>');
+                    } else if (pls[pl].stage == 2) {
+                        pls[pl].stage = 1;
+                        $('#dataDiv').append('<div>' + shipList[sp].name + '\'s science probe was not launched - first turn of arming lost (half armed; 1 more point next turn to launch)</div>');
+                    }
+                }
+            }
+
             turnNumber++;
             impulse = 1;
             monsterFiredThisTurn = false;
@@ -2326,10 +2930,13 @@ $('#dataDiv').append(str);
                         for (var dcf = 1; dcf <= 6; dcf++) {
                             var dcAllocated = shipInternals[iz]['damageControlShield' + dcf];
                             if (dcAllocated > 0) {
+                                // if shields are dropped, the real value lives in savedShieldN -
+                                // repair that, or the repair is lost when shields come back up
+                                var shieldKey = shipInternals[iz].shieldsActive ? ('shield' + dcf) : ('savedShield' + dcf);
                                 var repairAmt = Math.floor(dcAllocated / 2);
-                                var before = shipInternals[iz]['shield' + dcf];
+                                var before = shipInternals[iz][shieldKey];
                                 var after = Math.min(shipInternals[iz]['mShield' + dcf], before + repairAmt);
-                                shipInternals[iz]['shield' + dcf] = after;
+                                shipInternals[iz][shieldKey] = after;
                                 if (after > before) {
                                     $('#dataDiv').append('<div>' + shipList[s].name + ' damage control repairs shield #' + dcf + ' +' + (after - before) + ' (now ' + after + '/' + shipInternals[iz]['mShield' + dcf] + ')</div>');
                                 }
@@ -2349,6 +2956,7 @@ $('#dataDiv').append(str);
                 }
             }
 
+            resetClosestApproach(); // new turn - start tracking from current positions
             $('#turnDetailsDiv').html('<div style="font-weight:bold;padding-top:4px;">--- Turn ' + turnNumber + ' begins ---</div>');
             writeImpulseChart();
             startEnergyAllocation();
@@ -2437,6 +3045,7 @@ $('#dataDiv').append(str);
             if (a == 5) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? (y + 1) : y); }
             if (a == 6 || a == 0) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? y : (y - 1)); }
             plotShip(sId);
+            updateClosestApproach();
 
             if (m != 0) $('#turnDetailsDiv').append(((m == -1) ? 'slip left' : 'slip right'));
             $('#turnDetailsDiv').append('</div>');
@@ -2586,7 +3195,8 @@ $('#dataDiv').append(str);
                         // no ship can engage the planet crusher beyond
                         // MONSTER_ENGAGEMENT_RANGE, regardless of what the
                         // firing weapon's own normal range would allow
-                        if (selTargetShipId == MONSTER_USER_ID) effMaxRange = Math.min(effMaxRange, MONSTER_ENGAGEMENT_RANGE);
+                        var engageArrId = findShipArrId(selTargetShipId);
+                        if (engageArrId != -1 && shipList[engageArrId].engagementRange > 0) effMaxRange = Math.min(effMaxRange, shipList[engageArrId].engagementRange);
                         if (rangeToTarget < effMinRange || rangeToTarget > effMaxRange) {
                             str += ' dimWeapon';
                         }
@@ -3158,6 +3768,7 @@ $('#dataDiv').append(str);
             shuttle.maxHitPoints = SHUTTLE_HITPOINTS;
             shuttle.shipWeapons[0] = new weaponEntryType(1, SHUTTLE_PHASER_WEAPON_TYPE_ID, 1, 0, 360, 0, 0);
             shipList.push(shuttle);
+            updateClosestApproach(); // in a science scenario, a launched shuttle starts tracking its own closest approach
 
             // ships 1/2 (and the reserved-for-later 3-9) have their marker
             // divs pre-built into the static page; a shuttle needs its
@@ -3177,10 +3788,10 @@ $('#dataDiv').append(str);
             fireShipList.push(shuttle.userId);
 
             shuttleLaunchCounts[mothership.userId] = (shuttleLaunchCounts[mothership.userId] || 0) + 1;
-            if (shuttleLaunchCounts[mothership.userId] >= mothership.shuttleOpsPerImpulse) {
-                doneLaunchShuttlecraft(); // hit this impulse's limit - move on to the next ship
+            if (canLaunchShuttleNow(mothership) || findLaunchableProbe(mothership) != -1) {
+                launchShuttlecraftPopUp(mothership.userId); // a shuttle launch or an armed probe still available - offer it
             } else {
-                launchShuttlecraftPopUp(mothership.userId); // still has launches left this impulse - offer another
+                doneLaunchShuttlecraft(); // nothing left this impulse - move on to the next ship
             }
         }
 
@@ -3439,6 +4050,15 @@ $('#dataDiv').append(str);
                 // shuttles and monsters have no shields/armor/DAC at all -
                 // full incoming damage applies straight to flat HP, same
                 // idea as a drone
+                // a monster with its own damage rules (e.g. the Space
+                // Amoeba) handles the hit itself instead of using flat HP
+                if (targetArrId != -1 && typeof shipList[targetArrId].onDamaged === 'function') {
+                    shipList[targetArrId].onDamaged(d);
+                    damageList.shift();
+                    damageShips();
+                    return;
+                }
+
                 if (targetArrId != -1 && (shipList[targetArrId].isShuttle || shipList[targetArrId].isMonster)) {
                     var flatHpTarget = shipList[targetArrId];
                     flatHpTarget.hitPoints -= d;
@@ -3635,10 +4255,10 @@ $('#dataDiv').append(str);
                 $('#dataDiv').append(internalsStr);
             }
 
-            showShipPopUp(2)
+            showShipPopUp(sId); // was hardcoded to ship 2, which doesn't exist in the monster scenarios
 
             if (shipInternals[arrId].excess <= 0) {
-                alert('ship destroyed');
+                handleShipDestroyed(sId, targetName);
             }
         }
 
@@ -4367,6 +4987,13 @@ $('#dataDiv').append(str);
         // restores shields to whatever they were right before they were
         // dropped (reflecting damage taken before the drop, not a reset to
         // full strength). No-op if shields were already active.
+        // a shield's real value regardless of whether shields are currently
+        // dropped - when down, shieldN is zeroed and the true value lives in
+        // savedShieldN (see dropShields())
+        function getEffectiveShieldValue(internals, shieldNum) {
+            return internals.shieldsActive ? internals['shield' + shieldNum] : internals['savedShield' + shieldNum];
+        }
+
         function restoreShields(iArrId) {
             var internals = shipInternals[iArrId];
             if (!internals.shieldsActive) {
@@ -4478,7 +5105,7 @@ $('#dataDiv').append(str);
             str += '<div>Damage Control (<span id="eaDamageConRemaining">' + damageConTotal + '</span>/' + damageConTotal + ' pts available):</div>';
             str += '<div>Specific Reinforcement (1pt/pt)' + (shieldsCurrentlyActive ? '' : ' - shields down') + ':</div>';
             for (var s = 1; s <= 6; s++) {
-                var curShieldVal = internals['shield' + s];
+                var curShieldVal = getEffectiveShieldValue(internals, s);
                 var maxShieldVal = internals['mShield' + s];
                 str += '<div style="float:left;">Shield #' + s + ' (' + curShieldVal + '):</div>';
                 if (curShieldVal < maxShieldVal) {
@@ -4581,6 +5208,36 @@ $('#dataDiv').append(str);
                         str += '</select> - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</div>';
                     } else {
                         str += '<div><label><input type="checkbox" id="eaDroneReload' + z + '" onclick="updateEnergyAllocTotal();"> Reload ' + dName + ' [' + dDisplayNumber + '] (' + formatDroneLoadout(dEntry.droneLoadout, dEntry.droneRackSpaceCapacity) + ') toward original loadout - disables it this turn, up to ' + DRONE_RELOAD_AMOUNT + ' sp</label></div>';
+                    }
+                }
+            }
+
+            // science probes - only in scenarios that gather scientific information
+            if (scienceProbesInUse() && ship.probeLaunchers && ship.probeLaunchers.length > 0) {
+                var intactProbes = getIntactProbeLauncherCount(ship);
+                str += '<div class="dividerLine"></div>';
+                str += '<div>Probes - ' + ship.probeAmmo + '/' + ship.probeAmmoMax + ' left. Science: ' + PROBE_ARM_COST_PER_TURN + 'pt/turn x 2 turns. Anti-matter: ' + PROBE_BOMB_WARP_PER_TURN + ' warp/turn x 2 turns, fires dead ahead, must fire on the 2nd turn:</div>';
+                for (var pl = 0; pl < ship.probeLaunchers.length; pl++) {
+                    var launcher = ship.probeLaunchers[pl];
+                    var plName = 'Probe launcher' + (ship.probeLaunchers.length > 1 ? ' ' + (pl + 1) : '');
+                    if (pl >= intactProbes) {
+                        str += '<div style="color:#999;">' + plName + ' - destroyed</div>';
+                    } else if (ship.probeAmmo <= 0) {
+                        str += '<div style="color:#999;">' + plName + ' - no probes left</div>';
+                    } else if (launcher.stage == 0) {
+                        str += '<div style="float:left;">' + plName + ' - begin arming:</div>';
+                        str += '<div style="float:right;"><select id="eaProbeMode' + pl + '" onchange="updateEnergyAllocTotal();">';
+                        str += '<option value="none">Don\'t arm</option>';
+                        str += '<option value="science">Science probe (' + PROBE_ARM_COST_PER_TURN + 'pt)</option>';
+                        str += '<option value="bomb">Anti-matter (' + PROBE_BOMB_WARP_PER_TURN + ' warp)</option>';
+                        str += '</select></div>';
+                        str += '<div style="clear:both;"></div>';
+                    } else if (launcher.stage == 1 && launcher.mode == 'bomb') {
+                        str += '<div><label title="Uncheck to abandon the arming"><input type="checkbox" id="eaProbeArm' + pl + '" checked onclick="updateEnergyAllocTotal();"> ' + plName + ' - anti-matter half armed: finish arming (' + PROBE_BOMB_WARP_PER_TURN + ' warp, must fire this turn or it\'s lost)</label></div>';
+                    } else if (launcher.stage == 1) {
+                        str += '<div><label title="Uncheck to abandon the arming"><input type="checkbox" id="eaProbeArm' + pl + '" checked onclick="updateEnergyAllocTotal();"> ' + plName + ' - science probe half armed: finish arming (' + PROBE_ARM_COST_PER_TURN + 'pt, launch this turn or lose the earlier point)</label></div>';
+                    } else {
+                        str += '<div>' + plName + ' - armed (' + (launcher.mode == 'bomb' ? 'anti-matter' : 'science') + ')</div>';
                     }
                 }
             }
@@ -4696,6 +5353,36 @@ $('#dataDiv').append(str);
             return result;
         }
 
+        // gathers the science-probe arming checkboxes: each checked
+        // launcher costs PROBE_ARM_COST_PER_TURN this turn
+        function computeProbeArmingInputs(sId) {
+            var ship = shipList[findShipArrId(sId)];
+            // checked[launcherIdx] = true/false (continue a half-armed launcher)
+            // startMode[launcherIdx] = 'science' | 'bomb' | null (begin arming an idle one)
+            // warpCost = the part of totalCost that must come from warp (bombs)
+            var result = { totalCost: 0, warpCost: 0, checked: [], startMode: [] };
+            if (!ship.probeLaunchers) return result;
+            for (var pl = 0; pl < ship.probeLaunchers.length; pl++) {
+                var mode = null;
+                var $sel = $('#eaProbeMode' + pl);
+                var $cb = $('#eaProbeArm' + pl);
+                if ($sel.length && $sel.val() != 'none') {
+                    mode = $sel.val();
+                    result.startMode[pl] = mode;
+                } else if ($cb.length && $cb.is(':checked')) {
+                    result.checked[pl] = true;
+                    mode = ship.probeLaunchers[pl].mode;
+                }
+                if (mode == 'bomb') {
+                    result.totalCost += PROBE_BOMB_WARP_PER_TURN;
+                    result.warpCost += PROBE_BOMB_WARP_PER_TURN;
+                } else if (mode == 'science') {
+                    result.totalCost += PROBE_ARM_COST_PER_TURN;
+                }
+            }
+            return result;
+        }
+
         function updateEnergyAllocTotal() {
             var $popup = $('#energyAllocPopUpDiv');
             var sId = $popup.data('sId');
@@ -4728,6 +5415,7 @@ $('#dataDiv').append(str);
             var shieldsActive = $('#eaShieldsActive').is(':checked');
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
+            var probeArming = computeProbeArmingInputs(sId);
 
             // General/Specific Reinforcement require active shields - keep
             // the inputs disabled (and their contribution zeroed) whenever
@@ -4762,6 +5450,7 @@ $('#dataDiv').append(str);
             var used = getLifeSupportCost(shipList[arrId].sizeClass) + fireControlCost + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
+                + probeArming.totalCost
                 + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
@@ -4816,7 +5505,7 @@ $('#dataDiv').append(str);
                 var $inp = $('#eaSpecificReinforce' + s);
                 if ($inp.length && shieldsActive) {
                     var v = parseInt($inp.val()) || 0;
-                    if (v > 0 && internals['shield' + s] <= 0) {
+                    if (v > 0 && getEffectiveShieldValue(internals, s) <= 0) {
                         alert('Cannot specifically reinforce shield #' + s + ' - it is currently at 0');
                         return;
                     }
@@ -4835,7 +5524,7 @@ $('#dataDiv').append(str);
                 var $dcInp = $('#eaDamageControl' + dcS);
                 if ($dcInp.length) {
                     var dcV = parseInt($dcInp.val()) || 0;
-                    if (dcV > 0 && internals['shield' + dcS] >= internals['mShield' + dcS]) {
+                    if (dcV > 0 && getEffectiveShieldValue(internals, dcS) >= internals['mShield' + dcS]) {
                         alert('Cannot repair shield #' + dcS + ' - it has not taken any damage');
                         return;
                     }
@@ -4870,6 +5559,7 @@ $('#dataDiv').append(str);
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
             var droneReload = computeDroneReloadInputs(sId);
+            var probeArming = computeProbeArmingInputs(sId);
 
             // validate each photon round input against its per-round min/max
             for (var i = 0; i < photonLoading.entries.length; i++) {
@@ -4904,11 +5594,18 @@ $('#dataDiv').append(str);
                 alert('Photon loading requires warp power specifically - only ' + warpRemaining + ' warp remaining after speed');
                 return;
             }
+            // anti-matter probe arming is warp only too, and shares what's
+            // left after photons
+            if (photonLoading.warpCost + probeArming.warpCost > warpRemaining) {
+                alert('Photon loading + anti-matter probe arming need ' + (photonLoading.warpCost + probeArming.warpCost) + ' warp power - only ' + warpRemaining + ' warp remaining after speed');
+                return;
+            }
 
             var available = generated + discharge;
             var used = getLifeSupportCost(ship.sizeClass) + fireControlCost + phaserAdd + recharge + speedCost
                 + newArming.totalCost
                 + photonLoading.totalCost
+                + probeArming.totalCost
                 + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
@@ -4938,6 +5635,32 @@ $('#dataDiv').append(str);
                 restoreShields(iArrId);
             } else {
                 dropShields(iArrId);
+            }
+
+            // science probes: a checked launcher advances one stage (0 -> half
+            // armed, 1 -> armed); a half-armed one left unchecked loses its
+            // arming. Launchers with a destroyed box or no probes left reset.
+            var probeParts = [];
+            if (ship.probeLaunchers && scienceProbesInUse()) {
+                var intactProbeCount = getIntactProbeLauncherCount(ship);
+                for (var pl = 0; pl < ship.probeLaunchers.length; pl++) {
+                    var launcher = ship.probeLaunchers[pl];
+                    var plLabel = 'probe' + (ship.probeLaunchers.length > 1 ? ' ' + (pl + 1) : '');
+                    if (pl >= intactProbeCount || ship.probeAmmo <= 0) { launcher.stage = 0; launcher.mode = null; continue; }
+                    var modeLabel = (launcher.mode == 'bomb' ? 'anti-matter ' : 'science ');
+                    if (launcher.stage == 0 && probeArming.startMode[pl]) {
+                        launcher.stage = 1;
+                        launcher.mode = probeArming.startMode[pl];
+                        probeParts.push((launcher.mode == 'bomb' ? 'anti-matter ' : 'science ') + plLabel + ' arming (1/2)');
+                    } else if (launcher.stage == 1 && probeArming.checked[pl]) {
+                        launcher.stage = 2;
+                        probeParts.push(modeLabel + plLabel + ' ARMED - ' + (launcher.mode == 'bomb' ? 'must fire this turn' : 'launch this turn'));
+                    } else if (launcher.stage == 1) {
+                        launcher.stage = 0;
+                        launcher.mode = null;
+                        probeParts.push(modeLabel + plLabel + ' arming abandoned');
+                    }
+                }
             }
 
             var photonDischarged = 0, photonAdvanced = 0, photonMaintained = 0, photonToppedUp = 0;
@@ -5008,6 +5731,7 @@ $('#dataDiv').append(str);
             if (photonToppedUp > 0) logMsg += ', ' + photonToppedUp + ' photon(s) topped up toward overload';
             if (photonDischarged > 0) logMsg += ', ' + photonDischarged + ' photon(s) DISCHARGED (no maintenance paid)';
             if (racksReloaded > 0) logMsg += ', ' + racksReloaded + ' drone rack(s) reloading (' + (reloadParts.length > 0 ? reloadParts.join('; ') + ', ' : '') + 'stockpile ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + ')';
+            if (probeParts.length > 0) logMsg += ', ' + probeParts.join(', ');
             logMsg += ', battery ' + internals.batteryStored + '/' + internals.mBty;
             $('#dataDiv').append('<div>' + logMsg + '</div>');
 
@@ -5438,16 +6162,19 @@ $('#dataDiv').append(str);
             clear: both;
             padding: 2px 0px;
         }
+
         .ssdLabel {
             float: left;
             width: 85px;
             font-size: 11px;
             line-height: 18px;
         }
+
         .ssdBoxes {
             float: left;
             overflow: hidden;
         }
+
         .ssdBox {
             float: left;
             width: 15px;
@@ -5460,6 +6187,7 @@ $('#dataDiv').append(str);
             text-align: center;
             box-sizing: border-box;
         }
+
         .ssdBoxDestroyed {
             background: repeating-linear-gradient(45deg, #999, #999 2px, #ccc 2px, #ccc 4px);
             color: transparent;
@@ -5512,7 +6240,10 @@ $('#dataDiv').append(str);
         #hexPickerBackdrop {
             display: none;
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background-color: rgba(0,0,0,0.35);
             z-index: 999;
         }
@@ -5524,6 +6255,7 @@ $('#dataDiv').append(str);
             overflow: auto;
             font-size: 13px;
         }
+
         #turnDetailsDiv {
             border-top: 1px solid #ddd;
             padding: 5px 10px;
@@ -5586,6 +6318,19 @@ $('#dataDiv').append(str);
 
         .phaseDamage {
             background-color: #FFC2C2;
+        }
+
+        .phaseVictory {
+            background-color: #C9F2C9;
+        }
+
+        .phaseDefeat, .phaseGameOver {
+            background-color: #E0B4B4;
+        }
+
+        .statusScience {
+            font-weight: 600;
+            color: #069;
         }
 
         .titlePopupDiv {
@@ -5702,6 +6447,7 @@ $('#dataDiv').append(str);
             border: 1px solid #333;
             cursor: pointer;
         }
+
         .dividerLine {
             margin: 4px 0px;
             width: 100%;
