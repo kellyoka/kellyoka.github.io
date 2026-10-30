@@ -537,6 +537,7 @@
         var scienceSubjectId = null;
         var closestApproachThisTurn = Infinity; // the main ship's - shown in the status bar
         var closestApproachByCraft = {}; // userId -> closest range this turn, for the ship and each shuttle
+        var closestApproachShieldByCraft = {}; // userId -> the shield facing the subject the first impulse it reached that closest range
 
         function labChartValue(roll, range) {
             return Math.max(0, LAB_CHART_BASE - roll - range);
@@ -564,6 +565,7 @@
         function resetClosestApproach() {
             closestApproachThisTurn = Infinity;
             closestApproachByCraft = {};
+            closestApproachShieldByCraft = {};
             updateClosestApproach(); // the starting positions count as an approach too
         }
 
@@ -578,12 +580,22 @@
                 var d = findDist(craft[i].userId, scienceSubjectId);
                 var prev = closestApproachByCraft[craft[i].userId];
                 if (prev === undefined || d < prev) {
+                    // strictly closer only - so the shield recorded is the
+                    // one facing it the FIRST impulse it got this close
                     closestApproachByCraft[craft[i].userId] = d;
+                    closestApproachShieldByCraft[craft[i].userId] = shieldFacingSubject(craft[i].userId, d);
                     changed = true;
                 }
             }
             if (scienceShipId in closestApproachByCraft) closestApproachThisTurn = closestApproachByCraft[scienceShipId];
             if (changed) updateImpulseStatusBar();
+        }
+
+        // which of the craft's shields faces the subject right now. At range
+        // 0 (same hex) there's no bearing to measure, so it's shield #1.
+        function shieldFacingSubject(craftId, range) {
+            if (range == 0) return 1;
+            return shieldFacing(findFacing(craftId, scienceSubjectId));
         }
 
         // end-of-turn lab rolls - see endTurn(). One roll per investigating
@@ -900,6 +912,9 @@
                 },
                 onScienceTargetReached: function () {
                     rollAmoebaDefeatChart();
+                },
+                onEndTurn: function () {
+                    resolveAmoebaAttack();
                 },
                 render: function () {
                     // no image asset yet - a translucent green blob drawn in
@@ -1967,7 +1982,7 @@ $('#dataDiv').append(str);
                 str += '<span class="statusSep">&middot;</span>';
                 str += '<span class="statusScience" title="Scientific information gathered">Science ' + sciencePoints + ' / ' + sciencePointsTarget + '</span>';
                 str += '<span class="statusSep">&middot;</span>';
-                str += '<span class="statusScience" title="Closest approach to the subject this turn">Closest ' + (closestApproachThisTurn == Infinity ? '-' : closestApproachThisTurn) + '</span>';
+                str += '<span class="statusScience" title="Closest approach to the subject this turn, and the shield that was facing it">Closest ' + (closestApproachThisTurn == Infinity ? '-' : closestApproachThisTurn + (closestApproachShieldByCraft[scienceShipId] ? ' (shield #' + closestApproachShieldByCraft[scienceShipId] + ')' : '')) + '</span>';
                 if (amoebaWeakness) {
                     str += '<span class="statusSep">&middot;</span>';
                     str += '<span class="statusScience" title="How the Space Amoeba can be destroyed">Weakness: ' + AMOEBA_WEAKNESS_LABELS[amoebaWeakness] + (amoebaWeakness == 'damage' ? ' (' + amoebaDamageTaken + ' so far)' : '') + '</span>';
@@ -2778,11 +2793,56 @@ $('#dataDiv').append(str);
             moveShip(sId, 0); // normal hex-step/redraw/queue-advance, then back into moveShips()
         }
 
-        // Space Amoeba attack: none yet - its damage rules depend on the
-        // lab rules still to be added. Just passes its turn in the fire queue.
+        // Space Amoeba in the fire phase: only its MCIDS point defense
+        // (same system as the Planet Crusher's - drones and shuttles within
+        // MONSTER_CIDS_RANGE). Its real attack happens at end of turn - see
+        // resolveAmoebaAttack().
         function aiFireAmoeba(sId) {
+            aiFireMonsterCIDS(sId);
             fireShipList.shift();
             fireShips();
+        }
+
+        // Space Amoeba end-of-turn attack (runs right after the lab rolls):
+        //   - ships: roll 1d6 on the lab chart at the ship's closest approach
+        //     this turn; damage = chart value x AMOEBA_DAMAGE_MULTIPLIER,
+        //     to the shield that faced the Amoeba the first impulse of that
+        //     closest approach. Shield reinforcement is ignored.
+        //   - shuttles (and fighters, once they exist): AMOEBA_SMALL_CRAFT_DAMAGE each
+        var AMOEBA_DAMAGE_MULTIPLIER = 2;
+        var AMOEBA_SMALL_CRAFT_DAMAGE = 1;
+
+        function resolveAmoebaAttack() {
+            if (gameOver) return;
+            var amoebaArrId = findShipArrId(MONSTER_USER_ID);
+            if (amoebaArrId == -1) return; // destroyed - nothing left to attack with
+            var amoebaName = shipList[amoebaArrId].name;
+
+            var craft = getScienceCraft();
+            for (var i = 0; i < craft.length && !gameOver; i++) {
+                var c = craft[i];
+                var range = closestApproachByCraft[c.userId];
+                if (range === undefined) continue;
+
+                if (c.isShuttle || c.isFighter) {
+                    c.hitPoints -= AMOEBA_SMALL_CRAFT_DAMAGE;
+                    $('#dataDiv').append('<div style="color:#2a7a2a;">' + amoebaName + ' attacks ' + c.name + ' - ' + AMOEBA_SMALL_CRAFT_DAMAGE + ' damage (HP ' + Math.max(c.hitPoints, 0) + '/' + c.maxHitPoints + ')</div>');
+                    if (c.hitPoints <= 0) {
+                        $('#dataDiv').append('<div>' + c.name + ' destroyed</div>');
+                        removeShipEntirely(c.userId);
+                    }
+                    continue;
+                }
+
+                var iArrId = findInternalsArrId(c.userId);
+                if (iArrId == -1) continue;
+                var roll = rollD6();
+                var chart = labChartValue(roll, range);
+                var dmg = chart * AMOEBA_DAMAGE_MULTIPLIER;
+                var shield = closestApproachShieldByCraft[c.userId] || 1;
+                $('#dataDiv').append('<div style="color:#2a7a2a;font-weight:bold;">' + amoebaName + ' attacks ' + c.name + ': closest approach ' + range + ', roll ' + roll + ' -> chart ' + chart + ' x ' + AMOEBA_DAMAGE_MULTIPLIER + ' = ' + dmg + ' damage to shield #' + shield + ' (reinforcement ignored)</div>');
+                if (dmg > 0) applyShieldArmorInternalDamage(iArrId, c.userId, c.name, shield, dmg);
+            }
         }
         // resolve direct-fire weapons
         function damageShips() {
@@ -2817,9 +2877,15 @@ $('#dataDiv').append(str);
             // lab rules: end-of-turn science roll, based on this turn's
             // closest approach (only does anything in a science scenario)
             resolveLabInvestigation();
+            // then the scenario's own end-of-turn rules (the Space Amoeba's
+            // attack), using the same closest approach
+            var endTurnScenario = SCENARIOS[activeScenarioKey];
+            if (!gameOver && endTurnScenario && typeof endTurnScenario.onEndTurn === 'function') {
+                endTurnScenario.onEndTurn();
+            }
             if (gameOver) {
                 setPhase('Game Over');
-                return; // the science target was just reached - scenario decided
+                return; // decided this turn (science / defeat chart / ship destroyed)
             }
 
             // science probes armed this turn but not launched: the first
@@ -4091,41 +4157,47 @@ $('#dataDiv').append(str);
                     }
                 }
 
-                // 3) the shield's own value absorbs next
-                eval('s = shipInternals[arrId].shield' + shield);
-                $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' absorbs up to ' + s + ' (incoming ' + d + ')</div>');
-
-                if (d <= 0) {
-                    // fully absorbed by reinforcement, shield untouched
-                }
-                else if (s >= d) {
-                    s = s - d;
-                    eval('shipInternals[arrId].shield' + shield + ' = ' + s);
-                }
-                else {
-                    d = d - s;
-                    eval('shipInternals[arrId].shield' + shield + ' = 0');
-                    // 4) armor
-                    if (shipInternals[arrId].armor >= d) {
-                        shipInternals[arrId].armor = shipInternals[arrId].armor - d;
-                        d = 0;
-                    }
-                    else {
-                        d = d - shipInternals[arrId].armor;
-                        shipInternals[arrId].armor = 0;
-                    }
-
-                    $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' overloaded - ' + d + ' damage carries through</div>');
-
-                    // 5) internal damage
-                    if (d > 0) {
-                        damageShip(damageList[0].targetId, damageList[0].shield, d);
-                        // alert(damageList[x].targetId + ' ' + damageList[x].arc + ' ' + d)
-                    }
-                }
+                // 3-5) shield, then armor, then internals
+                applyShieldArmorInternalDamage(arrId, damageList[0].targetId, targetName, shield, d);
                 damageList.shift();
             }
             damageShips();
+        }
+
+        // the part of a hit after reinforcement: the facing shield absorbs
+        // what it can, then armor, then whatever's left is internal damage.
+        // Shared by applyDamage() and anything that has to skip
+        // reinforcement (e.g. the Space Amoeba's end-of-turn attack).
+        function applyShieldArmorInternalDamage(arrId, targetId, targetName, shield, d) {
+            var s = shipInternals[arrId]['shield' + shield];
+            $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' absorbs up to ' + s + ' (incoming ' + d + ')</div>');
+
+            if (d <= 0) {
+                // fully absorbed by reinforcement, shield untouched
+            }
+            else if (s >= d) {
+                shipInternals[arrId]['shield' + shield] = s - d;
+            }
+            else {
+                d = d - s;
+                shipInternals[arrId]['shield' + shield] = 0;
+                // 4) armor
+                if (shipInternals[arrId].armor >= d) {
+                    shipInternals[arrId].armor = shipInternals[arrId].armor - d;
+                    d = 0;
+                }
+                else {
+                    d = d - shipInternals[arrId].armor;
+                    shipInternals[arrId].armor = 0;
+                }
+
+                $('#dataDiv').append('<div>' + targetName + ' shield #' + shield + ' overloaded - ' + d + ' damage carries through</div>');
+
+                // 5) internal damage
+                if (d > 0) {
+                    damageShip(targetId, shield, d);
+                }
+            }
             //function damageListType(targetId, shield, damage) {
             //function shipSystemsType(userId, flag, bridge, aux, emer, scrty, armor, fHull, aHull, hull, lab, probe, trac, tran, shut, rWarp, lWarp, cWarp, imp, apr, bty, shield1, shield2, shield3, shield4, shield5, shield6, excess)
         }
