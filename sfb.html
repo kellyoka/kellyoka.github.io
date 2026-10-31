@@ -510,7 +510,7 @@
             }
 
             if (gameOver) { $('#fireShipPopUpDiv').css('display', 'none'); return; }
-            if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
+            if (canLaunchShuttleNow(ship) || canLaunchSuicideNow(ship) || findLaunchableProbe(ship) != -1) {
                 launchShuttlecraftPopUp(ship.userId);
             } else {
                 doneLaunchShuttlecraft();
@@ -536,7 +536,7 @@
             }
 
             if (gameOver) { $('#fireShipPopUpDiv').css('display', 'none'); return; }
-            if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
+            if (canLaunchShuttleNow(ship) || canLaunchSuicideNow(ship) || findLaunchableProbe(ship) != -1) {
                 launchShuttlecraftPopUp(ship.userId); // something else still available - offer it
             } else {
                 doneLaunchShuttlecraft();
@@ -809,6 +809,12 @@
             ship.probeLaunchers = [];
             for (var pb = 0; pb < probeBoxes; pb++) ship.probeLaunchers.push({ stage: 0, mode: null });
             ship.shuttleHangar = cls.shuttleHangarMax || 0;
+            ship.suicideShuttles = []; // hangar shuttles being armed/held as suicide shuttles
+            // one tractor beam per tractor box
+            ship.tractorBeams = [];
+            var tracBoxes = (cls.systems && cls.systems.trac) || 0;
+            for (var tb = 0; tb < tracBoxes; tb++) ship.tractorBeams.push({ powered: false, link: null, spentThisTurn: false, releasedAbsImpulse: null });
+            ship.shuttlesUnavailableThisTurn = 0;
             ship.shuttleHangarMax = cls.shuttleHangarMax || 0;
             ship.shuttleIconSrc = cls.shuttleIconSrc;
             ship.shuttleBgColor = cls.shuttleBgColor;
@@ -1819,6 +1825,7 @@ $('#dataDiv').append(str);
 
         function removeActiveDrone(drone) {
             drone.bDestroyed = true;
+            clearTractorLinksFor('drone', drone.id);
             removeSeekingWeaponMarker(drone);
             for (var i = 0; i < activeDrones.length; i++) {
                 if (activeDrones[i].id == drone.id) { activeDrones.splice(i, 1); break; }
@@ -2150,6 +2157,101 @@ $('#dataDiv').append(str);
         var nextShuttleUserId = 101; // distinct range from real ship userIds (1, 2, ...), purely for readability - no functional collision risk since shuttles live in shipList alongside real ships either way
         var SHUTTLE_SPEED = 6;
         var SHUTTLE_HITPOINTS = 6;
+
+        // --- suicide shuttles (J2.22) - a rule for any fight ---
+        // An unmanned shuttle carrying an antimatter bomb; once launched it
+        // is a seeking weapon (moves like a drone, at SHUTTLE_SPEED,
+        // unlimited endurance, SHUTTLE_HITPOINTS to shoot down). Targets:
+        // enemy ships, shuttles, drones, or a monster.
+        //   - arming: 1-3 WARP power per turn for 3 turns (the amount can
+        //     differ each turn); it can launch on the 3rd turn
+        //   - bomb = 2 x total arming energy (max 9 -> 18 damage)
+        //   - after the 3rd turn, holding it costs 1 power/turn (any
+        //     source); not paid -> bomb deactivated, arming energy lost, and
+        //     that shuttle can't be launched at all that turn
+        //   - each one uses a hangar shuttle; launching counts toward the
+        //     normal one-shuttle-per-impulse launch limit
+        // ship.suicideShuttles: [{ energy, turns (1-3), lastAmount, launchableTurn }]
+        var SUICIDE_ARM_MIN = 1;
+        var SUICIDE_ARM_MAX = 3;
+        var SUICIDE_ARM_TURNS = 3;
+        var SUICIDE_HOLD_COST = 1;
+        var SUICIDE_DAMAGE_PER_ENERGY = 2;
+
+        // hangar shuttles free for normal launch or new suicide arming
+        function availableNormalShuttles(ship) {
+            var committed = ship.suicideShuttles ? ship.suicideShuttles.length : 0;
+            return Math.max(0, (ship.shuttleHangar || 0) - committed - (ship.shuttlesUnavailableThisTurn || 0));
+        }
+
+        // suicide shuttles fully armed (and paid for) this turn
+        function getLaunchableSuicideShuttles(ship) {
+            var list = [];
+            if (!ship.suicideShuttles) return list;
+            for (var i = 0; i < ship.suicideShuttles.length; i++) {
+                var ss = ship.suicideShuttles[i];
+                if (ss.turns >= SUICIDE_ARM_TURNS && ss.launchableTurn == turnNumber) list.push(i);
+            }
+            return list;
+        }
+
+        function canLaunchSuicideNow(ship) {
+            return getLaunchableSuicideShuttles(ship).length > 0
+                && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse
+                && getSuicideShuttleTargets(ship).length > 0;
+        }
+
+        // enemy ships/shuttles/monsters, and enemy drones (not plasma - none exist yet)
+        function getSuicideShuttleTargets(ship) {
+            var targets = [];
+            for (var z = 0; z < shipList.length; z++) {
+                var t = shipList[z];
+                if (t.userId == ship.userId || isSameTeam(ship.userId, t.userId)) continue;
+                targets.push({ type: 'ship', id: t.userId, name: t.name, range: findDist(ship.userId, t.userId) });
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                var d = activeDrones[i];
+                if (d.bDestroyed || isSameTeam(ship.userId, d.ownerShipId)) continue;
+                targets.push({ type: 'drone', id: d.id, name: (d.droneTypeName || 'Drone') + ' #' + d.id, range: hexDistanceCoords(ship.xCord, ship.yCord, d.xCord, d.yCord) });
+            }
+            targets.sort(function (a, b) { return a.range - b.range; });
+            return targets;
+        }
+
+        function launchSuicideShuttle(sArrId, ssIdx) {
+            var ship = shipList[sArrId];
+            var ss = ship.suicideShuttles[ssIdx];
+            if (!ss || ss.turns < SUICIDE_ARM_TURNS || ss.launchableTurn != turnNumber) return;
+            if ((shuttleLaunchCounts[ship.userId] || 0) >= ship.shuttleOpsPerImpulse) return;
+            var pick = ($('#ssTarget' + ssIdx).val() || '').split(':');
+            if (pick.length != 2) return;
+            var targetType = pick[0], targetId = parseInt(pick[1]);
+            var target = getSeekingTargetInfo(targetType, targetId);
+            if (!target.exists) return;
+
+            var bomb = ss.energy * SUICIDE_DAMAGE_PER_ENERGY;
+            var drone = new seekingWeaponType(seekingWeaponIdCounter++, ship.userId, targetType, targetId, ship.xCord, ship.yCord, ship.facing,
+                SHUTTLE_SPEED, SHUTTLE_HITPOINTS, bomb, Infinity, 4, 'Suicide Shuttle');
+            drone.isSuicideShuttle = true;
+            drone.approachBearingToTarget = (target.x == drone.xCord && target.y == drone.yCord)
+                ? ship.facing
+                : bearingBetweenCoords(target.x, target.y, drone.xCord, drone.yCord);
+            activeDrones.push(drone);
+            plotSeekingWeapon(drone);
+            $('#drone' + drone.id).css({ 'background-color': '#c60', 'border-radius': '2px' }); // tell it apart from a drone
+
+            ship.suicideShuttles.splice(ssIdx, 1);
+            ship.shuttleHangar -= 1;
+            shuttleLaunchCounts[ship.userId] = (shuttleLaunchCounts[ship.userId] || 0) + 1;
+            $('#dataDiv').append('<div style="font-weight:bold;">' + ship.name + ' launches suicide shuttle #' + drone.id + ' (' + bomb + '-pt bomb) at ' + target.name + ' (' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' left in hangar)</div>');
+            writeImpulseChart();
+
+            if (canLaunchShuttleNow(ship) || canLaunchSuicideNow(ship) || findLaunchableProbe(ship) != -1) {
+                launchShuttlecraftPopUp(ship.userId);
+            } else {
+                doneLaunchShuttlecraft();
+            }
+        }
         var SHUTTLE_TURN_MODE = 2; // confirmed: shuttles/fighters use turn mode class 2, i.e. turnMode[2] = [11, 23, 32] above ([1-11] 1 hex, [12-23] 2 hexes, [24+] 3 hexes before turning again)
         var SHUTTLE_PHASER_WEAPON_TYPE_ID = 3; // Phaser 3
 
@@ -2224,6 +2326,12 @@ $('#dataDiv').append(str);
             } else {
                 var sId = moveShipList[0];
                 var mArrId = findShipArrId(sId);
+                if (mArrId != -1 && isTractorHeld('ship', sId)) {
+                    // held in a tractor beam - only moves with the ship holding it
+                    moveShipList.shift();
+                    moveShips();
+                    return;
+                }
                 if (mArrId != -1 && shipList[mArrId].isMonster) {
                     shipList[mArrId].monsterAI.move(sId); // each monster's own movement rules
                     return;
@@ -2274,7 +2382,7 @@ $('#dataDiv').append(str);
             // turns toward its target as hard as it can)
             if (seekingList.length > 0) setPhase('Seeking Weapons');
             while (seekingList.length > 0) {
-                moveSeekingWeapon(seekingList[0]);
+                if (!isTractorHeld('drone', seekingList[0])) moveSeekingWeapon(seekingList[0]); // held = only moves with the tractoring ship
                 seekingList.shift();
             }
             resolveSeeking();
@@ -2423,6 +2531,7 @@ $('#dataDiv').append(str);
 
                 var target = getSeekingTargetInfo(drone.targetType, drone.targetId);
                 if (!target.exists) continue;
+                if (isTractorHeld('drone', drone.id)) continue; // held objects can't be forced into contact (G7.27)
 
                 if (drone.xCord == target.x && drone.yCord == target.y) {
                     var ownerName = '';
@@ -2449,6 +2558,11 @@ $('#dataDiv').append(str);
                             }
                         }
                         removeActiveDrone(drone);
+                    } else if (drone.isSuicideShuttle && drone.targetId == MONSTER_USER_ID && amoebaWeakness == 'suicideShuttle') {
+                        // the defeat chart said a suicide shuttle destroys the Amoeba outright
+                        $('#dataDiv').append('<div>' + ownerName + ' suicide shuttle #' + drone.id + ' impacts ' + target.name + '</div>');
+                        removeActiveDrone(drone);
+                        tryDefeatAmoebaBy('suicideShuttle');
                     } else {
                         // impact - resolve which shield it hits using the
                         // bearing captured just BEFORE this collision (see
@@ -2499,9 +2613,302 @@ $('#dataDiv').append(str);
             tractorBeamPhase();
         }
 
-        // step 5: tractor beams - not implemented yet, placeholder
+        // --- tractor beams (G7) - a rule for any fight ---
+        //   - each tractor box is one beam; powering a beam costs 1 point
+        //     (any source) in energy allocation, every turn
+        //   - attach during the Tractor Beam Step of any impulse to an
+        //     enemy ship, shuttle, monster or enemy seeking weapon within
+        //     TRACTOR_RANGE (same hex or adjacent; 3 under advanced rules).
+        //     Never your own side's seeking weapons. No arcs.
+        //   - a link carries over to the next turn only if that beam is
+        //     powered again; otherwise it's released
+        //   - release any impulse; a released beam can't be used again
+        //     that turn, or next turn within 8 impulses of the release
+        //   - a held object doesn't move on its own; it copies the
+        //     tractoring ship's moves on the map grid (parallel course,
+        //     no swinging when the ship turns). Held seeking weapons can't
+        //     hit anything.
+        //   - towing a SHIP: the tower's movement cost per hex becomes its
+        //     own + each towed ship's, and its speed is recalculated from
+        //     the warp it put into movement (+ impulse hexes) immediately
+        //   - a second ship linking to an already-held object breaks both links
+        //   - fewer intact tractor boxes than links: extras are released
+        // ship.tractorBeams[i] = { powered, link: {type:'ship'|'drone', id} | null,
+        //                          spentThisTurn, releasedAbsImpulse }
+        var TRACTOR_RANGE = 1; // advanced rules: 3
+        var TRACTOR_POWER_COST = 1;
+        var TRACTOR_RECYCLE_IMPULSES = 8;
+
+        function getIntactTractorCount(ship) {
+            var iArrId = findInternalsArrId(ship.userId);
+            return (iArrId == -1 || !ship.tractorBeams) ? 0 : Math.min(shipInternals[iArrId].trac, ship.tractorBeams.length);
+        }
+
+        function beamCanAttach(ship, i) {
+            var b = ship.tractorBeams[i];
+            if (i >= getIntactTractorCount(ship) || !b.powered || b.link || b.spentThisTurn) return false;
+            if (b.releasedAbsImpulse != null && currentAbsoluteImpulse() - b.releasedAbsImpulse < TRACTOR_RECYCLE_IMPULSES) return false;
+            return true;
+        }
+
+        function getTractorObjectInfo(link) {
+            return getSeekingTargetInfo(link.type, link.id); // same shape for ships and seeking weapons
+        }
+
+        // who (if anyone) is holding this object: { ship, beamIdx } or null
+        function findTractorHolder(type, id) {
+            for (var z = 0; z < shipList.length; z++) {
+                var bs = shipList[z].tractorBeams;
+                if (!bs) continue;
+                for (var i = 0; i < bs.length; i++) {
+                    if (bs[i].link && bs[i].link.type == type && bs[i].link.id == id) return { ship: shipList[z], beamIdx: i };
+                }
+            }
+            return null;
+        }
+        function isTractorHeld(type, id) {
+            return findTractorHolder(type, id) != null;
+        }
+
+        // enemy ships/shuttles/monsters and enemy seeking weapons in tractor range
+        function getTractorTargets(ship) {
+            var targets = [];
+            for (var z = 0; z < shipList.length; z++) {
+                var t = shipList[z];
+                if (t.userId == ship.userId || isSameTeam(ship.userId, t.userId)) continue;
+                var r = findDist(ship.userId, t.userId);
+                if (r > TRACTOR_RANGE) continue;
+                var h = findTractorHolder('ship', t.userId);
+                if (h && h.ship.userId == ship.userId) continue; // already ours
+                targets.push({ type: 'ship', id: t.userId, name: t.name, range: r });
+            }
+            for (var i = 0; i < activeDrones.length; i++) {
+                var d = activeDrones[i];
+                if (d.bDestroyed || isSameTeam(ship.userId, d.ownerShipId)) continue; // can't hold your own side's seeking weapons
+                var dr = hexDistanceCoords(ship.xCord, ship.yCord, d.xCord, d.yCord);
+                if (dr > TRACTOR_RANGE) continue;
+                var dh = findTractorHolder('drone', d.id);
+                if (dh && dh.ship.userId == ship.userId) continue;
+                targets.push({ type: 'drone', id: d.id, name: (d.isSuicideShuttle ? 'Suicide Shuttle' : (d.droneTypeName || 'Drone')) + ' #' + d.id, range: dr });
+            }
+            return targets;
+        }
+
+        function releaseTractorBeam(ship, i, reason) {
+            var b = ship.tractorBeams[i];
+            if (!b || !b.link) return;
+            var info = getTractorObjectInfo(b.link);
+            $('#dataDiv').append('<div>' + ship.name + ' releases tractor beam ' + (i + 1) + (info.exists ? ' on ' + info.name : '') + (reason ? ' (' + reason + ')' : '') + '</div>');
+            b.link = null;
+            b.spentThisTurn = true;
+            b.releasedAbsImpulse = currentAbsoluteImpulse();
+            recomputeTowSpeed(ship);
+        }
+
+        // drop every link to or from an object that's leaving the board
+        // (destroyed, docked, ...) - no recycle penalty, nothing to release
+        function clearTractorLinksFor(type, id) {
+            for (var z = 0; z < shipList.length; z++) {
+                var bs = shipList[z].tractorBeams;
+                if (!bs) continue;
+                var changed = false;
+                for (var i = 0; i < bs.length; i++) {
+                    if (bs[i].link && bs[i].link.type == type && bs[i].link.id == id) { bs[i].link = null; changed = true; }
+                    if (type == 'ship' && shipList[z].userId == id && bs[i].link) { bs[i].link = null; }
+                }
+                if (changed) recomputeTowSpeed(shipList[z]);
+            }
+        }
+
+        function attachTractor(sArrId, beamIdx, type, id) {
+            var ship = shipList[sArrId];
+            if (!beamCanAttach(ship, beamIdx)) return;
+            var target = null;
+            var targets = getTractorTargets(ship);
+            for (var t = 0; t < targets.length; t++) { if (targets[t].type == type && targets[t].id == id) target = targets[t]; }
+            if (!target) return;
+
+            var other = findTractorHolder(type, id);
+            if (other) {
+                // G7.4: a second ship linking to an already-held object breaks both links
+                $('#dataDiv').append('<div>' + ship.name + ' and ' + other.ship.name + ' both tractor ' + target.name + ' - both links break, and those beams are done for the turn</div>');
+                other.ship.tractorBeams[other.beamIdx].link = null;
+                other.ship.tractorBeams[other.beamIdx].spentThisTurn = true;
+                recomputeTowSpeed(other.ship);
+                ship.tractorBeams[beamIdx].spentThisTurn = true;
+            } else {
+                ship.tractorBeams[beamIdx].link = { type: type, id: id };
+                $('#dataDiv').append('<div style="font-weight:bold;">' + ship.name + ' locks tractor beam ' + (beamIdx + 1) + ' on ' + target.name + ' (range ' + target.range + ')</div>');
+                recomputeTowSpeed(ship);
+                // Space Amoeba defeat chart result 2: held in a tractor beam = destroyed, the moment the link is made
+                if (type == 'ship' && id == MONSTER_USER_ID && amoebaWeakness == 'tractor') {
+                    tryDefeatAmoebaBy('tractor');
+                }
+            }
+            afterTractorAction(ship);
+        }
+
+        function releaseTractorFromPopup(sArrId, beamIdx) {
+            var ship = shipList[sArrId];
+            releaseTractorBeam(ship, beamIdx, 'voluntary');
+            afterTractorAction(ship);
+        }
+
+        function afterTractorAction(ship) {
+            if (gameOver) { $('#fireShipPopUpDiv').css('display', 'none'); return; }
+            if (shipNeedsTractorPrompt(ship)) {
+                tractorPopUp(ship.userId);
+            } else {
+                doneTractorStep();
+            }
+        }
+
+        // G7.34: more links than intact tractor boxes - release the extras
+        function enforceTractorBoxLimits() {
+            for (var z = 0; z < shipList.length; z++) {
+                var ship = shipList[z];
+                if (!ship.tractorBeams) continue;
+                var intact = getIntactTractorCount(ship);
+                for (var i = intact; i < ship.tractorBeams.length; i++) {
+                    if (ship.tractorBeams[i].link) releaseTractorBeam(ship, i, 'tractor box destroyed');
+                    ship.tractorBeams[i].powered = false;
+                }
+            }
+        }
+
+        // towing ships changes the tower's movement cost per hex to its own
+        // plus each towed ship's - speed is recalculated from the warp it
+        // put into movement (plus its impulse hexes), right away
+        function recomputeTowSpeed(ship) {
+            if (ship.moveWarpPower == null) return; // hasn't allocated energy yet
+            var cost = ship.movementCostPerHex;
+            var towed = [];
+            if (ship.tractorBeams) {
+                for (var i = 0; i < ship.tractorBeams.length; i++) {
+                    var l = ship.tractorBeams[i].link;
+                    if (!l || l.type != 'ship') continue;
+                    var t = shipList[findShipArrId(l.id)];
+                    if (!t || t.isShuttle || t.isMonster || findInternalsArrId(t.userId) == -1) continue; // only starships add their cost
+                    cost += t.movementCostPerHex;
+                    towed.push(t.name);
+                }
+            }
+            var newSpeed;
+            if (towed.length == 0) {
+                newSpeed = ship.ownSpeed;
+            } else {
+                newSpeed = Math.min(Math.floor(ship.moveWarpPower / cost + 1e-9), WARP_MOVEMENT_CAP) + ship.moveImpulseHexes;
+            }
+            if (newSpeed != ship.speed) {
+                $('#dataDiv').append('<div>' + ship.name + ' speed ' + ship.speed + ' -> ' + newSpeed + (towed.length ? ' (towing ' + towed.join(', ') + ': ' + round2(cost) + ' per hex)' : ' (no longer towing)') + '</div>');
+                ship.speed = newSpeed;
+                writeImpulseChart();
+            }
+        }
+
+        // a held object copies the tractoring ship's move (same map
+        // direction, one hex) - called from moveShip()
+        function moveTractoredObjects(ship, dir) {
+            if (!ship.tractorBeams) return;
+            for (var i = 0; i < ship.tractorBeams.length; i++) {
+                var l = ship.tractorBeams[i].link;
+                if (!l) continue;
+                if (l.type == 'ship') {
+                    var t = shipList[findShipArrId(l.id)];
+                    if (!t) continue;
+                    var n = hexNeighbor(t.xCord, t.yCord, dir);
+                    t.xCord = n.x; t.yCord = n.y;
+                    plotShip(t.userId);
+                } else {
+                    for (var d = 0; d < activeDrones.length; d++) {
+                        if (activeDrones[d].id == l.id && !activeDrones[d].bDestroyed) {
+                            var dn = hexNeighbor(activeDrones[d].xCord, activeDrones[d].yCord, dir);
+                            activeDrones[d].xCord = dn.x; activeDrones[d].yCord = dn.y;
+                            updateSeekingWeaponPosition(activeDrones[d]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // step 5: tractor beams
+        var tractorShipList = [];
         function tractorBeamPhase() {
+            enforceTractorBoxLimits();
+            tractorShipList = shipList.filter(function (s) { return s.tractorBeams && s.tractorBeams.length > 0; }).map(function (s) { return s.userId; });
+            tractorStep();
+        }
+
+        // ask a ship only when it could attach something new, or is
+        // holding something - and not at all once it's said "don't ask
+        // again this turn" (it keeps holding whatever it has)
+        function shipNeedsTractorPrompt(ship) {
+            if (!ship.tractorBeams || ship.tractorQuietTurn == turnNumber) return false;
+            var canAttach = false, holding = false;
+            for (var i = 0; i < ship.tractorBeams.length; i++) {
+                if (beamCanAttach(ship, i)) canAttach = true;
+                if (ship.tractorBeams[i].link) holding = true;
+            }
+            if (canAttach && getTractorTargets(ship).length > 0) return true;
+            return holding;
+        }
+
+        function tractorStep() {
+            while (tractorShipList.length > 0) {
+                var arrId = findShipArrId(tractorShipList[0]);
+                if (arrId != -1 && shipNeedsTractorPrompt(shipList[arrId])) {
+                    setPhase('Tractor Beams');
+                    setSelfHexHighlight(tractorShipList[0]);
+                    tractorPopUp(tractorShipList[0]);
+                    return;
+                }
+                tractorShipList.shift();
+            }
+            clearSelfHexHighlight();
             fireSeekingWeapons();
+        }
+
+        function tractorPopUp(sId) {
+            $('#fireShipPopUpDiv').css('background-color', getTeamBgColor(sId));
+            var arrId = findShipArrId(sId);
+            var ship = shipList[arrId];
+            var str = '<div style="float:left;">Tractor Beams: ' + ship.name + '</div>';
+            str += '<div class="button" style="float:right;padding:2px 8px;" onclick="doneTractorStep();">Done</div>';
+            str += '<div style="clear:both;"></div>';
+
+            var freeBeam = -1;
+            for (var i = 0; i < ship.tractorBeams.length; i++) {
+                var b = ship.tractorBeams[i];
+                if (b.link) {
+                    var info = getTractorObjectInfo(b.link);
+                    str += '<div class="weaponFireDiv canTargetHighlight" onclick="releaseTractorFromPopup(' + arrId + ',' + i + ');">Release beam ' + (i + 1) + ' on ' + (info.exists ? info.name : '?') + '</div>';
+                } else if (freeBeam == -1 && beamCanAttach(ship, i)) {
+                    freeBeam = i;
+                }
+            }
+            if (freeBeam != -1) {
+                var targets = getTractorTargets(ship);
+                for (var t = 0; t < targets.length; t++) {
+                    var tg = targets[t];
+                    var note = (tg.type == 'ship' && tg.id == MONSTER_USER_ID && amoebaWeakness == 'tractor') ? ' - DESTROYS it' : '';
+                    if (findTractorHolder(tg.type, tg.id)) note = ' - already held: both links will break';
+                    str += '<div class="weaponFireDiv canTargetHighlight" onclick="attachTractor(' + arrId + ',' + freeBeam + ',\'' + tg.type + '\',' + tg.id + ');">Tractor ' + tg.name + ' (range ' + tg.range + ', beam ' + (freeBeam + 1) + ')' + note + '</div>';
+                }
+            }
+            var holdingAny = ship.tractorBeams.some(function (b) { return b.link; });
+            str += '<div class="button" style="float:none;margin-top:6px;padding:2px 8px;" onclick="quietTractorThisTurn(' + arrId + ');">' + (holdingAny ? 'Keep holding - ' : '') + 'Don\'t ask again this turn</div>';
+            $('#fireShipPopUpDiv').html(str).css('display', 'block');
+        }
+
+        function quietTractorThisTurn(sArrId) {
+            shipList[sArrId].tractorQuietTurn = turnNumber; // no more tractor prompts for this ship until next turn
+            doneTractorStep();
+        }
+
+        function doneTractorStep() {
+            $('#fireShipPopUpDiv').css('display', 'none');
+            tractorShipList.shift();
+            tractorStep();
         }
 
         // step 6: launch seeking weapons (drones)
@@ -2577,7 +2984,7 @@ $('#dataDiv').append(str);
                 var arrId = findShipArrId(sId);
                 if (arrId == -1) { launchShuttleList.shift(); continue; }
                 var ship = shipList[arrId];
-                if (canLaunchShuttleNow(ship) || findLaunchableProbe(ship) != -1) {
+                if (canLaunchShuttleNow(ship) || canLaunchSuicideNow(ship) || findLaunchableProbe(ship) != -1) {
                     curShipId = sId;
                     setSelfHexHighlight(sId);
                     launchShuttlecraftPopUp(sId);
@@ -2590,7 +2997,7 @@ $('#dataDiv').append(str);
         }
 
         function canLaunchShuttleNow(ship) {
-            return ship.shuttleHangar > 0 && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse;
+            return availableNormalShuttles(ship) > 0 && (shuttleLaunchCounts[ship.userId] || 0) < ship.shuttleOpsPerImpulse;
         }
 
         // step 9 popup - shuttles, plus armed science probes (same step,
@@ -2604,7 +3011,21 @@ $('#dataDiv').append(str);
             str += '<div class="button" style="float:right;padding:2px 8px;" onclick="doneLaunchShuttlecraft();">Done</div>';
             str += '<div style="clear:both;"></div>';
             if (canLaunchShuttleNow(ship)) {
-                str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchShuttle(' + arrId + ');">Launch Shuttle (' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' in hangar)</div>';
+                str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchShuttle(' + arrId + ');">Launch Shuttle (' + availableNormalShuttles(ship) + ' available, ' + ship.shuttleHangar + '/' + ship.shuttleHangarMax + ' in hangar)</div>';
+            }
+            if (canLaunchSuicideNow(ship)) {
+                var ssTargets = getSuicideShuttleTargets(ship);
+                var ssList = getLaunchableSuicideShuttles(ship);
+                for (var si = 0; si < ssList.length; si++) {
+                    var ssIdx = ssList[si];
+                    var ssBomb = ship.suicideShuttles[ssIdx].energy * SUICIDE_DAMAGE_PER_ENERGY;
+                    str += '<div style="padding:4px 0;">Suicide shuttle (' + ssBomb + '-pt bomb) target: <select id="ssTarget' + ssIdx + '">';
+                    for (var ti = 0; ti < ssTargets.length; ti++) {
+                        str += '<option value="' + ssTargets[ti].type + ':' + ssTargets[ti].id + '">' + ssTargets[ti].name + ' (range ' + ssTargets[ti].range + ')</option>';
+                    }
+                    str += '</select></div>';
+                    str += '<div class="weaponFireDiv canTargetHighlight" onclick="launchSuicideShuttle(' + arrId + ',' + ssIdx + ');">Launch Suicide Shuttle (' + ssBomb + ' dmg)</div>';
+                }
             }
             for (var pi = 0; pi < probeIdxList.length; pi++) {
                 var probeIdx = probeIdxList[pi];
@@ -2723,7 +3144,8 @@ $('#dataDiv').append(str);
                 var drone = activeDrones[i];
                 if (drone.bDestroyed) continue;
                 var dDist = hexDistanceCoords(monster.xCord, monster.yCord, drone.xCord, drone.yCord);
-                if (dDist <= MONSTER_CIDS_RANGE) candidates.push({ type: 'drone', obj: drone, dist: dDist });
+                // a suicide shuttle is a seeking weapon but still a shuttle - shuttle results apply
+                if (dDist <= MONSTER_CIDS_RANGE) candidates.push({ type: drone.isSuicideShuttle ? 'suicideShuttle' : 'drone', obj: drone, dist: dDist });
             }
             for (var z = 0; z < shipList.length; z++) {
                 var other = shipList[z];
@@ -2738,7 +3160,22 @@ $('#dataDiv').append(str);
             for (var c = 0; c < chosen.length; c++) {
                 var target = chosen[c];
                 var roll = rollD6();
-                if (target.type == 'drone') {
+                if (target.type == 'suicideShuttle') {
+                    var ssName = 'suicide shuttle #' + target.obj.id;
+                    if (roll <= 2) {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + ssName + ' - roll ' + roll + ' -- destroyed</div>');
+                        removeActiveDrone(target.obj);
+                    } else if (roll <= 4) {
+                        target.obj.hitPoints -= 5;
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + ssName + ' - roll ' + roll + ' -- 5 damage (HP ' + Math.max(target.obj.hitPoints, 0) + '/' + target.obj.maxHitPoints + ')</div>');
+                        if (target.obj.hitPoints <= 0) {
+                            $('#dataDiv').append('<div>' + ssName + ' destroyed</div>');
+                            removeActiveDrone(target.obj);
+                        }
+                    } else {
+                        $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + ssName + ' - roll ' + roll + ' -- miss</div>');
+                    }
+                } else if (target.type == 'drone') {
                     if (roll <= 4) {
                         $('#dataDiv').append('<div>' + monster.name + ' CIDS engages ' + (target.obj.droneTypeName || 'Drone') + ' #' + target.obj.id + ' - roll ' + roll + ' -- destroyed</div>');
                         removeActiveDrone(target.obj);
@@ -2977,6 +3414,10 @@ $('#dataDiv').append(str);
             // free here instead, once per turn
             for (var su = 0; su < shipList.length; su++) {
                 if (shipList[su].isShuttle) shipList[su].phaserCap = shipList[su].maxPhaserCap;
+                shipList[su].shuttlesUnavailableThisTurn = 0; // deactivated suicide shuttles are usable again next turn
+                if (shipList[su].tractorBeams) {
+                    for (var tb = 0; tb < shipList[su].tractorBeams.length; tb++) shipList[su].tractorBeams[tb].spentThisTurn = false; // the 8-impulse recycle still applies via releasedAbsImpulse
+                }
             }
 
             for (var s = 0; s < shipList.length; s++) {
@@ -3172,6 +3613,9 @@ $('#dataDiv').append(str);
             if (a == 5) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? (y + 1) : y); }
             if (a == 6 || a == 0) { shipList[arrId1].xCord = (x - 1); shipList[arrId1].yCord = ((x % 2 == 0) ? y : (y - 1)); }
             plotShip(sId);
+            // anything in this ship's tractor beams moves the same way (parallel course on the map grid)
+            var moveDir = (((a + 5) % 6)) * 60; // a: 1..6 (0 and 7 wrap) -> 0, 60, ... 300
+            moveTractoredObjects(shipList[arrId1], moveDir);
             updateClosestApproach();
 
             if (m != 0) $('#turnDetailsDiv').append(((m == -1) ? 'slip left' : 'slip right'));
@@ -3883,7 +4327,7 @@ $('#dataDiv').append(str);
         // goes through shields/DAC/energy allocation.
         function launchShuttle(sArrId) {
             var mothership = shipList[sArrId];
-            if (mothership.shuttleHangar <= 0) return;
+            if (availableNormalShuttles(mothership) <= 0) return; // armed/held suicide shuttles and deactivated ones aren't available
 
             mothership.shuttleHangar -= 1;
             var shuttleNum = mothership.shuttleHangarMax - mothership.shuttleHangar;
@@ -3915,7 +4359,7 @@ $('#dataDiv').append(str);
             fireShipList.push(shuttle.userId);
 
             shuttleLaunchCounts[mothership.userId] = (shuttleLaunchCounts[mothership.userId] || 0) + 1;
-            if (canLaunchShuttleNow(mothership) || findLaunchableProbe(mothership) != -1) {
+            if (canLaunchShuttleNow(mothership) || canLaunchSuicideNow(mothership) || findLaunchableProbe(mothership) != -1) {
                 launchShuttlecraftPopUp(mothership.userId); // a shuttle launch or an armed probe still available - offer it
             } else {
                 doneLaunchShuttlecraft(); // nothing left this impulse - move on to the next ship
@@ -3971,6 +4415,7 @@ $('#dataDiv').append(str);
             // counting the just-destroyed entity for one extra badge
             // refresh (stale by one, e.g. showing "2" in a hex that only
             // has 1 ship left after the other one there is destroyed)
+            clearTractorLinksFor('ship', sId); // before the splice, so a tower that leaves releases what it held
             var arrId = findShipArrId(sId);
             if (arrId != -1) shipList.splice(arrId, 1);
             removeShipMarker(sId);
@@ -5345,6 +5790,48 @@ $('#dataDiv').append(str);
                 }
             }
 
+            // tractor beams - any scenario
+            if (ship.tractorBeams && ship.tractorBeams.length > 0) {
+                var intactTrac = getIntactTractorCount(ship);
+                var linkedNow = ship.tractorBeams.filter(function (b, i) { return b.link && i < intactTrac; }).length;
+                str += '<div class="dividerLine"></div>';
+                str += '<div style="float:left;">Tractor beams to power (' + TRACTOR_POWER_COST + 'pt each, ' + intactTrac + ' working' + (linkedNow ? ', ' + linkedNow + ' holding - unpowered ones release' : '') + '):</div>';
+                str += '<div style="float:right;"><input type="number" id="eaTractorPower" min="0" max="' + intactTrac + '" value="' + linkedNow + '" style="width:35px;text-align:center;" oninput="updateEnergyAllocTotal();"></div>';
+                str += '<div style="clear:both;"></div>';
+            }
+
+            // suicide shuttles - any scenario, any ship with a shuttle hangar
+            if (ship.shuttleHangarMax > 0) {
+                str += '<div class="dividerLine"></div>';
+                str += '<div>Suicide Shuttles (' + SUICIDE_ARM_MIN + '-' + SUICIDE_ARM_MAX + ' warp/turn x ' + SUICIDE_ARM_TURNS + ' turns, bomb = ' + SUICIDE_DAMAGE_PER_ENERGY + ' x energy; then ' + SUICIDE_HOLD_COST + 'pt/turn to hold):</div>';
+                for (var si = 0; si < ship.suicideShuttles.length; si++) {
+                    var ss = ship.suicideShuttles[si];
+                    var ssName = 'Suicide shuttle ' + (si + 1) + ' (' + ss.energy + ' in, ' + (ss.energy * SUICIDE_DAMAGE_PER_ENERGY) + '-pt bomb so far)';
+                    if (ss.turns < SUICIDE_ARM_TURNS) {
+                        str += '<div style="float:left;">' + ssName + ' - arming turn ' + (ss.turns + 1) + '/' + SUICIDE_ARM_TURNS + ':</div>';
+                        str += '<div style="float:right;"><select id="eaSSArm' + si + '" onchange="updateEnergyAllocTotal();">';
+                        str += '<option value="0">Abandon</option>';
+                        for (var amt = SUICIDE_ARM_MIN; amt <= SUICIDE_ARM_MAX; amt++) {
+                            str += '<option value="' + amt + '"' + (amt == ss.lastAmount ? ' selected' : '') + '>' + amt + ' warp</option>';
+                        }
+                        str += '</select></div>';
+                        str += '<div style="clear:both;"></div>';
+                    } else {
+                        str += '<div><label title="Unchecked: the bomb is deactivated and the shuttle can\'t be used this turn"><input type="checkbox" id="eaSSHold' + si + '" checked onclick="updateEnergyAllocTotal();"> ' + ssName + ' - armed: hold (' + SUICIDE_HOLD_COST + 'pt)</label></div>';
+                    }
+                }
+                if (availableNormalShuttles(ship) > 0) {
+                    str += '<div style="float:left;">Begin arming a suicide shuttle (' + availableNormalShuttles(ship) + ' shuttle' + (availableNormalShuttles(ship) == 1 ? '' : 's') + ' free):</div>';
+                    str += '<div style="float:right;"><select id="eaSSNew" onchange="updateEnergyAllocTotal();">';
+                    str += '<option value="0">None</option>';
+                    for (var amt = SUICIDE_ARM_MIN; amt <= SUICIDE_ARM_MAX; amt++) str += '<option value="' + amt + '">' + amt + ' warp</option>';
+                    str += '</select></div>';
+                    str += '<div style="clear:both;"></div>';
+                } else if (ship.suicideShuttles.length == 0) {
+                    str += '<div style="color:#999;">No shuttles free in the hangar</div>';
+                }
+            }
+
             // science probes - only in scenarios that gather scientific information
             if (scienceProbesInUse() && ship.probeLaunchers && ship.probeLaunchers.length > 0) {
                 var intactProbes = getIntactProbeLauncherCount(ship);
@@ -5486,6 +5973,33 @@ $('#dataDiv').append(str);
             return result;
         }
 
+        // gathers the suicide shuttle inputs. warpCost = arming energy (warp
+        // only); holds cost SUICIDE_HOLD_COST each from any power source
+        function computeSuicideShuttleInputs(sId) {
+            var ship = shipList[findShipArrId(sId)];
+            var result = { totalCost: 0, warpCost: 0, arm: [], hold: [], newAmount: 0 };
+            if (!ship.suicideShuttles) return result;
+            for (var si = 0; si < ship.suicideShuttles.length; si++) {
+                var $sel = $('#eaSSArm' + si);
+                var $cb = $('#eaSSHold' + si);
+                if ($sel.length) {
+                    var v = parseInt($sel.val()) || 0;
+                    result.arm[si] = v;
+                    result.warpCost += v;
+                } else if ($cb.length) {
+                    result.hold[si] = $cb.is(':checked');
+                    if (result.hold[si]) result.totalCost += SUICIDE_HOLD_COST;
+                }
+            }
+            var $new = $('#eaSSNew');
+            if ($new.length) {
+                result.newAmount = parseInt($new.val()) || 0;
+                result.warpCost += result.newAmount;
+            }
+            result.totalCost += result.warpCost;
+            return result;
+        }
+
         // gathers the science-probe arming checkboxes: each checked
         // launcher costs PROBE_ARM_COST_PER_TURN this turn
         function computeProbeArmingInputs(sId) {
@@ -5549,6 +6063,8 @@ $('#dataDiv').append(str);
             var newArming = computeNewArming(sId);
             var photonLoading = computePhotonLoadingInputs(sId);
             var probeArming = computeProbeArmingInputs(sId);
+            var suicideInputs = computeSuicideShuttleInputs(sId);
+            var tractorPower = parseInt($('#eaTractorPower').val()) || 0;
 
             // General/Specific Reinforcement require active shields - keep
             // the inputs disabled (and their contribution zeroed) whenever
@@ -5584,6 +6100,8 @@ $('#dataDiv').append(str);
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + probeArming.totalCost
+                + suicideInputs.totalCost
+                + tractorPower * TRACTOR_POWER_COST
                 + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
@@ -5693,6 +6211,12 @@ $('#dataDiv').append(str);
             var photonLoading = computePhotonLoadingInputs(sId);
             var droneReload = computeDroneReloadInputs(sId);
             var probeArming = computeProbeArmingInputs(sId);
+            var suicideInputs = computeSuicideShuttleInputs(sId);
+            var tractorPower = parseInt($('#eaTractorPower').val()) || 0;
+            if (ship.tractorBeams && (tractorPower < 0 || tractorPower > getIntactTractorCount(ship))) {
+                alert('Tractor beams powered must be between 0 and ' + getIntactTractorCount(ship));
+                return;
+            }
 
             // validate each photon round input against its per-round min/max
             for (var i = 0; i < photonLoading.entries.length; i++) {
@@ -5729,8 +6253,10 @@ $('#dataDiv').append(str);
             }
             // anti-matter probe arming is warp only too, and shares what's
             // left after photons
-            if (photonLoading.warpCost + probeArming.warpCost > warpRemaining) {
-                alert('Photon loading + anti-matter probe arming need ' + (photonLoading.warpCost + probeArming.warpCost) + ' warp power - only ' + warpRemaining + ' warp remaining after speed');
+            // so is suicide shuttle arming - all three share the warp left after movement
+            var warpNeeded = photonLoading.warpCost + probeArming.warpCost + suicideInputs.warpCost;
+            if (warpNeeded > warpRemaining) {
+                alert('Photon loading, anti-matter probe and suicide shuttle arming need ' + warpNeeded + ' warp power - only ' + warpRemaining + ' warp remaining after speed');
                 return;
             }
 
@@ -5739,6 +6265,8 @@ $('#dataDiv').append(str);
                 + newArming.totalCost
                 + photonLoading.totalCost
                 + probeArming.totalCost
+                + suicideInputs.totalCost
+                + tractorPower * TRACTOR_POWER_COST
                 + generalReinforcePower
                 + specificReinforceCost
                 + (shieldsActive ? SHIELD_ACTIVATION_COST : 0);
@@ -5752,6 +6280,10 @@ $('#dataDiv').append(str);
             internals.batteryStored = internals.batteryStored - discharge + recharge;
             ship.phaserCap = ship.phaserCap + phaserAdd;
             ship.speed = speed;
+            // remembered so towing can recalculate speed mid-turn (G7.4)
+            ship.ownSpeed = speed;
+            ship.moveWarpPower = movementCost.warpCost;
+            ship.moveImpulseHexes = movementCost.impulseHexes;
             ship.fireControlActive = fireControlActive;
             internals.generalReinforcement = Math.floor(generalReinforcePower / GENERAL_REINFORCEMENT_COST); // doesn't carry over - always a fresh value, not additive
             for (var s = 1; s <= 6; s++) {
@@ -5794,6 +6326,65 @@ $('#dataDiv').append(str);
                         probeParts.push(modeLabel + plLabel + ' arming abandoned');
                     }
                 }
+            }
+
+            // suicide shuttles: advance arming, pay holds, start a new one.
+            // Abandoned / unpaid ones go back to being normal shuttles, but
+            // can't be used this turn
+            var ssParts = [];
+            if (ship.suicideShuttles) {
+                var keptSS = [];
+                for (var si = 0; si < ship.suicideShuttles.length; si++) {
+                    var ss = ship.suicideShuttles[si];
+                    if (ss.turns < SUICIDE_ARM_TURNS) {
+                        var amt = suicideInputs.arm[si] || 0;
+                        if (amt <= 0) {
+                            ship.shuttlesUnavailableThisTurn += 1;
+                            ssParts.push('suicide shuttle arming abandoned (' + ss.energy + ' energy lost, shuttle unavailable this turn)');
+                            continue;
+                        }
+                        ss.energy += amt;
+                        ss.lastAmount = amt;
+                        ss.turns += 1;
+                        if (ss.turns >= SUICIDE_ARM_TURNS) {
+                            ss.launchableTurn = turnNumber;
+                            ssParts.push('suicide shuttle ARMED (' + (ss.energy * SUICIDE_DAMAGE_PER_ENERGY) + '-pt bomb) - can launch this turn');
+                        } else {
+                            ssParts.push('suicide shuttle arming ' + ss.turns + '/' + SUICIDE_ARM_TURNS + ' (+' + amt + ' warp)');
+                        }
+                    } else if (suicideInputs.hold[si]) {
+                        ss.launchableTurn = turnNumber;
+                        ssParts.push('suicide shuttle held (' + (ss.energy * SUICIDE_DAMAGE_PER_ENERGY) + '-pt bomb)');
+                    } else {
+                        ship.shuttlesUnavailableThisTurn += 1;
+                        ssParts.push('suicide shuttle bomb DEACTIVATED (hold not paid, shuttle unavailable this turn)');
+                        continue;
+                    }
+                    keptSS.push(ss);
+                }
+                ship.suicideShuttles = keptSS;
+                if (suicideInputs.newAmount > 0) {
+                    ship.suicideShuttles.push({ energy: suicideInputs.newAmount, turns: 1, lastAmount: suicideInputs.newAmount, launchableTurn: null });
+                    ssParts.push('began arming a suicide shuttle (' + suicideInputs.newAmount + ' warp, 1/' + SUICIDE_ARM_TURNS + ')');
+                }
+            }
+
+            // tractor beams: power the beams that are holding something first
+            // (G7.3 - a link needs power again each turn), then idle ones
+            if (ship.tractorBeams) {
+                var intactTb = getIntactTractorCount(ship);
+                var powerLeft = tractorPower;
+                for (var tb = 0; tb < ship.tractorBeams.length; tb++) {
+                    var beam = ship.tractorBeams[tb];
+                    beam.powered = false;
+                    if (beam.link && tb < intactTb && powerLeft > 0) { beam.powered = true; powerLeft--; }
+                }
+                for (var tb = 0; tb < ship.tractorBeams.length; tb++) {
+                    var beam = ship.tractorBeams[tb];
+                    if (beam.link && !beam.powered) releaseTractorBeam(ship, tb, 'not powered this turn');
+                    if (!beam.powered && !beam.link && tb < intactTb && powerLeft > 0) { beam.powered = true; powerLeft--; }
+                }
+                recomputeTowSpeed(ship); // a tow carried over from last turn slows this turn's speed too
             }
 
             var photonDischarged = 0, photonAdvanced = 0, photonMaintained = 0, photonToppedUp = 0;
@@ -5865,6 +6456,8 @@ $('#dataDiv').append(str);
             if (photonDischarged > 0) logMsg += ', ' + photonDischarged + ' photon(s) DISCHARGED (no maintenance paid)';
             if (racksReloaded > 0) logMsg += ', ' + racksReloaded + ' drone rack(s) reloading (' + (reloadParts.length > 0 ? reloadParts.join('; ') + ', ' : '') + 'stockpile ' + formatDroneLoadout(ship.droneStockpile, ship.droneStockpileSpaceMax) + ')';
             if (probeParts.length > 0) logMsg += ', ' + probeParts.join(', ');
+            if (ssParts.length > 0) logMsg += ', ' + ssParts.join(', ');
+            if (ship.tractorBeams && ship.tractorBeams.length > 0) logMsg += ', ' + tractorPower + ' tractor beam(s) powered';
             logMsg += ', battery ' + internals.batteryStored + '/' + internals.mBty;
             $('#dataDiv').append('<div>' + logMsg + '</div>');
 
