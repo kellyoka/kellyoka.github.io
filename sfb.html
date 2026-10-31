@@ -304,6 +304,15 @@
         var planetMaxHitPoints = PLANET_HIT_POINTS;
         var monsterFiredThisTurn = false; // reset in endTurn() - the monster gets exactly one shot per turn, taken the first impulse something (a ship or the planet) is in range
 
+        // --- Duel scenario ---
+        var DUEL_TEAM1_START_HEX = { x: 7, y: 30 }; // hex 0730
+        var DUEL_TEAM2_START_HEX = { x: 42, y: 3 }; // hex 4203
+
+        // hex {x, y} -> the 4-digit map label, e.g. {x:7, y:30} -> "0730"
+        function hexLabel(h) {
+            return ('0' + h.x).slice(-2) + ('0' + h.y).slice(-2);
+        }
+
         // --- Space Amoeba monster scenario ---
         // Drifts at a fixed speed in a completely random direction: every
         // time it moves it rolls 1d6 and steps one hex that way (see
@@ -723,13 +732,16 @@
         var gameOver = false;
         var activeScenarioKey = null;
 
-        function declareGameOver(playerWon, message) {
+        // headline: optional replacement for "YOU WIN"/"YOU LOSE" (e.g. a
+        // duel, where both sides are players: "TEAM 2 WINS")
+        function declareGameOver(playerWon, message, headline) {
             if (gameOver) return;
             gameOver = true;
             var color = playerWon ? '#090' : '#900';
-            $('#dataDiv').append('<div style="color:' + color + ';font-weight:bold;">' + (playerWon ? 'YOU WIN' : 'YOU LOSE') + ' - ' + message + '</div>');
+            var title = headline || (playerWon ? 'YOU WIN' : 'YOU LOSE');
+            $('#dataDiv').append('<div style="color:' + color + ';font-weight:bold;">' + title + ' - ' + message + '</div>');
             setPhase(playerWon ? 'Victory' : 'Defeat');
-            alert((playerWon ? 'YOU WIN\n\n' : 'YOU LOSE\n\n') + message);
+            alert(title + '\n\n' + message);
         }
 
         // called when a ship with internals runs out of excess damage
@@ -924,6 +936,40 @@
                     $('#shipLayer').append(amoebaMarker);
                     plotShip(MONSTER_USER_ID);
                 }
+            },
+            duel: {
+                name: 'Duel',
+                description: 'Two ships, one on each team, fight it out. Team 1 starts in hex ' + hexLabel(DUEL_TEAM1_START_HEX) + ', team 2 in hex ' + hexLabel(DUEL_TEAM2_START_HEX) + '. The last ship left wins.',
+                teams: 2, // the cover page shows one ship picker per team
+                setup: function (shipClassNames) {
+                    var t1 = DUEL_TEAM1_START_HEX, t2 = DUEL_TEAM2_START_HEX;
+                    // each starts facing (roughly) toward the other
+                    var facing1 = nearestHexDirection(bearingBetweenCoords(t1.x, t1.y, t2.x, t2.y));
+                    var facing2 = nearestHexDirection(bearingBetweenCoords(t2.x, t2.y, t1.x, t1.y));
+
+                    var team1 = createShipFromClass(shipClassNames[0], 1, t1.x, t1.y, facing1);
+                    var team2 = createShipFromClass(shipClassNames[1], 2, t2.x, t2.y, facing2);
+                    team1.ship.team = 1;
+                    team2.ship.team = 2;
+                    // the same class on both sides would otherwise share a name in the log/popups
+                    if (team1.ship.name == team2.ship.name) {
+                        team1.ship.name += ' (Team 1)';
+                        team2.ship.name += ' (Team 2)';
+                    }
+                    shipList[0] = team1.ship; shipInternals[0] = team1.internals;
+                    shipList[1] = team2.ship; shipInternals[1] = team2.internals;
+                },
+                render: function () {
+                    plotShip(2); // ship 1 is plotted for every scenario in initGame()
+                },
+                onShipDestroyed: function (sId, shipName) {
+                    var winner = (sId == 1) ? 2 : (sId == 2 ? 1 : null);
+                    if (winner == null) {
+                        $('#dataDiv').append('<div style="font-weight:bold;">' + shipName + ' destroyed</div>');
+                        return;
+                    }
+                    declareGameOver(true, shipName + ' has been destroyed', 'TEAM ' + winner + ' WINS');
+                }
             }
         };
 
@@ -968,15 +1014,22 @@
                 str += '<div style="border:1px solid #ccc;border-radius:6px;padding:14px;margin-bottom:14px;">';
                 str += '<div style="font-weight:bold;font-size:16px;">' + sc.name + '</div>';
                 str += '<div style="margin:8px 0;color:#444;">' + sc.description + '</div>';
-                str += '<div style="margin-bottom:8px;">Pilot: <select id="shipSelect_' + key + '">';
                 // a scenario can still restrict its roster with playableShips; if it
                 // doesn't set one, every class in data/ships.json is offered
                 var roster = sc.playableShips || shipClassList.map(function (c) { return c.className; });
+                var options = '';
                 for (var i = 0; i < roster.length; i++) {
                     var rosterBpv = shipClassesByName[roster[i]] ? shipClassesByName[roster[i]].bpv : null;
-                    str += '<option value="' + roster[i] + '">' + roster[i] + (rosterBpv ? ' (BPV ' + rosterBpv + ')' : '') + '</option>';
+                    options += '<option value="' + roster[i] + '">' + roster[i] + (rosterBpv ? ' (BPV ' + rosterBpv + ')' : '') + '</option>';
                 }
-                str += '</select></div>';
+                if (sc.teams) {
+                    // one picker per team (any ship, the same class on both sides is fine)
+                    for (var t = 1; t <= sc.teams; t++) {
+                        str += '<div style="margin-bottom:8px;">Team ' + t + ' ship: <select id="shipSelect_' + key + '_' + t + '">' + options + '</select></div>';
+                    }
+                } else {
+                    str += '<div style="margin-bottom:8px;">Pilot: <select id="shipSelect_' + key + '">' + options + '</select></div>';
+                }
                 str += '<div class="button" onclick="startScenario(\'' + key + '\');">Start Scenario</div>';
                 str += '<div style="clear:both;"></div>';
                 str += '</div>';
@@ -987,7 +1040,15 @@
         // called when the player clicks Start on a scenario card - swaps
         // the cover page out for the actual game and hands off to initGame()
         function startScenario(scenarioKey) {
-            var shipClassName = $('#shipSelect_' + scenarioKey).val();
+            // a team scenario passes one class per team as an array
+            var sc = SCENARIOS[scenarioKey];
+            var shipClassName;
+            if (sc.teams) {
+                shipClassName = [];
+                for (var t = 1; t <= sc.teams; t++) shipClassName.push($('#shipSelect_' + scenarioKey + '_' + t).val());
+            } else {
+                shipClassName = $('#shipSelect_' + scenarioKey).val();
+            }
             $('#coverPageDiv').css('display', 'none');
             $('#gameContainerDiv').css('display', 'block');
             try {
