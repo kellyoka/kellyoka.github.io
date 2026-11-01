@@ -128,7 +128,7 @@ details.guide code { color: var(--fg); }
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>Space</kbd> skip · <kbd>N</kbd> next</div>
-        <div><kbd>L</kbd> load army onto transport in city · <kbd>U</kbd> wake cargo</div>
+        <div><kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
   </div>
@@ -155,18 +155,79 @@ const CONFIG = {
   citySpacing: 3,          // min gap between cities (tiles)
   captureChance: 0.5,      // chance an army takes a city
   sight: 1,                // vision radius of units and cities
+  repeatDiscount: 1 / 6,   // building the same unit again in a city takes this much less time
+  cityRepair: 2,           // hp regained per turn in your own city
+  fieldRepair: 1,          // hp regained in the field after resting...
+  fieldRestTurns: 2,       // ...this many full turns without moving
+  crippledAt: 0.5,         // at or below this share of max hp, a unit moves at half speed
+  cargoLossPerHp: 2,       // default cargo spaces lost per hp of damage (units can override with capLossPerHp)
+  detectRange: 1,          // how close a detector must be to see a stealthy unit
   tile: 16,                // drawing size in px
 };
 
 // domain: land | sea | air. Add a type here and it becomes buildable.
+// cost = turns for the first unit; repeats get CONFIG.repeatDiscount off.
+// captures: true lets the unit take cities. Land units can ride transports;
+// size = transport spaces used (default 1). sight = vision radius (default CONFIG.sight).
+// stealth: hidden unless an enemy detector is within CONFIG.detectRange. detects: can spot stealthy units.
+// carries: domain of units it can hold ("land" | "air"), with capacity and capLossPerHp.
+// noAttack: can't start fights. refuels: fuel-using units aboard are refuelled like in a city.
+// ranged: one shot (50% to hit, no return fire) at an adjacent unit of domain `vs`
+//   ("land", "sea", or "ground" = any non-air unit on a land tile, cities included; may be a list).
+//   returnFire: target kinds that get one shot back if they survive.
+// oneShotDefense: anything attacking it gets a single shot, and it never fires back.
+//   dmg defaults to the unit's damage; endsTurn: true uses up all remaining moves.
 const UNIT_TYPES = {
-  A: { name: "Army",       domain: "land", moves: 1, hp: 1,  str: 1, cost: 5 },
-  F: { name: "Fighter",    domain: "air",  moves: 8, hp: 1,  str: 1, cost: 10, fuel: 32 },
-  D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 10 },
-  T: { name: "Transport",  domain: "sea",  moves: 2, hp: 1,  str: 1, cost: 15, capacity: 6 },
-  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 15 },
-  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 10, str: 2, cost: 30 },
+  A: { name: "Army",       domain: "land", moves: 1, hp: 1,  str: 1, cost: 6, captures: true },
+  K: { name: "Tank",       domain: "land", moves: 2, hp: 2,  str: 2, cost: 12, size: 2, ranged: { vs: "sea", dmg: 1, endsTurn: true } },
+  F: { name: "Fighter",    domain: "air",  moves: 5, hp: 1,  str: 1, cost: 12, fuel: 20, sight: 2, detects: true },
+  H: { name: "Bomber",     domain: "air",  moves: 5, hp: 1,  str: 2, cost: 18, fuel: 40, sight: 2, size: 2, noAttack: true, oneShotDefense: true, ranged: { vs: ["ground", "sea"], returnFire: "sea" } },
+  D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 12, sight: 2, detects: true },
+  T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 18, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
+  C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 36, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
+  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 18, stealth: true },
+  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 48, ranged: { vs: "land" } },
 };
+const isLand = type => UNIT_TYPES[type].domain === "land";
+const sightOf = u => UNIT_TYPES[u.type].sight ?? CONFIG.sight;
+// Does enemy o on tile i count as a ranged target of kind v?
+function rangedMatch(v, o, i) {
+  const d = UNIT_TYPES[o.type].domain, land = G.terrain[i] === 1;
+  return v === "sea" ? !land && d === "sea" : v === "land" ? land && d === "land" : v === "ground" ? land && d !== "air" : false;
+}
+// Is unit o invisible to player p right now?
+function hiddenFrom(o, p) {
+  if (!UNIT_TYPES[o.type].stealth || o.owner === p || o.revealed) return false;
+  if (G.cityIdx.has(idx(o.x, o.y))) return false; // surfaced in port
+  return !G.units.some(d => d.owner === p && !d.carriedBy && UNIT_TYPES[d.type].detects && cheb(d, o) <= CONFIG.detectRange);
+}
+const cargoSize = type => UNIT_TYPES[type].size || 1;
+function cargoUsed(t) { return t.cargo.reduce((n, id) => { const c = unitById(id); return n + (c ? cargoSize(c.type) : 0); }, 0); }
+function transportCap(t) { const T = UNIT_TYPES[t.type]; return Math.max(0, (T.capacity || 0) - (T.capLossPerHp ?? CONFIG.cargoLossPerHp) * (T.hp - t.hp)); }
+function hasRoom(t, u) { return cargoUsed(t) + cargoSize(u.type) <= transportCap(t); }
+// Can friendly unit c take u aboard? (transports carry land units, carriers carry air units)
+function canCarry(c, u) { return !!c && c.owner === u.owner && UNIT_TYPES[c.type].carries === UNIT_TYPES[u.type].domain && hasRoom(c, u); }
+// Nearest place a fighter can refuel: own city, or own carrier with room (or the one it's on).
+function nearestRefuel(u) {
+  let best = null, bd = 1e9;
+  for (const c of G.cities) if (c.owner === u.owner) { const d = cheb(u, c); if (d < bd) { bd = d; best = c; } }
+  for (const c of G.units) if (UNIT_TYPES[c.type].refuels && (c.id === u.carriedBy || canCarry(c, u))) { const d = cheb(u, c); if (d < bd) { bd = d; best = c; } }
+  return best;
+}
+const isCrippled = u => u.hp <= UNIT_TYPES[u.type].hp * CONFIG.crippledAt;
+function maxMoves(u) { const m = UNIT_TYPES[u.type].moves; return isCrippled(u) ? Math.max(1, Math.ceil(m / 2)) : m; }
+// A damaged transport drops cargo it no longer has room for, largest units (tanks) first.
+function enforceCargo(t) {
+  const cap = transportCap(t), lost = [];
+  const aboard = t.cargo.map(unitById).filter(Boolean).sort((a, b) => cargoSize(b.type) - cargoSize(a.type));
+  for (const c of aboard) { if (cargoUsed(t) <= cap) break; lost.push(UNIT_TYPES[c.type].name); kill(c); }
+  if (lost.length && t.owner === 0) log(`Your damaged ${UNIT_TYPES[t.type].name.toLowerCase()} lost ${lost.length} unit${lost.length > 1 ? "s" : ""} overboard (${lost.join(", ")}).`, "bad");
+}
+// Turns needed for the city's next unit of this type.
+function buildCost(c, type = c.prod) {
+  const base = UNIT_TYPES[type].cost;
+  return c.lastBuilt === type ? Math.max(1, Math.round(base * (1 - CONFIG.repeatDiscount))) : base;
+}
 
 const PLAYERS = [
   { name: "You", human: true },
@@ -322,15 +383,15 @@ function log(msg, cls = "") { G.log.unshift({ turn: G.turn, msg, cls }); if (G.l
 // VISION
 // =====================================================================
 function computeVisible(p) {
-  const vis = new Uint8Array(N), r = CONFIG.sight;
-  const mark = (x, y) => {
+  const vis = new Uint8Array(N);
+  const mark = (x, y, r = CONFIG.sight) => {
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       const nx = x + dx, ny = y + dy; if (!inb(nx, ny)) continue; const i = idx(nx, ny);
       vis[i] = 1; G.seen[p][i] = 1; const c = G.cityIdx.get(i); if (c) G.known[p][c.id] = c.owner;
     }
   };
   for (const c of G.cities) if (c.owner === p) mark(c.x, c.y);
-  for (const u of G.units) if (u.owner === p && !u.carriedBy) mark(u.x, u.y);
+  for (const u of G.units) if (u.owner === p && !u.carriedBy) mark(u.x, u.y, sightOf(u));
   return vis;
 }
 
@@ -351,19 +412,30 @@ function classify(u, x, y) {
   const here = unitsAt(x, y);
   const enemy = here.filter(o => o.owner !== u.owner);
   if (enemy.length) {
-    if (u.type === "T") return null;
+    const r = t.ranged;
+    if (r && (!u.carriedBy || t.domain === "air")) {
+      const targets = enemy.filter(o => !hiddenFrom(o, u.owner) && [].concat(r.vs).some(v => rangedMatch(v, o, i)));
+      if (targets.length) {
+        const target = targets.reduce((a, b) => (b.hp * UNIT_TYPES[b.type].str > a.hp * UNIT_TYPES[a.type].str ? b : a));
+        const returnFire = [].concat(r.returnFire || []).some(v => rangedMatch(v, target, i));
+        return { kind: "shot", target, dmg: r.dmg ?? t.str, endsTurn: !!r.endsTurn, returnFire };
+      }
+    }
     if (t.domain === "land" && G.terrain[i] === 0) return null;
     if (t.domain === "sea" && G.terrain[i] === 1) return null;
+    if (enemy.every(o => hiddenFrom(o, u.owner))) return { kind: "bump", target: enemy[0] };
+    if (t.noAttack) return null;
     const target = enemy.reduce((a, b) => (b.hp * UNIT_TYPES[b.type].str > a.hp * UNIT_TYPES[a.type].str ? b : a));
     return { kind: "attack", target };
   }
-  if (city && city.owner !== u.owner) return u.type === "A" ? { kind: "capture", city } : null;
+  if (city && city.owner !== u.owner) return UNIT_TYPES[u.type].captures ? { kind: "capture", city } : null;
   if (city) { if (t.domain === "sea" && !isCoastal(i)) return null; return { kind: "move" }; }
   const friend = here[0];
-  if (u.type === "A" && G.terrain[i] === 0) {
-    if (friend && friend.type === "T" && friend.cargo.length < UNIT_TYPES.T.capacity) return { kind: "board", transport: friend };
+  if (isLand(u.type) && G.terrain[i] === 0) {
+    if (canCarry(friend, u)) return { kind: "board", transport: friend };
     return null;
   }
+  if (friend && t.domain === "air" && canCarry(friend, u)) return { kind: "board", transport: friend };
   if (friend) return null; // one unit per tile outside cities
   if (!domainOK(u.type, i)) return null;
   return { kind: "move" };
@@ -372,21 +444,36 @@ function classify(u, x, y) {
 function board(u, tr) {
   if (u.carriedBy) { const old = unitById(u.carriedBy); if (old) old.cargo = old.cargo.filter(id => id !== u.id); }
   u.carriedBy = tr.id; tr.cargo.push(u.id); u.x = tr.x; u.y = tr.y; u.moves = 0; u.orders = null;
+  if (UNIT_TYPES[tr.type].refuels && UNIT_TYPES[u.type].fuel) u.fuel = UNIT_TYPES[u.type].fuel;
   if (u.owner === 0) u.sentry = true;
 }
 
 function doMove(u, x, y) {
   const a = classify(u, x, y);
   if (!a || u.moves <= 0) return false;
-  u.moves--;
-  if (u.type === "F") u.fuel--;
+  u.moves--; u.acted = true;
+  if (UNIT_TYPES[u.type].fuel) u.fuel--;
   const mine = u.owner === 0;
   if (a.kind === "attack") {
-    combat(u, a.target);
+    const ambush = UNIT_TYPES[u.type].stealth && hiddenFrom(u, a.target.owner);
+    if (UNIT_TYPES[u.type].stealth) u.revealed = true;
+    if (UNIT_TYPES[a.target.type].oneShotDefense) shoot(u, a.target, UNIT_TYPES[u.type].str);
+    else combat(u, a.target, ambush);
+  } else if (a.kind === "shot") {
+    if (a.endsTurn) u.moves = 0;
+    shoot(u, a.target, a.dmg);
+    if (a.returnFire && !a.target.dead) shoot(a.target, u, UNIT_TYPES[a.target.type].str); // one shot back, then it's over
+  } else if (a.kind === "bump") {
+    // Ran into a sub it couldn't see: ships stop dead; aircraft just lose the one move. The sub is exposed.
+    const air = UNIT_TYPES[u.type].domain === "air";
+    if (!air) u.moves = 0;
+    u.orders = null; a.target.revealed = true;
+    if (mine) log(`Your ${UNIT_TYPES[u.type].name} ${air ? "spotted" : "ran into"} a hidden enemy <b>Submarine</b> at ${x},${y}${air ? "" : " and stopped"}.`, "bad");
+    else if (a.target.owner === 0) log(`An enemy ${UNIT_TYPES[u.type].name} ran into your hidden Submarine at ${x},${y}.`, "bad");
   } else if (a.kind === "capture") {
     const c = a.city, prev = c.owner;
     if (Math.random() < CONFIG.captureChance) {
-      c.owner = u.owner; c.prod = "A"; c.progress = 0;
+      c.owner = u.owner; c.prod = "A"; c.progress = 0; c.lastBuilt = null;
       if (mine) { log(`Captured <b>${c.name}</b>. Choose what it builds.`, "good"); G.cityPanel = c.id; }
       else if (prev === 0) log(`The enemy took <b>${c.name}</b>!`, "bad");
     } else if (mine) log(`Your army was repulsed at <b>${c.name}</b>.`, "bad");
@@ -396,46 +483,72 @@ function doMove(u, x, y) {
     if (a.kind === "board") { board(u, a.transport); }
     else {
       u.x = x; u.y = y;
-      for (const cid of u.cargo) { const c = unitById(cid); if (c) { c.x = x; c.y = y; } }
+      for (const cid of u.cargo) { const c = unitById(cid); if (c) { c.x = x; c.y = y; c.acted = true; } }
       const city = cityAt(x, y);
-      if (u.type === "F" && city && city.owner === u.owner) { u.fuel = UNIT_TYPES.F.fuel; }
+      if (UNIT_TYPES[u.type].fuel && city && city.owner === u.owner) { u.fuel = UNIT_TYPES[u.type].fuel; }
     }
   }
-  if (!u.dead && u.type === "F" && u.fuel <= 0) {
+  if (!u.dead && UNIT_TYPES[u.type].fuel && u.fuel <= 0 && !u.carriedBy) {
     const city = cityAt(u.x, u.y);
-    if (!(city && city.owner === u.owner)) { if (mine) log("A fighter ran out of fuel and crashed.", "bad"); kill(u); }
+    if (!(city && city.owner === u.owner)) { if (mine) log(`A ${UNIT_TYPES[u.type].name.toLowerCase()} ran out of fuel and crashed.`, "bad"); kill(u); }
   }
   checkOver();
   return true;
 }
 
-function combat(att, def) {
+// A single ranged shot: 50% to hit, no return fire.
+function shoot(att, def, dmg) {
   const ta = UNIT_TYPES[att.type], td = UNIT_TYPES[def.type];
+  const hit = Math.random() < 0.5;
+  if (hit) def.hp -= dmg;
+  const result = !hit ? "missed" : def.hp <= 0 ? "destroyed it" : `hit (${def.hp}/${td.hp} hp left)`;
+  if (att.owner === 0) log(`Your ${ta.name} fired on an enemy <b>${td.name}</b> at ${def.x},${def.y}: ${result}.`, hit ? "good" : "");
+  else if (def.owner === 0) log(`An enemy ${ta.name} fired on your <b>${td.name}</b> at ${def.x},${def.y}: ${result}.`, hit ? "bad" : "");
+  if (def.hp <= 0) kill(def); else if (hit && def.cargo.length) enforceCargo(def);
+}
+
+function combat(att, def, ambush = false) {
+  const ta = UNIT_TYPES[att.type], td = UNIT_TYPES[def.type];
+  // Ambush: one free shot. A hit gets no return fire and ends the engagement; a miss leads to a normal fight.
+  if (ambush && Math.random() < 0.5) {
+    def.hp -= ta.str;
+    if (def.hp > 0) {
+      if (att.owner === 0) log(`Your <b>Submarine</b> ambushed an enemy ${td.name} (${def.hp}/${td.hp} hp left) without return fire.`, "good");
+      else if (def.owner === 0) log(`A hidden enemy submarine hit your <b>${td.name}</b> (${def.hp}/${td.hp} hp left).`, "bad");
+      if (def.cargo.length) enforceCargo(def);
+      return;
+    }
+  }
   while (att.hp > 0 && def.hp > 0) {
     if (Math.random() < 0.5) def.hp -= ta.str; else att.hp -= td.str;
   }
   const win = att.hp > 0 ? att : def, lose = win === att ? def : att;
   if (att.owner === 0 || def.owner === 0) {
     const ours = win.owner === 0;
-    log(`${ours ? "Your" : "Enemy"} <b>${UNIT_TYPES[win.type].name}</b> destroyed ${ours ? "an enemy" : "your"} ${UNIT_TYPES[lose.type].name}${lose.cargo.length ? ` and its ${lose.cargo.length} armies` : ""}.`, ours ? "good" : "bad");
+    log(`${ours ? "Your" : "Enemy"} <b>${UNIT_TYPES[win.type].name}</b> destroyed ${ours ? "an enemy" : "your"} ${UNIT_TYPES[lose.type].name}${lose.cargo.length ? ` and the ${lose.cargo.length} units aboard` : ""}.`, ours ? "good" : "bad");
   }
   kill(lose);
+  if (win.cargo.length) enforceCargo(win);
 }
 
 function startTurn(p) {
   for (const c of G.cities) {
     if (c.owner !== p) continue;
     c.progress++;
-    if (c.progress >= UNIT_TYPES[c.prod].cost) {
-      spawn(c.prod, p, c.x, c.y); c.progress = 0;
+    if (c.progress >= buildCost(c)) {
+      spawn(c.prod, p, c.x, c.y); c.progress = 0; c.lastBuilt = c.prod;
       if (p === 0) log(`<b>${c.name}</b> built a ${UNIT_TYPES[c.prod].name}.`);
     }
   }
   for (const u of G.units) {
     if (u.owner !== p) continue;
-    const t = UNIT_TYPES[u.type]; u.moves = t.moves; u.skip = false;
+    const t = UNIT_TYPES[u.type]; u.skip = false;
+    u.idle = u.acted ? 0 : (u.idle || 0) + 1; u.acted = false;
     const city = cityAt(u.x, u.y);
-    if (city && city.owner === p) { u.hp = Math.min(t.hp, u.hp + 1); if (u.type === "F") u.fuel = t.fuel; }
+    if (city && city.owner === p) { u.hp = Math.min(t.hp, u.hp + CONFIG.cityRepair); if (t.fuel) u.fuel = t.fuel; }
+    if (t.fuel && u.carriedBy && UNIT_TYPES[unitById(u.carriedBy)?.type]?.refuels) u.fuel = t.fuel;
+    else if (u.hp < t.hp && u.idle >= CONFIG.fieldRestTurns) { u.hp = Math.min(t.hp, u.hp + CONFIG.fieldRepair); u.idle = 0; }
+    u.moves = maxMoves(u);
   }
 }
 
@@ -475,7 +588,7 @@ function findPath(u, tx, ty) {
       if (cur === start) {
         const a = classify(u, nx, ny);
         if (!a) continue;
-        if (ni !== goal && (a.kind === "attack" || a.kind === "capture")) continue;
+        if (ni !== goal && (a.kind === "attack" || a.kind === "capture" || a.kind === "shot")) continue;
       } else if (ni !== goal && !passable(u, ni)) continue;
       const ng = g[cur] + 1;
       if (ng < g[ni]) { g[ni] = ng; came[ni] = cur; heap.push(ni, ng + hfn(ni)); }
@@ -516,11 +629,12 @@ function nearestOwnCity(u, p, needCoast) {
   }
   return best;
 }
-function nearestEnemyUnit(u, range, seaOnly) {
+function nearestEnemyUnit(u, range, seaOnly, pred) {
   let best = null, bd = range + 1;
   for (const o of G.units) {
-    if (o.owner === u.owner || o.carriedBy) continue;
+    if (o.owner === u.owner || o.carriedBy || hiddenFrom(o, u.owner)) continue;
     if (seaOnly && G.terrain[idx(o.x, o.y)] !== 0) continue;
+    if (pred && !pred(o)) continue;
     const d = cheb(u, o); if (d < bd) { bd = d; best = o; }
   }
   return best;
@@ -551,11 +665,11 @@ function aiProduction() {
   for (const c of mine) {
     if (c.progress > 0) continue; // only choose when a build just finished, so progress isn't wasted
     const i = idx(c.x, c.y), coastal = isCoastal(i);
-    if (aiTargets.has(G.continent[i])) { c.prod = "A"; continue; }
-    if (!coastal) { c.prod = Math.random() < 0.5 ? "F" : "A"; continue; }
+    if (aiTargets.has(G.continent[i])) { c.prod = Math.random() < 0.2 ? "K" : "A"; continue; }
+    if (!coastal) { const q = Math.random(); c.prod = q < 0.3 ? "F" : q < 0.5 ? "H" : "A"; continue; }
     if (transports < Math.max(1, Math.ceil(mine.length / 3))) { c.prod = "T"; continue; }
     const r = Math.random();
-    c.prod = r < 0.45 ? "A" : r < 0.65 ? "D" : r < 0.8 ? "F" : r < 0.93 ? "S" : "B";
+    c.prod = r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.92 ? "S" : "B";
   }
 }
 
@@ -575,18 +689,29 @@ function aiArmy(u) {
     const a = classify(u, u.x + dx, u.y + dy);
     if (a && a.kind === "attack" && G.terrain[idx(u.x + dx, u.y + dy)] === 1) return doMove(u, u.x + dx, u.y + dy);
   }
+  for (const [dx, dy] of DIRS) { // tanks: fire on adjacent ships
+    const a = classify(u, u.x + dx, u.y + dy);
+    if (a && a.kind === "shot") return doMove(u, u.x + dx, u.y + dy);
+  }
   const cont = G.continent[idx(u.x, u.y)];
   let target = null, bd = 1e9;
+  if (!UNIT_TYPES[u.type].captures) { // tanks: hunt enemy units on this landmass
+    for (const o of G.units) {
+      if (o.owner === AI || o.carriedBy || G.continent[idx(o.x, o.y)] !== cont) continue;
+      const d = cheb(u, o); if (d < bd) { bd = d; target = o; }
+    }
+    if (target && stepToward(u, target.x, target.y)) return true;
+    target = null; bd = 1e9;
+  }
   for (const c of G.cities) {
     if (c.owner === AI || G.continent[idx(c.x, c.y)] !== cont) continue;
     const d = cheb(u, c); if (d < bd) { bd = d; target = c; }
   }
-  if (target) return stepToward(u, target.x, target.y);
+  if (target) return (UNIT_TYPES[u.type].captures || cheb(u, target) > 1) && stepToward(u, target.x, target.y);
   // No land targets left here: find a transport.
-  const cap = UNIT_TYPES.T.capacity;
-  const here = G.units.find(t => t.owner === AI && t.type === "T" && t.x === u.x && t.y === u.y && t.cargo.length < cap && t.ai.mode !== "deliver");
+  const here = G.units.find(t => t.owner === AI && t.type === "T" && t.x === u.x && t.y === u.y && hasRoom(t, u) && t.ai.mode !== "deliver");
   if (here) { board(u, here); return false; }
-  const trs = G.units.filter(t => t.owner === AI && t.type === "T" && t.cargo.length < cap && t.ai.mode !== "deliver")
+  const trs = G.units.filter(t => t.owner === AI && t.type === "T" && hasRoom(t, u) && t.ai.mode !== "deliver")
     .sort((a, b) => cheb(u, a) - cheb(u, b)).slice(0, 3);
   for (const t of trs) { if (stepToward(u, t.x, t.y)) return true; }
   const port = nearestOwnCity(u, AI, true);
@@ -601,7 +726,7 @@ function adjacentToTargetLand(u) {
 function aiPickBase(u) {
   const ports = G.cities.filter(c => c.owner === AI && isCoastal(idx(c.x, c.y)));
   const idleOn = {};
-  for (const a of G.units) if (a.owner === AI && a.type === "A" && !a.carriedBy) {
+  for (const a of G.units) if (a.owner === AI && isLand(a.type) && !a.carriedBy) {
     const k = G.continent[idx(a.x, a.y)]; if (!aiTargets.has(k)) idleOn[k] = (idleOn[k] || 0) + 1;
   }
   ports.sort((a, b) => ((idleOn[G.continent[idx(b.x, b.y)]] || 0) * 6 - cheb(u, b)) - ((idleOn[G.continent[idx(a.x, a.y)]] || 0) * 6 - cheb(u, a)));
@@ -631,7 +756,7 @@ function aiTransport(u) {
   const cap = UNIT_TYPES.T.capacity;
   u.ai.mode = u.ai.mode || "load";
   if (u.ai.mode === "load") {
-    if (u.cargo.length >= cap || (u.cargo.length > 0 && (u.ai.wait || 0) >= 4)) { u.ai.mode = "deliver"; u.ai.dest = null; u.ai.stuck = 0; }
+    if (cargoUsed(u) >= transportCap(u) || (u.cargo.length > 0 && (u.ai.wait || 0) >= 4)) { u.ai.mode = "deliver"; u.ai.dest = null; u.ai.stuck = 0; }
     else {
       const base = aiPickBase(u);
       if (!base || (u.x === base.x && u.y === base.y)) return false;
@@ -655,7 +780,9 @@ function aiFighter(u) {
   const home = nearestOwnCity(u, AI, false), dh = home ? cheb(u, home) : 99;
   if (u.fuel <= dh + 2) { if (!home || dh === 0) return false; return stepToward(u, home.x, home.y); }
   const range = Math.min(6, Math.floor((u.fuel - dh) / 2));
-  const tgt = nearestEnemyUnit(u, range, false);
+  const tgt = UNIT_TYPES[u.type].ranged // bombers only go after ground targets they can hit
+    ? nearestEnemyUnit(u, range, false, o => UNIT_TYPES[o.type].domain !== "air")
+    : nearestEnemyUnit(u, range, false);
   if (tgt && stepToward(u, tgt.x, tgt.y)) return true;
   const r = Math.max(1, Math.floor((u.fuel - dh) / 2));
   return aiWander(u, r, () => true);
@@ -663,6 +790,10 @@ function aiFighter(u) {
 
 function aiShip(u) {
   const t = UNIT_TYPES[u.type];
+  if (t.ranged) for (const [dx, dy] of DIRS) { // battleships: shell adjacent land units
+    const a = classify(u, u.x + dx, u.y + dy);
+    if (a && a.kind === "shot") return doMove(u, u.x + dx, u.y + dy);
+  }
   if (u.hp < t.hp / 2) {
     const home = nearestOwnCity(u, AI, true);
     if (home) { if (home.x === u.x && home.y === u.y) return false; if (stepToward(u, home.x, home.y)) return true; }
@@ -683,7 +814,7 @@ function aiTurn() {
     let guard = 0;
     while (!u.dead && u.moves > 0 && guard++ < 12 && !G.over) {
       const t = u.type;
-      const acted = t === "A" ? aiArmy(u) : t === "T" ? aiTransport(u) : t === "F" ? aiFighter(u) : aiShip(u);
+      const acted = isLand(t) ? aiArmy(u) : t === "T" ? aiTransport(u) : UNIT_TYPES[t].domain === "air" ? aiFighter(u) : aiShip(u);
       if (!acted) break;
     }
   }
@@ -697,8 +828,8 @@ function beginHumanTurn(first) {
   computeVisible(0);
   for (const u of G.units) {
     if (u.owner !== 0 || !u.sentry || u.carriedBy) continue;
-    const threat = G.units.some(o => o.owner !== 0 && !o.carriedBy && cheb(o, u) <= 1);
-    if (threat) { u.sentry = false; log(`Sentry woke: enemy next to your ${UNIT_TYPES[u.type].name}.`, "bad"); }
+    const spotted = G.units.filter(o => o.owner !== 0 && !o.carriedBy && !hiddenFrom(o, 0) && cheb(o, u) <= sightOf(u)).sort((a, b) => cheb(a, u) - cheb(b, u))[0];
+    if (spotted) { const d = cheb(spotted, u); u.sentry = false; log(`Sentry woke: enemy ${UNIT_TYPES[spotted.type].name} spotted ${d === 1 ? "next to" : `${d} tiles from`} your ${UNIT_TYPES[u.type].name}.`, "bad"); }
   }
   for (const u of [...G.units]) if (u.owner === 0 && u.orders) executeOrders(u);
   G.sel = null; selectNext();
@@ -709,8 +840,11 @@ function beginHumanTurn(first) {
 function endTurn() {
   if (G.over) return;
   G.gotoMode = false;
+  // A revealed sub stays visible until its owner's next turn begins.
+  for (const u of G.units) if (u.owner === AI) u.revealed = false;
   startTurn(AI);
   aiTurn();
+  for (const u of G.units) if (u.owner === 0) u.revealed = false;
   checkOver();
   G.turn++;
   if (G.over) { renderAll(); return; }
@@ -733,6 +867,8 @@ function humanStep(dx, dy) {
   const u = selUnit(); if (!u || G.over) return;
   if (u.moves <= 0) { flash("That unit has no moves left this turn."); return; }
   u.orders = null; u.sentry = false;
+  const tc = cityAt(u.x + dx, u.y + dy);
+  if (tc && tc.owner !== 0 && !UNIT_TYPES[u.type].captures && UNIT_TYPES[u.type].domain === "land" && !unitsAt(tc.x, tc.y).some(o => o.owner !== 0)) { flash(`Only armies can capture cities. Your ${UNIT_TYPES[u.type].name} can clear defenders.`); return; }
   if (!doMove(u, u.x + dx, u.y + dy)) { flash("Can't move there."); return; }
   afterAction();
 }
@@ -740,9 +876,9 @@ function humanStep(dx, dy) {
 function setGoto(u, x, y) {
   u.orders = { kind: "goto", x, y }; u.sentry = false;
   if (u.moves > 0) executeOrders(u);
-  if (!u.dead && u.orders && u.type === "F") {
+  if (!u.dead && u.orders && UNIT_TYPES[u.type].fuel) {
     const p = findPath(u, x, y);
-    if (p && p.length > u.fuel) log("Warning: that fighter lacks the fuel to get there.", "bad");
+    if (p && p.length > u.fuel) log(`Warning: that ${UNIT_TYPES[u.type].name.toLowerCase()} lacks the fuel to get there.`, "bad");
   }
   afterAction();
 }
@@ -834,7 +970,7 @@ function render() {
     ctx.fillStyle = "#0b0f12"; ctx.fillRect(px + T / 2 - 2, py + 3, 4, 4); // gate notch
   }
   const stacks = new Map();
-  for (const u of G.units) { if (u.carriedBy) continue; const i = idx(u.x, u.y); if (u.owner !== 0 && !vis[i]) continue; (stacks.get(i) || stacks.set(i, []).get(i)).push(u); }
+  for (const u of G.units) { if (u.carriedBy) continue; const i = idx(u.x, u.y); if (u.owner !== 0 && (!vis[i] || hiddenFrom(u, 0))) continue; (stacks.get(i) || stacks.set(i, []).get(i)).push(u); }
   const sel = selUnit();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const [i, list] of stacks) {
@@ -895,22 +1031,26 @@ function renderUnitPanel() {
   }
   const t = UNIT_TYPES[u.type], carrier = u.carriedBy ? unitById(u.carriedBy) : null;
   const status = u.orders ? `Heading to ${u.orders.x},${u.orders.y}` : u.sentry ? "On sentry" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
-  const home = u.type === "F" ? nearestOwnCity(u, 0, false) : null;
+  const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
-  let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}</div>`;
-  html += `<dl class="stats"><dt>Strength</dt><dd>${u.hp}/${t.hp} hp · ${t.str} dmg</dd><dt>Moves</dt><dd>${u.moves}/${t.moves}</dd>`;
-  if (u.type === "F") html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
-  if (u.type === "T") html += `<dt>Cargo</dt><dd>${u.cargo.length}/${t.capacity} armies</dd>`;
+  let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
+  html += `<dl class="stats"><dt>Strength</dt><dd>${u.hp}/${t.hp} hp · ${t.str} dmg</dd><dt>Moves</dt><dd>${u.moves}/${maxMoves(u)}${maxMoves(u) < t.moves ? ` (normally ${t.moves})` : ""}</dd>`;
+  if (u.hp < t.hp) { const inCity = cityAt(u.x, u.y)?.owner === 0; html += `<dt>Repair</dt><dd>${inCity ? `+${CONFIG.cityRepair} hp next turn` : `rested ${Math.min(u.idle || 0, CONFIG.fieldRestTurns)}/${CONFIG.fieldRestTurns} turns${u.acted ? " (moved this turn)" : ""}`}</dd>`; }
+  html += `<dt>Sight</dt><dd>${UNIT_TYPES[u.type].sight ?? CONFIG.sight} tile${(UNIT_TYPES[u.type].sight ?? CONFIG.sight) > 1 ? "s" : ""}</dd>`;
+  if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : "costs 1 move"}</dd>`;
+  if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot; never fires back</dd>`;
+  if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
+  if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · bombers use 2 · refuels aircraft"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
   html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
-  if (u.type === "A" && !carrier && G.units.some(o => o.owner === 0 && o.type === "T" && o.x === u.x && o.y === u.y)) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
-  if (u.type === "T" && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
+  if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
+  if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
   html += `</div>`;
-  if (u.type === "T" && u.cargo.length) {
-    html += `<div class="row">` + u.cargo.map(id => { const a = unitById(id); return a ? `<button class="btn" data-sel="${id}">Army ${a.moves ? "·" : "✓"}</button>` : ""; }).join("") + `</div>`;
+  if (t.carries && u.cargo.length) {
+    html += `<div class="row">` + u.cargo.map(id => { const a = unitById(id); return a ? `<button class="btn" data-sel="${id}">${UNIT_TYPES[a.type].name} ${a.moves ? "·" : "✓"}</button>` : ""; }).join("") + `</div>`;
   }
-  if (carrier) html += `<div class="row"><button class="btn" data-sel="${carrier.id}">Select its transport</button></div>`;
+  if (carrier) html += `<div class="row"><button class="btn" data-sel="${carrier.id}">Select its ${UNIT_TYPES[carrier.type].name.toLowerCase()}</button></div>`;
   const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
   html += `<div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn" data-step="${dx},${dy}" aria-label="Move">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>`;
   el.innerHTML = html;
@@ -924,12 +1064,13 @@ function renderCityPanel() {
   const coastal = isCoastal(idx(c.x, c.y)), t = UNIT_TYPES[c.prod];
   const here = unitsAt(c.x, c.y).filter(u => u.owner === 0);
   let html = `<h3>City</h3><div class="title-row"><span class="name">${c.name}</span><span class="chip">${c.x},${c.y}</span><span class="chip">${coastal ? "Port" : "Inland"}</span></div>`;
-  html += `<div>Building <b>${t.name}</b> · ${c.progress}/${t.cost} turns</div><div class="bar"><i style="width:${(c.progress / t.cost) * 100}%"></i></div>`;
+  const need = buildCost(c);
+  html += `<div>Building <b>${t.name}</b> · ${c.progress}/${need} turns${need < t.cost ? " · repeat discount" : ""}</div><div class="bar"><i style="width:${(c.progress / need) * 100}%"></i></div>`;
   html += `<div class="prod">` + Object.entries(UNIT_TYPES).map(([k, ut]) => {
     const dis = ut.domain === "sea" && !coastal;
-    return `<button class="btn${k === c.prod ? " on" : ""}" data-prod="${k}" ${dis ? "disabled" : ""}><span>${ut.name}</span><span>${ut.cost}t</span></button>`;
+    return `<button class="btn${k === c.prod ? " on" : ""}" data-prod="${k}" ${dis ? "disabled" : ""}><span>${ut.name}</span><span>${buildCost(c, k)}t</span></button>`;
   }).join("") + `</div>`;
-  html += `<div class="empty" style="font-size:12px">Switching production restarts progress.</div>`;
+  html += `<div class="empty" style="font-size:12px">Switching production restarts progress. Building the same unit again takes 1/6 less time.</div>`;
   if (here.length) html += `<div class="row">` + here.map(u => `<button class="btn" data-sel="${u.id}">${UNIT_TYPES[u.type].name}</button>`).join("") + `</div>`;
   el.innerHTML = html;
 }
@@ -947,7 +1088,7 @@ function updateStatus() {
   const parts = [`${x},${y}`, G.terrain[i] ? "land" : "sea"];
   const c = G.cityIdx.get(i);
   if (c) { const o = visCache[i] ? c.owner : G.known[0][c.id]; parts.push(`${c.name} (${o === 0 ? "yours" : o === 1 ? "enemy" : "neutral"})`); }
-  const us = unitsAt(x, y).filter(u => u.owner === 0 || visCache[i]);
+  const us = unitsAt(x, y).filter(u => u.owner === 0 || (visCache[i] && !hiddenFrom(u, 0)));
   if (us.length) parts.push(us.map(u => `${u.owner === 0 ? "" : "enemy "}${UNIT_TYPES[u.type].name}${u.cargo.length ? ` +${u.cargo.length}` : ""}`).join(", "));
   s.textContent = parts.join(" · ");
 }
@@ -973,8 +1114,8 @@ function act(name) {
   if (name === "skip") { u.skip = true; afterAction(); return; }
   if (name === "clear") { u.orders = null; u.sentry = false; u.skip = false; renderAll(); return; }
   if (name === "load") {
-    const tr = G.units.find(o => o.owner === 0 && o.type === "T" && o.x === u.x && o.y === u.y && o.cargo.length < UNIT_TYPES.T.capacity);
-    if (tr) { board(u, tr); afterAction(); } else flash("No transport with space here.");
+    const tr = G.units.find(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u));
+    if (tr) { board(u, tr); afterAction(); } else flash(isLand(u.type) ? "No transport with space here." : UNIT_TYPES[u.type].domain === "air" ? "No carrier with space here." : "This unit can't be carried.");
     return;
   }
   if (name === "wake") { for (const id of u.cargo) { const a = unitById(id); if (a) { a.sentry = false; a.skip = false; } } renderAll(); }
