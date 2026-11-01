@@ -810,6 +810,11 @@
             for (var pb = 0; pb < probeBoxes; pb++) ship.probeLaunchers.push({ stage: 0, mode: null });
             ship.shuttleHangar = cls.shuttleHangarMax || 0;
             ship.suicideShuttles = []; // hangar shuttles being armed/held as suicide shuttles
+            // Klingon F-racks: launch limit = half the ORIGINAL rack count, rounded up
+            ship.fRackCount = (cls.weapons || []).filter(function (w) { return w.weaponName == 'Drone F'; }).length;
+            ship.fRackLaunchLimit = Math.ceil(ship.fRackCount / 2);
+            ship.fRacksSeparateCompartment = !!cls.fRacksSeparateCompartment;
+            ship.fRackLaunchesThisTurn = 0;
             // one tractor beam per tractor box
             ship.tractorBeams = [];
             var tracBoxes = (cls.systems && cls.systems.trac) || 0;
@@ -1864,6 +1869,12 @@ $('#dataDiv').append(str);
             activeDrones.push(drone);
             plotSeekingWeapon(drone);
             rack.droneLoadout[chosenTypeName] -= 1;
+            if (rack.weaponTypeId == DRONE_F_WEAPON_TYPE_ID) {
+                launcher.fRackLaunchesThisTurn = (launcher.fRackLaunchesThisTurn || 0) + 1;
+                if (!launcher.fRacksSeparateCompartment) {
+                    shuttleLaunchCounts[launcher.userId] = (shuttleLaunchCounts[launcher.userId] || 0) + 1; // uses the impulse's shuttle launch (J1.5)
+                }
+            }
 
             var target = getSeekingTargetInfo(targetType, targetId);
             var targetName = target.exists ? target.name : '';
@@ -3415,6 +3426,7 @@ $('#dataDiv').append(str);
             for (var su = 0; su < shipList.length; su++) {
                 if (shipList[su].isShuttle) shipList[su].phaserCap = shipList[su].maxPhaserCap;
                 shipList[su].shuttlesUnavailableThisTurn = 0; // deactivated suicide shuttles are usable again next turn
+                shipList[su].fRackLaunchesThisTurn = 0; // Klingon F-rack per-turn launch count
                 if (shipList[su].tractorBeams) {
                     for (var tb = 0; tb < shipList[su].tractorBeams.length; tb++) shipList[su].tractorBeams[tb].spentThisTurn = false; // the 8-impulse recycle still applies via releasedAbsImpulse
                 }
@@ -3748,7 +3760,7 @@ $('#dataDiv').append(str);
                     if (thisWClass == ADD_WEAPON_CLASS_ID) {
                         var addTargetArrId = -1;
                         for (var zz = 0; zz < shipList.length; zz++) { if (shipList[zz].userId == selTargetShipId) { addTargetArrId = zz; } }
-                        var addTargetSizeOk = (addTargetArrId != -1 && shipList[addTargetArrId].sizeClass == 6);
+                        var addTargetSizeOk = (addTargetArrId != -1 && isShuttleOrFighter(shipList[addTargetArrId]));
                         var addRange = findDist(curShipId, selTargetShipId);
                         if (!addTargetSizeOk || addRange > thisMaxRange) {
                             str += ' dimWeapon';
@@ -4077,7 +4089,7 @@ $('#dataDiv').append(str);
                 if (targetType == 'ship') {
                     var tArrId = -1;
                     for (var z = 0; z < shipList.length; z++) { if (shipList[z].userId == tsId) { tArrId = z; } }
-                    addValidTarget = (tArrId != -1 && shipList[tArrId].sizeClass == 6);
+                    addValidTarget = (tArrId != -1 && isShuttleOrFighter(shipList[tArrId]));
                 }
                 if (!addValidTarget) {
                     typesPresent = typesPresent.filter(function (t) { return t != 'ADD-Charge'; });
@@ -4501,10 +4513,14 @@ $('#dataDiv').append(str);
         // - a hit on a drone is an instant kill regardless of its HP
         // - a hit on a sizeClass-6 ship rolls a separate 1d6 for 1-6 damage,
         //   applied through the normal shield/damageList pipeline
-        // NOTE: no ship in the current scenario is sizeClass 6, so the
-        // ship-targeting branch below is implemented but currently
-        // unreachable/untested in practice - only the drone-targeting path
-        // can actually be exercised right now.
+        // - every kind of shuttle (normal, suicide, fighters) takes 1d6
+        //   damage on a hit instead - a suicide shuttle flies as a seeking
+        //   weapon, but it's still a shuttle, so it doesn't die outright
+        // - reloads (E5.71): two complete sets per ship - see setupADDCharges()
+        function isShuttleOrFighter(ship) {
+            return !!ship && (ship.isShuttle || ship.isFighter || ship.sizeClass >= 6) && !ship.isMonster;
+        }
+
         function fireADD(sArrId, wArrId, targetType, targetId, arc) {
             var launcher = shipList[sArrId];
             var wEntry = launcher.shipWeapons[wArrId];
@@ -4550,7 +4566,21 @@ $('#dataDiv').append(str);
                 for (var i = 0; i < activeDrones.length; i++) { if (activeDrones[i].id == targetId) { drone = activeDrones[i]; } }
                 if (!drone || drone.bDestroyed) { shipFirePopUp(); return; }
 
-                if (isHit) {
+                if (isHit && drone.isSuicideShuttle) {
+                    // a shuttle, not a drone: 1d6 damage to its hit points
+                    var ssDmg = rollD6();
+                    drone.hitPoints -= ssDmg;
+                    rollStr += ' -- HIT suicide shuttle #' + drone.id + ', ' + ssDmg + ' damage (HP ' + Math.max(drone.hitPoints, 0) + '/' + drone.maxHitPoints + ')' + (drone.hitPoints <= 0 ? ', destroyed' : '') + '</div>';
+                    $('#dataDiv').append(rollStr);
+                    if (drone.hitPoints <= 0) {
+                        removeActiveDrone(drone);
+                        if (selTargetDroneId == targetId) {
+                            selTargetDroneId = -1;
+                            clearTargetHexHighlight();
+                            $('#targetShipPopUpDiv').css('display', 'none');
+                        }
+                    }
+                } else if (isHit) {
                     rollStr += ' -- HIT, drone destroyed</div>';
                     $('#dataDiv').append(rollStr);
                     removeActiveDrone(drone);
@@ -4572,7 +4602,8 @@ $('#dataDiv').append(str);
                     var dmg = rollD6();
                     var shieldFacingBearing = findFacing(targetId, launcher.userId);
                     var shieldNum = shieldFacing(shieldFacingBearing);
-                    rollStr += ' -- ' + dmg + ' damage to shield #' + shieldNum + '</div>';
+                    // shuttles/fighters have no shields - applyDamage() takes it straight off their HP
+                    rollStr += ' -- HIT ' + shipList[targetArrId].name + ', ' + dmg + ' damage</div>';
                     $('#dataDiv').append(rollStr);
 
                     var bAdded = false;
@@ -4833,9 +4864,14 @@ $('#dataDiv').append(str);
                 $('#dataDiv').append(internalsStr);
             }
 
+            // Klingon F-rack chain reactions from this volley (each extra
+            // damage point is its own volley, so it runs after this one)
+            if (pendingRackExplosions.indexOf(sId) != -1) resolveRackExplosions(sId, shield);
+
             showShipPopUp(sId); // was hardcoded to ship 2, which doesn't exist in the monster scenarios
 
-            if (shipInternals[arrId].excess <= 0) {
+            if (shipInternals[arrId].excess <= 0 && !shipInternals[arrId].destroyedReported) {
+                shipInternals[arrId].destroyedReported = true; // chain-reaction volleys could otherwise report it twice
                 handleShipDestroyed(sId, targetName);
             }
         }
@@ -4886,9 +4922,45 @@ $('#dataDiv').append(str);
             if (target) {
                 target.bDestroyed = true;
                 bDamage = true;
+                // a loaded Klingon F-rack explodes (D12.30) - resolved after this volley, see damageShip()
+                if (target.weaponTypeId == DRONE_F_WEAPON_TYPE_ID && target.droneLoadout && droneLoadoutCount(target.droneLoadout) > 0) {
+                    pendingRackExplosions.push(sId);
+                }
             }
 
             return bDamage;
+        }
+
+        // F-racks that blew up during the volley being resolved (userIds)
+        var pendingRackExplosions = [];
+
+        // D12.30 chain reaction, for every loaded F-rack destroyed in the
+        // volley that just finished: destroy one more intact F-rack in the
+        // same bay (it explodes too if it's loaded), then score one extra
+        // damage point on the ship as its own separate volley
+        function resolveRackExplosions(sId, shield) {
+            var mine = pendingRackExplosions.filter(function (id) { return id == sId; });
+            pendingRackExplosions = pendingRackExplosions.filter(function (id) { return id != sId; });
+            var ship = shipList[findShipArrId(sId)];
+            var iArrId = findInternalsArrId(sId);
+            for (var e = 0; e < mine.length; e++) {
+                if (!ship || iArrId == -1 || shipInternals[iArrId].excess <= 0) return;
+                $('#dataDiv').append('<div style="color:#900;font-weight:bold;">' + ship.name + '\'s destroyed F-rack explodes in a chain reaction!</div>');
+                var next = null;
+                for (var w = 0; w < ship.shipWeapons.length; w++) {
+                    var wEntry = ship.shipWeapons[w];
+                    if (!wEntry.bDestroyed && wEntry.weaponTypeId == DRONE_F_WEAPON_TYPE_ID) { next = wEntry; break; }
+                }
+                if (next) {
+                    next.bDestroyed = true;
+                    var loaded = next.droneLoadout && droneLoadoutCount(next.droneLoadout) > 0;
+                    $('#dataDiv').append('<div>' + ship.name + ' loses another drone rack in the same bay' + (loaded ? ' - it was loaded, so it explodes too' : '') + '</div>');
+                    if (loaded) mine.push(sId); // keep the chain going
+                } else {
+                    $('#dataDiv').append('<div>' + ship.name + ' has no other drone rack in the bay - that damage point is ignored</div>');
+                }
+                damageShip(sId, shield, 1); // the extra damage point, as a separate volley
+            }
         }
 
 
@@ -5363,6 +5435,41 @@ $('#dataDiv').append(str);
         // The two modes are mutually exclusive within a turn - see the
         // addFiredThisTurn cross-check in weaponReady().
         var DRONE_G_WEAPON_TYPE_ID = 36;
+
+        // --- Klingon type-F drone racks ("jump racks", FD3.6 / FD4.3) ---
+        // Same as a type-A rack except:
+        //   - a ship can launch from at most half its original F-racks per
+        //     turn (rounded up): D7/D6 1, C8 3, F5 1. Each rack still fires
+        //     at most once per turn. The limit uses the class's original
+        //     rack count, so losing a rack doesn't lower it.
+        //   - an F-rack launch counts against the ship's shuttle launch for
+        //     that impulse (J1.5): no F-rack launch on an impulse a shuttle
+        //     launched, and the launch uses up the impulse's shuttle launch.
+        //     Ships with "fRacksSeparateCompartment": true in ships.json
+        //     (C8 - and C9/B10 if added) skip this part.
+        //   - chain reaction (D12.30): a loaded F-rack destroyed by damage
+        //     explodes - destroys one more F-rack in the bay (if any; it
+        //     explodes too if loaded) and scores 1 extra damage point as a
+        //     separate volley. All of a ship's F-racks count as one bay.
+        var DRONE_F_WEAPON_TYPE_ID = 35;
+
+        // which ship a weapon mount belongs to
+        function findWeaponOwner(weaponEntry) {
+            for (var z = 0; z < shipList.length; z++) {
+                if (shipList[z].shipWeapons && shipList[z].shipWeapons.indexOf(weaponEntry) != -1) return shipList[z];
+            }
+            return null;
+        }
+
+        // F-rack specific reason it can't launch right now, or null
+        function fRackLaunchBlockReason(weaponEntry) {
+            if (weaponEntry.weaponTypeId != DRONE_F_WEAPON_TYPE_ID) return null;
+            var owner = findWeaponOwner(weaponEntry);
+            if (!owner) return null;
+            if ((owner.fRackLaunchesThisTurn || 0) >= (owner.fRackLaunchLimit || 1)) return 'F-rack limit (' + owner.fRackLaunchLimit + '/turn) used';
+            if (!owner.fRacksSeparateCompartment && (shuttleLaunchCounts[owner.userId] || 0) >= owner.shuttleOpsPerImpulse) return 'shuttle launch already used this impulse';
+            return null;
+        }
 
         // --- energy allocation ---
         // once per turn, before movement begins. Modeled on the actual SFB
@@ -6481,6 +6588,7 @@ $('#dataDiv').append(str);
 
         function weaponReady(weaponEntry) {
             if (weaponEntry.bDestroyed) return false;
+            if (fRackLaunchBlockReason(weaponEntry)) return false; // Klingon F-rack launch limits
             // ADD racks fire every impulse with no cooldown at all - not
             // even the once-per-turn limit every other weapon (including
             // Phaser-G) is still subject to below
