@@ -1,5 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Empire Prototype</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
@@ -28,6 +32,7 @@
   --font-display: "Big Shoulders Stencil Display", "Impact", "Arial Narrow", sans-serif;
   --font-ui: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
+[hidden] { display: none !important; }
 html, body { background: var(--bg); color: var(--fg); }
 body {
   font-family: var(--font-ui); font-size: 13px; line-height: 1.45;
@@ -50,6 +55,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 34px; letter
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn:disabled { opacity: 0.4; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary kbd { color: var(--accent-ink); border-color: currentColor; opacity: 0.7; }
 .btn.on { border-color: var(--accent); color: var(--accent); }
 kbd { font: inherit; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }
 
@@ -92,6 +98,9 @@ details.guide div { max-width: 72ch; color: var(--muted); display: grid; gap: 8p
 details.guide code { color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
+</head>
+<body>
+
 
 <div class="app">
   <header>
@@ -1008,3 +1017,6 @@ setInterval(() => { if (!G) return; blink = blink ? 0 : 1; render(); }, 420);
 sizeCanvas();
 if (!load()) newGame((Math.random() * 1e9) | 0);
 </script>
+
+</body>
+</html>
