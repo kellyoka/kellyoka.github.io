@@ -146,7 +146,7 @@ details.guide code { color: var(--fg); }
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
-        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn</div>
+        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
@@ -239,6 +239,22 @@ function nearestFerry(u) {
     const p = findPath(u, t.x, t.y); if (p && p.length) return { tr: t, path: p };
   }
   return null;
+}
+// Nearest own city, or own carrier with room, for an aircraft heading home.
+function pickHome(u) {
+  let best = null, bd = 1e9;
+  for (const c of G.cities) if (c.owner === u.owner) { const d = cheb(u, c); if (d < bd) { bd = d; best = { x: c.x, y: c.y, unitId: null }; } }
+  for (const c of G.units) if (UNIT_TYPES[c.type].refuels && canCarry(c, u)) { const d = cheb(u, c); if (d < bd) { bd = d; best = { x: c.x, y: c.y, unitId: c.id }; } }
+  return best;
+}
+// Keep a "home" order pointed at a valid base: follow a moving carrier, re-pick if it sank, filled up or the city fell.
+function refreshHome(u) {
+  const o = u.orders, c = o.unitId ? unitById(o.unitId) : null;
+  const ok = o.unitId ? !!c && canCarry(c, u) : cityAt(o.x, o.y)?.owner === u.owner;
+  if (ok && c) { o.x = c.x; o.y = c.y; return true; }
+  if (ok) return true;
+  const h = pickHome(u); if (!h) return false;
+  o.x = h.x; o.y = h.y; o.unitId = h.unitId; return true;
 }
 // Nearest place a fighter can refuel: own city, or own carrier with room (or the one it's on).
 function nearestRefuel(u) {
@@ -639,6 +655,7 @@ function findPath(u, tx, ty) {
 function executeOrders(u) {
   let guard = 0;
   while (!u.dead && u.moves > 0 && u.orders && guard++ < 20) {
+    if (u.orders.kind === "home" && !refreshHome(u)) { u.orders = null; if (u.owner === 0) log(`Your ${UNIT_TYPES[u.type].name} has no city or carrier with room to return to.`, "bad"); break; }
     const o = u.orders, gi = idx(o.x, o.y), name = UNIT_TYPES[u.type].name;
     if (u.x === o.x && u.y === o.y) { if (u.carriedBy && inOwnCity(u)) unload(u); u.orders = null; break; }
     const overseas = isLand(u.type) && G.terrain[gi] === 1 && G.seen[u.owner][gi] &&
@@ -715,11 +732,19 @@ function aiWander(u, radius, test) {
 function aiProduction() {
   const mine = G.cities.filter(c => c.owner === AI);
   const transports = G.units.filter(u => u.owner === AI && u.type === "T").length;
+  // Carriers: about one per 8 cities, counting ones already being built.
+  let carriers = G.units.filter(u => u.owner === AI && u.type === "C").length + mine.filter(c => c.prod === "C" && c.progress > 0).length;
+  // Per landmass: our land units there vs. cities still to take, so contested landmasses don't soak up all production.
+  const landHere = {}, toTake = {};
+  for (const u of G.units) if (u.owner === AI && isLand(u.type) && !u.carriedBy) { const k = G.continent[idx(u.x, u.y)]; landHere[k] = (landHere[k] || 0) + 1; }
+  for (const c of G.cities) if (c.owner !== AI) { const k = G.continent[idx(c.x, c.y)]; toTake[k] = (toTake[k] || 0) + 1; }
   for (const c of mine) {
     if (c.progress > 0) continue; // only choose when a build just finished, so progress isn't wasted
     const i = idx(c.x, c.y), coastal = isCoastal(i);
-    if (aiTargets.has(G.continent[i])) { c.prod = Math.random() < 0.2 ? "K" : "A"; continue; }
+    const k = G.continent[i], enough = (landHere[k] || 0) >= 8 + 4 * (toTake[k] || 0);
+    if (aiTargets.has(k) && !(enough && coastal)) { c.prod = Math.random() < 0.2 ? "K" : "A"; continue; }
     if (!coastal) { const q = Math.random(); c.prod = q < 0.3 ? "F" : q < 0.5 ? "H" : "A"; continue; }
+    if (transports >= 2 && carriers < Math.floor(mine.length / 8) && Math.random() < 0.3) { c.prod = "C"; carriers++; continue; }
     if (transports < Math.max(1, Math.ceil(mine.length / 3))) { c.prod = "T"; continue; }
     const r = Math.random();
     c.prod = r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.92 ? "S" : "B";
@@ -830,15 +855,53 @@ function aiTransport(u) {
 }
 
 function aiFighter(u) {
-  const home = nearestOwnCity(u, AI, false), dh = home ? cheb(u, home) : 99;
+  // Home is the carrier it's sitting on, or the nearest city or carrier with room.
+  const home = u.carriedBy ? unitById(u.carriedBy) : pickHome(u), dh = home ? cheb(u, home) : 99;
   if (u.fuel <= dh + 2) { if (!home || dh === 0) return false; return stepToward(u, home.x, home.y); }
   const range = Math.min(6, Math.floor((u.fuel - dh) / 2));
   const tgt = UNIT_TYPES[u.type].ranged // bombers only go after ground targets they can hit
     ? nearestEnemyUnit(u, range, false, o => UNIT_TYPES[o.type].domain !== "air")
     : nearestEnemyUnit(u, range, false);
   if (tgt && stepToward(u, tgt.x, tgt.y)) return true;
+  // Nothing to hit: stay aboard a carrier, or go join one with room that it can reach.
+  if (u.carriedBy) return false;
+  const cv = G.units.filter(c => c.owner === AI && c.type === "C" && canCarry(c, u) && cheb(u, c) <= u.fuel - 2).sort((a, b) => cheb(u, a) - cheb(u, b))[0];
+  if (cv && stepToward(u, cv.x, cv.y)) return true;
   const r = Math.max(1, Math.floor((u.fuel - dh) / 2));
   return aiWander(u, r, () => true);
+}
+
+// Carrier: load aircraft in port, then sail to a station a few tiles off the nearest
+// city it doesn't own (yours first) and hold there as a floating airbase.
+function aiCarrier(u) {
+  const t = UNIT_TYPES[u.type], port = cityAt(u.x, u.y);
+  const toPort = () => { const h = nearestOwnCity(u, AI, true); if (!h || (h.x === u.x && h.y === u.y)) return false; return stepToward(u, h.x, h.y); };
+  if (u.hp <= t.hp / 2) { u.ai.station = null; return toPort(); }
+  // Back off from nearby enemy warships it can see.
+  const threat = G.units.find(o => o.owner !== AI && !o.carriedBy && UNIT_TYPES[o.type].domain === "sea" && !UNIT_TYPES[o.type].noAttack && !hiddenFrom(o, AI) && cheb(o, u) <= 2);
+  if (threat && !(port && port.owner === AI)) return toPort();
+  if (port && port.owner === AI) {
+    for (const a of G.units) if (a.owner === AI && UNIT_TYPES[a.type].domain === "air" && !a.carriedBy && a.x === u.x && a.y === u.y && canCarry(u, a)) board(a, u);
+    if (u.cargo.length < 2 && (u.ai.portWait || 0) < 4) { u.ai.portWait = (u.ai.portWait || 0) + 1; return false; }
+  }
+  u.ai.portWait = 0;
+  let st = u.ai.station, tc = st && G.cities[st.cityId];
+  if (!st || !tc || tc.owner === AI || unitsAt(st.x, st.y).some(o => o !== u)) {
+    st = null;
+    const targets = G.cities.filter(c => c.owner !== AI).sort((a, b) => (cheb(u, a) - (a.owner === 0 ? 12 : 0)) - (cheb(u, b) - (b.owner === 0 ? 12 : 0))).slice(0, 5);
+    for (const c of targets) {
+      let best = null, bd = 1e9;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const x = c.x + dx, y = c.y + dy, r = Math.max(Math.abs(dx), Math.abs(dy));
+        if (r < 3 || !inb(x, y) || G.terrain[idx(x, y)] !== 0 || unitsAt(x, y).length) continue;
+        const d = cheb(u, { x, y }); if (d < bd) { bd = d; best = { x, y, cityId: c.id }; }
+      }
+      if (best && findPath(u, best.x, best.y)) { st = best; break; }
+    }
+    u.ai.station = st;
+  }
+  if (!st || (u.x === st.x && u.y === st.y)) return false; // on station: hold
+  return stepToward(u, st.x, st.y);
 }
 
 function aiShip(u) {
@@ -860,14 +923,14 @@ function aiTurn() {
   aiTargets = new Set(G.cities.filter(c => c.owner !== AI).map(c => G.continent[idx(c.x, c.y)]));
   aiProduction();
   for (const u of G.units) if (u.owner === AI && u.type === "T" && u.ai.mode !== "deliver" && u.cargo.length) u.ai.wait = (u.ai.wait || 0) + 1;
-  const order = { T: 0 };
+  const order = { T: 0, C: 0 }; // ships that carry units move before their passengers act
   const list = G.units.filter(u => u.owner === AI)
     .sort((a, b) => (order[a.type] ?? (a.carriedBy ? 1 : 2)) - (order[b.type] ?? (b.carriedBy ? 1 : 2)));
   for (const u of list) {
     let guard = 0;
     while (!u.dead && u.moves > 0 && guard++ < 12 && !G.over) {
       const t = u.type;
-      const acted = isLand(t) ? aiArmy(u) : t === "T" ? aiTransport(u) : UNIT_TYPES[t].domain === "air" ? aiFighter(u) : aiShip(u);
+      const acted = isLand(t) ? aiArmy(u) : t === "T" ? aiTransport(u) : t === "C" ? aiCarrier(u) : UNIT_TYPES[t].domain === "air" ? aiFighter(u) : aiShip(u);
       if (!acted) break;
     }
   }
@@ -1112,7 +1175,7 @@ function renderUnitPanel() {
     return;
   }
   const t = UNIT_TYPES[u.type], carrier = u.carriedBy ? unitById(u.carriedBy) : null;
-  const status = u.orders ? `Heading to ${u.orders.x},${u.orders.y}` : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
+  const status = u.orders ? (u.orders.kind === "home" ? `Returning to ${u.orders.unitId ? "carrier" : cityAt(u.orders.x, u.orders.y)?.name ?? "base"} at ${u.orders.x},${u.orders.y}` : `Heading to ${u.orders.x},${u.orders.y}`) : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
   const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
   let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
@@ -1124,7 +1187,7 @@ function renderUnitPanel() {
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · bombers use 2 · refuels aircraft"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
-  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>`;
+  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
   if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
@@ -1232,6 +1295,17 @@ function act(name) {
     if (tr) { board(u, tr); afterAction(); } else flash(isLand(u.type) ? "No transport with space here." : UNIT_TYPES[u.type].domain === "air" ? "No carrier with space here." : "This unit can't be carried.");
     return;
   }
+  if (name === "home") {
+    const t = UNIT_TYPES[u.type];
+    if (t.domain !== "air") { flash("Only aircraft can be sent home."); return; }
+    if (u.carriedBy || inOwnCity(u)) { flash("Already at a city or carrier."); return; }
+    const h = pickHome(u); if (!h) { flash("No city or carrier with room to return to."); return; }
+    const d = cheb(u, h);
+    if (d > u.fuel) log(`Warning: your ${t.name} has ${u.fuel} fuel but the nearest base is ${d} tiles away.`, "bad");
+    u.orders = { kind: "home", x: h.x, y: h.y, unitId: h.unitId }; u.sentry = false; u.waitSeq = 0; G.gotoMode = false;
+    if (u.moves > 0) executeOrders(u);
+    afterAction(); return;
+  }
   if (name === "unload") {
     if (!u.carriedBy) return;
     if (!inOwnCity(u)) { flash("Units can only unload in your own city. At sea, move them onto adjacent land."); return; }
@@ -1263,7 +1337,7 @@ document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey || !G || G.over) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
-  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", l: "load", u: "wake", o: "unload" };
+  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
   if (k === "Enter") { e.preventDefault(); endTurn(); return; }
   if (k === "Escape") { G.gotoMode = false; renderAll(); }
