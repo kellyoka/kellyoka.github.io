@@ -146,7 +146,7 @@ details.guide code { color: var(--fg); }
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
-        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>Space</kbd> skip · <kbd>N</kbd> next</div>
+        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
@@ -575,7 +575,7 @@ function startTurn(p) {
   }
   for (const u of G.units) {
     if (u.owner !== p) continue;
-    const t = UNIT_TYPES[u.type]; u.skip = false;
+    const t = UNIT_TYPES[u.type]; u.skip = false; u.waitSeq = 0;
     u.idle = u.acted ? 0 : (u.idle || 0) + 1; u.acted = false;
     const city = cityAt(u.x, u.y);
     if (city && city.owner === p) { u.hp = Math.min(t.hp, u.hp + CONFIG.cityRepair); if (t.fuel) u.fuel = t.fuel; }
@@ -909,9 +909,10 @@ function needsOrders(u) { return u.owner === 0 && !u.dead && u.moves > 0 && !u.o
 
 function selectNext() {
   const cur = selUnit();
-  if (cur && needsOrders(cur)) return;
+  if (cur && needsOrders(cur) && !cur.waitSeq) return;
   const from = cur || G.units.find(u => u.owner === 0) || { x: 0, y: 0 };
-  const cands = G.units.filter(needsOrders).sort((a, b) => cheb(from, a) - cheb(from, b));
+  // Units that haven't been told to wait come first (nearest first), then waiting units in the order they were paused.
+  const cands = G.units.filter(needsOrders).sort((a, b) => (a.waitSeq || 0) - (b.waitSeq || 0) || cheb(from, a) - cheb(from, b));
   G.sel = cands.length ? cands[0].id : null;
 }
 
@@ -924,7 +925,7 @@ function afterAction() {
 function humanStep(dx, dy) {
   const u = selUnit(); if (!u || G.over) return;
   if (u.moves <= 0) { flash("That unit has no moves left this turn."); return; }
-  u.orders = null; u.sentry = false;
+  u.orders = null; u.sentry = false; u.waitSeq = 0;
   const tc = cityAt(u.x + dx, u.y + dy);
   if (tc && tc.owner !== 0 && !UNIT_TYPES[u.type].captures && UNIT_TYPES[u.type].domain === "land" && !unitsAt(tc.x, tc.y).some(o => o.owner !== 0)) { flash(`Only armies can capture cities. Your ${UNIT_TYPES[u.type].name} can clear defenders.`); return; }
   if (!doMove(u, u.x + dx, u.y + dy)) { flash("Can't move there."); return; }
@@ -950,7 +951,7 @@ function onTileClick(x, y) {
   if (u && u.moves > 0 && cheb(u, { x, y }) === 1 && classify(u, x, y)) { humanStep(x - u.x, y - u.y); return; }
   if (own.length || ownCity) {
     G.cityPanel = ownCity ? city.id : null;
-    if (own.length) { const k = own.indexOf(u); G.sel = own[(k + 1) % own.length].id; }
+    if (own.length) { const k = own.indexOf(u); const pick = own[(k + 1) % own.length]; G.sel = pick.id; pick.waitSeq = 0; }
     renderAll(); return;
   }
   if (u) {
@@ -1111,7 +1112,7 @@ function renderUnitPanel() {
     return;
   }
   const t = UNIT_TYPES[u.type], carrier = u.carriedBy ? unitById(u.carriedBy) : null;
-  const status = u.orders ? `Heading to ${u.orders.x},${u.orders.y}` : u.sentry ? "On sentry" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
+  const status = u.orders ? `Heading to ${u.orders.x},${u.orders.y}` : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
   const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
   let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
@@ -1123,7 +1124,7 @@ function renderUnitPanel() {
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · bombers use 2 · refuels aircraft"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
-  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>`;
+  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
   if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
@@ -1214,7 +1215,13 @@ canvas.addEventListener("mouseleave", () => { G.hover = null; render(); updateSt
 
 function act(name) {
   const u = selUnit();
-  if (name === "next") { if (u) u.skip = true; G.sel = null; selectNext(); renderAll(); return; }
+  if (name === "next" || name === "wait") {
+    // Wait: send this unit to the back of the line for this turn instead of finishing it.
+    if (u && needsOrders(u)) u.waitSeq = G.waitCounter = (G.waitCounter || 0) + 1;
+    selectNext(); renderAll();
+    if (u && G.sel === u.id) flash("No other units need orders. This one is up again.");
+    return;
+  }
   if (!u) return;
   if (name === "goto") { G.gotoMode = !G.gotoMode; renderAll(); return; }
   if (name === "sentry") { u.sentry = true; u.orders = null; afterAction(); return; }
@@ -1242,7 +1249,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || G.over && b.id !== "overNew") return;
   if (b.dataset.act) act(b.dataset.act);
   else if (b.dataset.city) { G.cityPanel = +b.dataset.city; renderAll(); }
-  else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; renderAll(); } }
+  else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; u.waitSeq = 0; renderAll(); } }
   else if (b.dataset.step) { const [dx, dy] = b.dataset.step.split(",").map(Number); humanStep(dx, dy); }
   else if (b.dataset.prod) {
     const c = G.cities[G.cityPanel];
@@ -1256,7 +1263,7 @@ document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey || !G || G.over) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
-  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", l: "load", u: "wake", o: "unload" };
+  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
   if (k === "Enter") { e.preventDefault(); endTurn(); return; }
   if (k === "Escape") { G.gotoMode = false; renderAll(); }
