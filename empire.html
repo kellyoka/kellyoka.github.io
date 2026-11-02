@@ -63,6 +63,8 @@ kbd { font: inherit; font-size: 11px; color: var(--muted); border: 1px solid var
 @media (max-width: 920px) { .main { grid-template-columns: minmax(0, 1fr); } }
 .board { min-width: 0; display: grid; gap: 6px; }
 .mapwrap { border: 1px solid var(--line); background: var(--fog); position: relative; }
+.mapscroll { overflow: auto; aspect-ratio: 64 / 40; overscroll-behavior: contain; scrollbar-color: var(--line) var(--fog); }
+.mapscroll.dragging canvas { cursor: grabbing; }
 canvas { display: block; width: 100%; height: auto; touch-action: manipulation; cursor: crosshair; }
 .status { color: var(--muted); min-height: 1.45em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--fog) 78%, transparent); }
@@ -144,7 +146,7 @@ details.guide code { color: var(--fg); }
   <div class="main">
     <div class="board">
       <div class="mapwrap">
-        <canvas id="map" aria-label="Game map"></canvas>
+        <div class="mapscroll" id="mapScroll"><canvas id="map" aria-label="Game map"></canvas></div>
         <div class="overlay" id="overlay" hidden><div class="card"><h2 id="overTitle"></h2><div id="overText"></div><button class="btn primary" id="overNew">Play a new map</button></div></div>
       </div>
       <div class="status" id="status">Hover a tile for details.</div>
@@ -165,6 +167,7 @@ details.guide code { color: var(--fg); }
       <div class="panel keys">
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
+        <div>On Large maps, drag the map or scroll to look around. It follows the selected unit.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
@@ -206,6 +209,7 @@ const CONFIG = {
   cargoLossPerHp: 2,       // default cargo spaces lost per hp of damage (units can override with capLossPerHp)
   detectRange: 1,          // how close a detector must be to see a stealthy unit
   tile: 16,                // drawing size in px
+  viewTiles: 64,           // tiles across the visible map window; wider maps scroll inside it
 };
 
 // domain: land | sea | air. Add a type here and it becomes buildable.
@@ -1109,6 +1113,8 @@ async function saveToFile() {
 // RENDERING
 // =====================================================================
 const canvas = document.getElementById("map"), ctx = canvas.getContext("2d");
+const mapScroll = document.getElementById("mapScroll");
+const reduceMotion = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const css = getComputedStyle(document.documentElement);
 const C = k => css.getPropertyValue("--" + k).trim();
 const COL = { sea: C("sea"), sea2: C("sea-2"), land: [C("land"), C("land-2"), C("land-3")], fog: C("fog"), you: C("you"), cpu: C("cpu"), neutral: C("neutral"), accent: C("accent"), fg: C("fg"), bg: C("bg") };
@@ -1119,6 +1125,10 @@ let blink = 0, visCache = new Uint8Array(N);
 function sizeCanvas() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = W * T * dpr; canvas.height = H * T * dpr;
+  // The window shows at most CONFIG.viewTiles columns at Medium's tile size; bigger maps scroll.
+  const vw = Math.min(W, CONFIG.viewTiles), vh = Math.min(H, Math.round(vw * H / W));
+  canvas.style.width = (W / vw * 100) + "%";
+  mapScroll.style.aspectRatio = `${vw} / ${vh}`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
@@ -1182,9 +1192,26 @@ function render() {
   }
 }
 
+// Scroll the map window so tile (x, y) is in view; recentre when it's off-screen or within `margin` tiles of an edge.
+function scrollToTile(x, y, margin = 3) {
+  const tile = canvas.clientWidth / W; if (!tile) return;
+  const sc = mapScroll, px = x * tile, py = y * tile, m = margin * tile;
+  let left = sc.scrollLeft, top = sc.scrollTop;
+  if (px < left + m || px + tile > left + sc.clientWidth - m) left = px - sc.clientWidth / 2 + tile / 2;
+  if (py < top + m || py + tile > top + sc.clientHeight - m) top = py - sc.clientHeight / 2 + tile / 2;
+  if (left !== sc.scrollLeft || top !== sc.scrollTop) sc.scrollTo({ left, top, behavior: reduceMotion ? "auto" : "smooth" });
+}
+let lastFocus = null;
+// Follow the selected unit when the selection changes or it moves.
+function followSelection() {
+  const u = selUnit(); if (!u) { lastFocus = null; return; }
+  if (lastFocus && lastFocus.id === u.id && lastFocus.x === u.x && lastFocus.y === u.y) return;
+  lastFocus = { id: u.id, x: u.x, y: u.y }; scrollToTile(u.x, u.y);
+}
+
 function renderAll() {
   visCache = computeVisible(0);
-  render(); renderMeta(); renderUnitPanel(); renderCityPanel(); renderCityList(); renderLog(); updateStatus();
+  render(); renderMeta(); renderUnitPanel(); renderCityPanel(); renderCityList(); renderLog(); updateStatus(); followSelection();
   const ov = document.getElementById("overlay");
   ov.hidden = !G.over;
   if (G.over) {
@@ -1307,7 +1334,21 @@ function tileFromEvent(e) {
   const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
   return inb(x, y) ? [x, y] : null;
 }
-canvas.addEventListener("click", e => { const t = tileFromEvent(e); if (t) onTileClick(t[0], t[1]); });
+// Drag the map with the mouse to look around (touch screens scroll natively).
+let drag = null, dragged = false;
+canvas.addEventListener("pointerdown", e => {
+  if (e.pointerType !== "mouse" || e.button !== 0) return;
+  drag = { x: e.clientX, y: e.clientY, l: mapScroll.scrollLeft, t: mapScroll.scrollTop }; dragged = false;
+});
+document.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!dragged && Math.hypot(dx, dy) < 6) return;
+  dragged = true; mapScroll.classList.add("dragging");
+  mapScroll.scrollLeft = drag.l - dx; mapScroll.scrollTop = drag.t - dy;
+});
+document.addEventListener("pointerup", () => { drag = null; mapScroll.classList.remove("dragging"); });
+canvas.addEventListener("click", e => { if (dragged) { dragged = false; return; } const t = tileFromEvent(e); if (t) onTileClick(t[0], t[1]); });
 canvas.addEventListener("mousemove", e => { const t = tileFromEvent(e); if (String(t) !== String(G.hover)) { G.hover = t; render(); updateStatus(); } });
 canvas.addEventListener("mouseleave", () => { G.hover = null; render(); updateStatus(); });
 
@@ -1357,7 +1398,7 @@ function act(name) {
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || G.over && b.id !== "overNew") return;
   if (b.dataset.act) act(b.dataset.act);
-  else if (b.dataset.city) { G.cityPanel = +b.dataset.city; renderAll(); }
+  else if (b.dataset.city) { G.cityPanel = +b.dataset.city; renderAll(); const c = G.cities[G.cityPanel]; scrollToTile(c.x, c.y); }
   else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; u.waitSeq = 0; renderAll(); } }
   else if (b.dataset.step) { const [dx, dy] = b.dataset.step.split(",").map(Number); humanStep(dx, dy); }
   else if (b.dataset.prod) {
