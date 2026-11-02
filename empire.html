@@ -96,6 +96,21 @@ details.guide { background: var(--panel); border: 1px solid var(--line); padding
 details.guide summary { cursor: pointer; color: var(--accent); }
 details.guide div { max-width: 72ch; color: var(--muted); display: grid; gap: 8px; padding-top: 8px; }
 details.guide code { color: var(--fg); }
+.cities { gap: 8px; }
+.cities .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.cities .head span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+.cities table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cities th { text-align: left; font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cities td { padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cities tr.cur td { background: var(--panel-2); }
+.cities .linkbtn { font: inherit; color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.cities .linkbtn:hover { text-decoration-color: var(--accent); }
+.cities select { font: inherit; font-size: 12px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 3px 4px; }
+.cities .soon { color: var(--accent); }
+.cities .disc { color: var(--good); font-size: 11px; }
+.mini { display: inline-block; width: 60px; height: 5px; background: var(--panel-2); border: 1px solid var(--line); vertical-align: middle; margin-right: 6px; }
+.mini i { display: block; height: 100%; background: var(--accent); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -107,6 +122,9 @@ details.guide code { color: var(--fg); }
     <h1>EMPIRE</h1>
     <div class="meta" id="meta"></div>
     <div class="spacer"></div>
+    <button class="btn" id="saveBtn">Save to file</button>
+    <button class="btn" id="loadBtn">Load file</button>
+    <input type="file" id="loadFile" accept=".json,application/json" hidden>
     <button class="btn" id="newBtn">New map</button>
     <button class="btn primary" id="endBtn">End turn <kbd>Enter</kbd></button>
   </header>
@@ -118,6 +136,7 @@ details.guide code { color: var(--fg); }
         <div class="overlay" id="overlay" hidden><div class="card"><h2 id="overTitle"></h2><div id="overText"></div><button class="btn primary" id="overNew">Play a new map</button></div></div>
       </div>
       <div class="status" id="status">Hover a tile for details.</div>
+      <section class="panel cities" id="cityList" aria-label="Your cities"></section>
     </div>
     <aside>
       <div class="panel" id="unitPanel"></div>
@@ -128,7 +147,7 @@ details.guide code { color: var(--fg); }
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>Space</kbd> skip · <kbd>N</kbd> next</div>
-        <div><kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
+        <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
   </div>
@@ -181,7 +200,7 @@ const UNIT_TYPES = {
   A: { name: "Army",       domain: "land", moves: 1, hp: 1,  str: 1, cost: 6, captures: true },
   K: { name: "Tank",       domain: "land", moves: 2, hp: 2,  str: 2, cost: 12, size: 2, ranged: { vs: "sea", dmg: 1, endsTurn: true } },
   F: { name: "Fighter",    domain: "air",  moves: 5, hp: 1,  str: 1, cost: 12, fuel: 20, sight: 2, detects: true },
-  H: { name: "Bomber",     domain: "air",  moves: 5, hp: 1,  str: 2, cost: 18, fuel: 40, sight: 2, size: 2, noAttack: true, oneShotDefense: true, ranged: { vs: ["ground", "sea"], returnFire: "sea" } },
+  H: { name: "Bomber",     domain: "air",  moves: 4, hp: 1,  str: 2, cost: 18, fuel: 32, sight: 2, size: 2, noAttack: true, oneShotDefense: true, ranged: { vs: ["ground", "sea"], returnFire: "sea" } },
   D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 12, sight: 2, detects: true },
   T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 18, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
   C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 36, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
@@ -207,6 +226,20 @@ function transportCap(t) { const T = UNIT_TYPES[t.type]; return Math.max(0, (T.c
 function hasRoom(t, u) { return cargoUsed(t) + cargoSize(u.type) <= transportCap(t); }
 // Can friendly unit c take u aboard? (transports carry land units, carriers carry air units)
 function canCarry(c, u) { return !!c && c.owner === u.owner && UNIT_TYPES[c.type].carries === UNIT_TYPES[u.type].domain && hasRoom(c, u); }
+function unload(u) {
+  const tr = unitById(u.carriedBy); if (tr) tr.cargo = tr.cargo.filter(id => id !== u.id);
+  u.carriedBy = null; u.sentry = false; u.skip = false;
+}
+const inOwnCity = u => cityAt(u.x, u.y)?.owner === u.owner;
+// Nearest friendly transport with room this land unit can reach (or one in its own tile).
+function nearestFerry(u) {
+  const trs = G.units.filter(t => t !== u && canCarry(t, u)).sort((a, b) => cheb(u, a) - cheb(u, b));
+  for (const t of trs.slice(0, 5)) {
+    if (t.x === u.x && t.y === u.y) return { tr: t, here: true };
+    const p = findPath(u, t.x, t.y); if (p && p.length) return { tr: t, path: p };
+  }
+  return null;
+}
 // Nearest place a fighter can refuel: own city, or own carrier with room (or the one it's on).
 function nearestRefuel(u) {
   let best = null, bd = 1e9;
@@ -600,19 +633,39 @@ function findPath(u, tx, ty) {
   return path.reverse();
 }
 
+// Follow go-to orders. Land units headed for explored land across water walk to the
+// nearest friendly transport with room, ride it, and go ashore once it's next to
+// the target's landmass. You still steer the transport.
 function executeOrders(u) {
   let guard = 0;
   while (!u.dead && u.moves > 0 && u.orders && guard++ < 20) {
-    const o = u.orders;
-    if (u.x === o.x && u.y === o.y) { u.orders = null; break; }
-    const p = findPath(u, o.x, o.y);
-    if (!p || !p.length) { u.orders = null; if (u.owner === 0) log(`No route for your ${UNIT_TYPES[u.type].name}.`); break; }
+    const o = u.orders, gi = idx(o.x, o.y), name = UNIT_TYPES[u.type].name;
+    if (u.x === o.x && u.y === o.y) { if (u.carriedBy && inOwnCity(u)) unload(u); u.orders = null; break; }
+    const overseas = isLand(u.type) && G.terrain[gi] === 1 && G.seen[u.owner][gi] &&
+      (!!u.carriedBy || G.continent[gi] !== G.continent[idx(u.x, u.y)]);
+    let p;
+    if (overseas && u.carriedBy) {
+      const ashore = DIRS.map(([dx, dy]) => [u.x + dx, u.y + dy]).filter(([x, y]) => {
+        if (!inb(x, y) || G.terrain[idx(x, y)] !== 1 || G.continent[idx(x, y)] !== G.continent[gi]) return false;
+        const k = classify(u, x, y)?.kind;
+        return k === "move" || (k && x === o.x && y === o.y);
+      }).sort((a, b) => cheb({ x: a[0], y: a[1] }, o) - cheb({ x: b[0], y: b[1] }, o));
+      if (!ashore.length) break; // riding: wait until the transport reaches the right coast
+      p = [ashore[0]];
+    } else if (overseas) {
+      const f = nearestFerry(u);
+      if (!f) { u.orders = null; if (u.owner === 0) log(`No transport with room can reach your ${name}. Bring one to its coast, then give the order again.`); break; }
+      if (f.here) { board(u, f.tr); u.orders = o; u.sentry = false; if (u.owner === 0) log(`Your ${name} boarded a transport and will go ashore near ${o.x},${o.y}.`); break; }
+      p = f.path;
+    } else p = findPath(u, o.x, o.y);
+    if (!p || !p.length) { u.orders = null; if (u.owner === 0) log(`No route for your ${name}.`); break; }
     const [nx, ny] = p[0], a = classify(u, nx, ny);
     if (!a) { u.orders = null; break; }
     doMove(u, nx, ny);
+    if (a.kind === "board" && overseas) { u.orders = o; u.sentry = false; if (u.owner === 0) log(`Your ${name} boarded a transport and will go ashore near ${o.x},${o.y}.`); break; }
     if (a.kind !== "move" || u.carriedBy) u.orders = null;
   }
-  if (!u.dead && u.orders && u.x === u.orders.x && u.y === u.orders.y) u.orders = null;
+  if (!u.dead && u.orders && !u.carriedBy && u.x === u.orders.x && u.y === u.orders.y) u.orders = null;
 }
 
 // =====================================================================
@@ -831,7 +884,8 @@ function beginHumanTurn(first) {
     const spotted = G.units.filter(o => o.owner !== 0 && !o.carriedBy && !hiddenFrom(o, 0) && cheb(o, u) <= sightOf(u)).sort((a, b) => cheb(a, u) - cheb(b, u))[0];
     if (spotted) { const d = cheb(spotted, u); u.sentry = false; log(`Sentry woke: enemy ${UNIT_TYPES[spotted.type].name} spotted ${d === 1 ? "next to" : `${d} tiles from`} your ${UNIT_TYPES[u.type].name}.`, "bad"); }
   }
-  for (const u of [...G.units]) if (u.owner === 0 && u.orders) executeOrders(u);
+  for (const u of [...G.units]) if (u.owner === 0 && u.orders && !u.dead) executeOrders(u);
+  for (const u of [...G.units]) if (u.owner === 0 && u.orders && u.carriedBy && !u.dead) executeOrders(u); // after transports moved
   G.sel = null; selectNext();
   if (!first) save();
   renderAll();
@@ -861,7 +915,11 @@ function selectNext() {
   G.sel = cands.length ? cands[0].id : null;
 }
 
-function afterAction() { computeVisible(0); selectNext(); renderAll(); }
+function afterAction() {
+  // Cargo with go-to orders checks whether its transport has reached the right coast.
+  for (const c of [...G.units]) if (c.owner === 0 && c.carriedBy && c.orders && c.moves > 0 && !c.dead) executeOrders(c);
+  computeVisible(0); selectNext(); renderAll();
+}
 
 function humanStep(dx, dy) {
   const u = selUnit(); if (!u || G.over) return;
@@ -912,21 +970,40 @@ function flash(msg) {
 // SAVE / LOAD (this browser only)
 // =====================================================================
 const SAVE_KEY = "empire-prototype-save-v1";
-function save() {
-  try {
-    const { cityIdx, ...rest } = G;
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ ...rest, terrain: [...G.terrain], continent: [...G.continent], seen: G.seen.map(a => [...a]) }));
-  } catch (e) {}
+function serialize() {
+  const { cityIdx, ...rest } = G;
+  return JSON.stringify({ format: "empire-prototype", v: 1, ...rest, terrain: [...G.terrain], continent: [...G.continent], seen: G.seen.map(a => [...a]) });
 }
+// Turn saved text back into a game. Throws a readable Error if it isn't a usable save.
+function restore(text) {
+  let s; try { s = JSON.parse(text); } catch (e) { throw new Error("That file isn't a saved game (it isn't valid JSON)."); }
+  if (!s || !Array.isArray(s.terrain) || !Array.isArray(s.cities) || !Array.isArray(s.units) || !Array.isArray(s.seen)) throw new Error("That file isn't an Empire saved game.");
+  if (s.terrain.length !== N) throw new Error(`That save is for a ${s.terrain.length}-tile map, but this game is set to ${W}×${H}. Match CONFIG.W and CONFIG.H to load it.`);
+  const unknown = s.units.find(u => !UNIT_TYPES[u.type]); if (unknown) throw new Error(`That save has a unit type ("${unknown.type}") this version doesn't have.`);
+  s.terrain = Uint8Array.from(s.terrain); s.continent = Int16Array.from(s.continent); s.seen = s.seen.map(a => Uint8Array.from(a));
+  delete s.format; delete s.v;
+  G = s; window.G = G; buildIndex(); G.gotoMode = false; G.hover = null;
+  computeVisible(0); selectNext(); renderAll();
+}
+function save() { try { localStorage.setItem(SAVE_KEY, serialize()); } catch (e) {} }
 function load() {
+  try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return false; restore(raw); return true; }
+  catch (e) { return false; }
+}
+async function saveToFile() {
+  const filename = `empire-turn-${G.turn}.json`, data = serialize();
+  // Inside Claude the page asks the viewer to confirm the download; on a normal website it downloads directly.
+  const dl = window.claude?.use ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename, data }); flash(`Saved ${filename}.`); }
+    catch (e) { if (e?.code !== "declined") flash("Saving isn't available here. Try the copy of the game on your own site."); }
+    return;
+  }
   try {
-    const raw = localStorage.getItem(SAVE_KEY); if (!raw) return false;
-    const s = JSON.parse(raw);
-    s.terrain = Uint8Array.from(s.terrain); s.continent = Int16Array.from(s.continent); s.seen = s.seen.map(a => Uint8Array.from(a));
-    G = s; window.G = G; buildIndex(); G.gotoMode = false; G.hover = null;
-    computeVisible(0); selectNext(); renderAll();
-    return true;
-  } catch (e) { return false; }
+    const url = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+    const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000); flash(`Saved ${filename}.`);
+  } catch (e) { flash("This browser blocked the download."); }
 }
 
 // =====================================================================
@@ -986,6 +1063,10 @@ function render() {
     const extra = list.length > 1 ? list.length : top.cargo.length ? top.cargo.length : 0;
     if (extra) { ctx.fillStyle = COL.accent; ctx.font = `600 ${Math.round(T * 0.45)}px "IBM Plex Mono", monospace`; ctx.fillText(extra, px + T - 3, py + 4); }
   }
+  if (G.cityPanel != null && G.cities[G.cityPanel]?.owner === 0) {
+    const fc = G.cities[G.cityPanel];
+    ctx.strokeStyle = COL.accent; ctx.lineWidth = 2; ctx.strokeRect(fc.x * T - 2, fc.y * T - 2, T + 4, T + 4);
+  }
   if (sel) {
     ctx.strokeStyle = COL.fg; ctx.lineWidth = 1.5; ctx.setLineDash([3, 2]);
     ctx.strokeRect(sel.x * T + 0.75, sel.y * T + 0.75, T - 1.5, T - 1.5); ctx.setLineDash([]);
@@ -1004,7 +1085,7 @@ function render() {
 
 function renderAll() {
   visCache = computeVisible(0);
-  render(); renderMeta(); renderUnitPanel(); renderCityPanel(); renderLog(); updateStatus();
+  render(); renderMeta(); renderUnitPanel(); renderCityPanel(); renderCityList(); renderLog(); updateStatus();
   const ov = document.getElementById("overlay");
   ov.hidden = !G.over;
   if (G.over) {
@@ -1046,11 +1127,12 @@ function renderUnitPanel() {
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
   if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
+  if (t.carries && u.cargo.length && inOwnCity(u)) html += `<button class="btn" data-act="unloadall">Unload all here</button>`;
   html += `</div>`;
   if (t.carries && u.cargo.length) {
     html += `<div class="row">` + u.cargo.map(id => { const a = unitById(id); return a ? `<button class="btn" data-sel="${id}">${UNIT_TYPES[a.type].name} ${a.moves ? "·" : "✓"}</button>` : ""; }).join("") + `</div>`;
   }
-  if (carrier) html += `<div class="row"><button class="btn" data-sel="${carrier.id}">Select its ${UNIT_TYPES[carrier.type].name.toLowerCase()}</button></div>`;
+  if (carrier) html += `<div class="row">${inOwnCity(u) ? `<button class="btn" data-act="unload">Unload <kbd>O</kbd></button>` : ""}<button class="btn" data-sel="${carrier.id}">Select its ${UNIT_TYPES[carrier.type].name.toLowerCase()}</button></div>`;
   const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
   html += `<div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn" data-step="${dx},${dy}" aria-label="Move">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>`;
   el.innerHTML = html;
@@ -1073,6 +1155,31 @@ function renderCityPanel() {
   html += `<div class="empty" style="font-size:12px">Switching production restarts progress. Building the same unit again takes 1/6 less time.</div>`;
   if (here.length) html += `<div class="row">` + here.map(u => `<button class="btn" data-sel="${u.id}">${UNIT_TYPES[u.type].name}</button>`).join("") + `</div>`;
   el.innerHTML = html;
+}
+
+function renderCityList() {
+  const el = document.getElementById("cityList");
+  const mine = G.cities.filter(c => c.owner === 0);
+  if (!mine.length) { el.innerHTML = `<h3>Your cities</h3><div class="empty">You hold no cities.</div>`; return; }
+  const rows = mine.map(c => { const need = buildCost(c); return { c, need, left: need - c.progress }; }).sort((a, b) => a.left - b.left || a.c.name.localeCompare(b.c.name));
+  const ports = mine.filter(c => isCoastal(idx(c.x, c.y))).length;
+  const counts = {}; for (const r of rows) counts[r.c.prod] = (counts[r.c.prod] || 0) + 1;
+  const mix = Object.entries(counts).map(([k, n]) => `${n} ${UNIT_TYPES[k].name}${n > 1 ? "s" : ""}`).join(" · ");
+  let html = `<div class="head"><h3>Your cities</h3><span>${mine.length} cities · ${ports} ports · building ${mix}</span></div>`;
+  html += `<div class="tablewrap"><table><thead><tr><th>City</th><th>At</th><th>Building</th><th>Progress</th><th>Done in</th><th>Units</th></tr></thead><tbody>`;
+  for (const { c, need, left } of rows) {
+    const coastal = isCoastal(idx(c.x, c.y));
+    const opts = Object.entries(UNIT_TYPES).map(([k, ut]) => {
+      const dis = ut.domain === "sea" && !coastal;
+      return `<option value="${k}"${k === c.prod ? " selected" : ""}${dis ? " disabled" : ""}>${ut.name} (${buildCost(c, k)}t)</option>`;
+    }).join("");
+    const here = unitsAt(c.x, c.y).filter(u => u.owner === 0).length;
+    html += `<tr${G.cityPanel === c.id ? ' class="cur"' : ""}><td><button class="linkbtn" data-city="${c.id}">${c.name}</button>${coastal ? "" : ' <span class="disc" style="color:var(--muted)">inland</span>'}</td><td>${c.x},${c.y}</td>` +
+      `<td><select data-cityprod="${c.id}" id="prod-${c.id}" aria-label="Production for ${c.name}">${opts}</select></td>` +
+      `<td><span class="mini"><i style="width:${(c.progress / need) * 100}%"></i></span>${c.progress}/${need}${need < UNIT_TYPES[c.prod].cost ? ' <span class="disc">repeat</span>' : ""}</td>` +
+      `<td class="${left <= 1 ? "soon" : ""}">${left <= 1 ? "next turn" : left + " turns"}</td><td>${here || ""}</td></tr>`;
+  }
+  el.innerHTML = html + `</tbody></table></div>`;
 }
 
 function renderLog() {
@@ -1118,12 +1225,23 @@ function act(name) {
     if (tr) { board(u, tr); afterAction(); } else flash(isLand(u.type) ? "No transport with space here." : UNIT_TYPES[u.type].domain === "air" ? "No carrier with space here." : "This unit can't be carried.");
     return;
   }
+  if (name === "unload") {
+    if (!u.carriedBy) return;
+    if (!inOwnCity(u)) { flash("Units can only unload in your own city. At sea, move them onto adjacent land."); return; }
+    unload(u); u.orders = null; G.sel = u.id; renderAll(); return;
+  }
+  if (name === "unloadall") {
+    if (!inOwnCity(u)) return;
+    const n = u.cargo.length; for (const id of [...u.cargo]) { const c = unitById(id); if (c) { unload(c); c.orders = null; } }
+    log(`Unloaded ${n} unit${n > 1 ? "s" : ""} in <b>${cityAt(u.x, u.y).name}</b>.`); afterAction(); return;
+  }
   if (name === "wake") { for (const id of u.cargo) { const a = unitById(id); if (a) { a.sentry = false; a.skip = false; } } renderAll(); }
 }
 
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || G.over && b.id !== "overNew") return;
   if (b.dataset.act) act(b.dataset.act);
+  else if (b.dataset.city) { G.cityPanel = +b.dataset.city; renderAll(); }
   else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; renderAll(); } }
   else if (b.dataset.step) { const [dx, dy] = b.dataset.step.split(",").map(Number); humanStep(dx, dy); }
   else if (b.dataset.prod) {
@@ -1138,13 +1256,33 @@ document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey || !G || G.over) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
-  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", l: "load", u: "wake" };
+  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
   if (k === "Enter") { e.preventDefault(); endTurn(); return; }
   if (k === "Escape") { G.gotoMode = false; renderAll(); }
 });
 
 document.getElementById("endBtn").addEventListener("click", endTurn);
+document.getElementById("saveBtn").addEventListener("click", () => { if (G) saveToFile(); });
+const loadFile = document.getElementById("loadFile");
+document.getElementById("loadBtn").addEventListener("click", () => loadFile.click());
+loadFile.addEventListener("change", () => {
+  const f = loadFile.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const prev = G;
+    try { restore(String(r.result)); save(); log(`Loaded <b>${f.name}</b> (turn ${G.turn}).`); renderAll(); }
+    catch (e) { G = prev; window.G = G; buildIndex(); renderAll(); flash(e.message); }
+    loadFile.value = "";
+  };
+  r.onerror = () => { flash("Couldn't read that file."); loadFile.value = ""; };
+  r.readAsText(f);
+});
+document.addEventListener("change", e => {
+  const sel = e.target.closest("select[data-cityprod]"); if (!sel || !G) return;
+  const c = G.cities[+sel.dataset.cityprod];
+  if (c && c.owner === 0 && c.prod !== sel.value) { c.prod = sel.value; c.progress = 0; G.cityPanel = c.id; renderAll(); }
+});
 const newBtn = document.getElementById("newBtn"); let confirmTimer = null;
 newBtn.addEventListener("click", () => {
   if (newBtn.dataset.armed) { clearTimeout(confirmTimer); delete newBtn.dataset.armed; newBtn.textContent = "New map"; newGame((Math.random() * 1e9) | 0); return; }
