@@ -127,7 +127,7 @@ details.guide code { color: var(--fg); }
 .sizebtn b { font-size: 15px; }
 .sizebtn span { color: var(--muted); font-size: 11px; }
 .sizebtn.cur { border-color: var(--accent); }
-.modal .actions { display: flex; justify-content: flex-end; }
+.modal .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -163,6 +163,13 @@ details.guide code { color: var(--fg); }
           <div class="actions"><button class="btn" id="newCancel">Cancel</button></div>
         </div>
       </div>
+      <div class="modal" id="endConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="endConfirmTitle" aria-describedby="endConfirmText">
+        <div class="card">
+          <h2 id="endConfirmTitle">END TURN?</h2>
+          <p id="endConfirmText"></p>
+          <div class="actions"><button class="btn" id="endShow">Show me <kbd>Esc</kbd></button><button class="btn primary" id="endAnyway">End turn anyway <kbd>Enter</kbd></button></div>
+        </div>
+      </div>
     </div>
     <aside>
       <div class="panel" id="unitPanel"></div>
@@ -171,7 +178,7 @@ details.guide code { color: var(--fg); }
       <div class="panel keys">
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
-        <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
+        <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit; <kbd>F</kbd> centers on it. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
@@ -223,7 +230,7 @@ const CONFIG = {
 // size = transport spaces used (default 1). sight = vision radius (default CONFIG.sight).
 // stealth: hidden unless an enemy detector is within CONFIG.detectRange. detects: can spot stealthy units.
 // carries: domain of units it can hold ("land" | "air"), with capacity and capLossPerHp.
-// noAttack: can't start fights. refuels: fuel-using units aboard are refuelled like in a city.
+// noCarrier: can't land on carriers (refuels only in cities). noAttack: can't start fights. refuels: fuel-using units aboard are refuelled like in a city.
 // ranged: one shot (50% to hit, no return fire) at an adjacent unit of domain `vs`
 //   ("land", "sea", or "ground" = any non-air unit on a land tile, cities included; may be a list).
 //   returnFire: target kinds that get one shot back if they survive.
@@ -233,14 +240,17 @@ const UNIT_TYPES = {
   A: { name: "Army",       domain: "land", moves: 1, hp: 1,  str: 1, cost: 6, captures: true },
   K: { name: "Tank",       domain: "land", moves: 2, hp: 2,  str: 2, cost: 12, size: 2, ranged: { vs: "sea", dmg: 1, endsTurn: true } },
   F: { name: "Fighter",    domain: "air",  moves: 5, hp: 1,  str: 1, cost: 12, fuel: 20, sight: 2, detects: true },
-  H: { name: "Bomber",     domain: "air",  moves: 4, hp: 1,  str: 2, cost: 18, fuel: 32, sight: 2, size: 2, noAttack: true, oneShotDefense: true, ranged: { vs: ["ground", "sea"], returnFire: "sea" } },
-  D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 12, sight: 2, detects: true },
-  T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 18, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
-  C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 36, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
-  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 18, stealth: true },
-  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 48, ranged: { vs: "land" } },
+  H: { name: "Bomber",     domain: "air",  moves: 4, hp: 1,  str: 2, cost: 18, fuel: 32, sight: 2, noCarrier: true, noAttack: true, oneShotDefense: true, ranged: { vs: ["ground", "sea"], returnFire: "sea" } },
+  D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 24, sight: 2, detects: true },
+  T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 36, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
+  C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 72, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
+  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 30, stealth: true },
+  R: { name: "Cruiser",    domain: "sea",  moves: 2, hp: 8,  str: 2, cost: 60 },
+  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 90, ranged: { vs: "land" } },
 };
 const isLand = type => UNIT_TYPES[type].domain === "land";
+// "1 Army", "2 Armies", "3 Tanks"
+const countOf = (n, type) => { const s = UNIT_TYPES[type].name; return `${n} ${n === 1 ? s : /[^aeiou]y$/i.test(s) ? s.slice(0, -1) + "ies" : s + "s"}`; };
 const sightOf = u => UNIT_TYPES[u.type].sight ?? CONFIG.sight;
 // Does enemy o on tile i count as a ranged target of kind v?
 function rangedMatch(v, o, i) {
@@ -258,7 +268,7 @@ function cargoUsed(t) { return t.cargo.reduce((n, id) => { const c = unitById(id
 function transportCap(t) { const T = UNIT_TYPES[t.type]; return Math.max(0, (T.capacity || 0) - (T.capLossPerHp ?? CONFIG.cargoLossPerHp) * (T.hp - t.hp)); }
 function hasRoom(t, u) { return cargoUsed(t) + cargoSize(u.type) <= transportCap(t); }
 // Can friendly unit c take u aboard? (transports carry land units, carriers carry air units)
-function canCarry(c, u) { return !!c && c.owner === u.owner && UNIT_TYPES[c.type].carries === UNIT_TYPES[u.type].domain && hasRoom(c, u); }
+function canCarry(c, u) { return !!c && c.owner === u.owner && !UNIT_TYPES[u.type].noCarrier && UNIT_TYPES[c.type].carries === UNIT_TYPES[u.type].domain && hasRoom(c, u); }
 function unload(u) {
   const tr = unitById(u.carriedBy); if (tr) tr.cargo = tr.cargo.filter(id => id !== u.id);
   u.carriedBy = null; u.sentry = false; u.skip = false;
@@ -730,6 +740,7 @@ function executeOrders(u) {
 // =====================================================================
 const AI = 1;
 let aiTargets = new Set(); // continents that still hold non-AI cities
+let aiLand = {};           // our land units per continent this turn
 
 function nearestOwnCity(u, p, needCoast) {
   let best = null, bd = 1e9;
@@ -787,7 +798,7 @@ function aiProduction() {
     if (transports >= 2 && carriers < Math.floor(mine.length / 8) && Math.random() < 0.3) { c.prod = "C"; carriers++; continue; }
     if (transports < Math.max(1, Math.ceil(mine.length / 3))) { c.prod = "T"; continue; }
     const r = Math.random();
-    c.prod = r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.92 ? "S" : "B";
+    c.prod = r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.9 ? "S" : r < 0.95 ? "R" : "B";
   }
 }
 
@@ -812,21 +823,24 @@ function aiArmy(u) {
     if (a && a.kind === "shot") return doMove(u, u.x + dx, u.y + dy);
   }
   const cont = G.continent[idx(u.x, u.y)];
-  let target = null, bd = 1e9;
-  if (!UNIT_TYPES[u.type].captures) { // tanks: hunt enemy units on this landmass
+  const cities = G.cities.filter(c => c.owner !== AI && G.continent[idx(c.x, c.y)] === cont).sort((a, b) => cheb(u, a) - cheb(u, b));
+  // A landmass with far more of our troops than it needs: units away from the front ship out instead of queueing.
+  const crowded = cities.length && (aiLand[cont] || 0) >= 8 + 4 * cities.length && cheb(u, cities[0]) > 8;
+  if (!UNIT_TYPES[u.type].captures) {
+    // Tanks: hunt enemy units here. They can't take cities, so they hang back and never block the approaches.
+    let target = null, bd = 1e9;
     for (const o of G.units) {
       if (o.owner === AI || o.carriedBy || G.continent[idx(o.x, o.y)] !== cont) continue;
       const d = cheb(u, o); if (d < bd) { bd = d; target = o; }
     }
     if (target && stepToward(u, target.x, target.y)) return true;
-    target = null; bd = 1e9;
+    if (cities.length && !crowded) return cheb(u, cities[0]) > 3 && stepToward(u, cities[0].x, cities[0].y);
+  } else if (cities.length && !crowded) {
+    // Armies: head for the nearest untaken city; if that approach is jammed, try the next ones.
+    for (const c of cities.slice(0, 4)) if (stepToward(u, c.x, c.y)) return true;
+    return false;
   }
-  for (const c of G.cities) {
-    if (c.owner === AI || G.continent[idx(c.x, c.y)] !== cont) continue;
-    const d = cheb(u, c); if (d < bd) { bd = d; target = c; }
-  }
-  if (target) return (UNIT_TYPES[u.type].captures || cheb(u, target) > 1) && stepToward(u, target.x, target.y);
-  // No land targets left here: find a transport.
+  // Nothing to do here (or too crowded): find a transport.
   const here = G.units.find(t => t.owner === AI && t.type === "T" && t.x === u.x && t.y === u.y && hasRoom(t, u) && t.ai.mode !== "deliver");
   if (here) { board(u, here); return false; }
   const trs = G.units.filter(t => t.owner === AI && t.type === "T" && hasRoom(t, u) && t.ai.mode !== "deliver")
@@ -961,6 +975,8 @@ function aiShip(u) {
 
 function aiTurn() {
   aiTargets = new Set(G.cities.filter(c => c.owner !== AI).map(c => G.continent[idx(c.x, c.y)]));
+  aiLand = {};
+  for (const u of G.units) if (u.owner === AI && isLand(u.type) && !u.carriedBy) { const k = G.continent[idx(u.x, u.y)]; aiLand[k] = (aiLand[k] || 0) + 1; }
   aiProduction();
   for (const u of G.units) if (u.owner === AI && u.type === "T" && u.ai.mode !== "deliver" && u.cargo.length) u.ai.wait = (u.ai.wait || 0) + 1;
   const order = { T: 0, C: 0 }; // ships that carry units move before their passengers act
@@ -1249,6 +1265,12 @@ function scrollToTile(x, y, margin = 3) {
   if (py < top + m || py + tile > top + sc.clientHeight - m) top = py - sc.clientHeight / 2 + tile / 2;
   if (left !== sc.scrollLeft || top !== sc.scrollTop) sc.scrollTo({ left, top, behavior: reduceMotion ? "auto" : "smooth" });
 }
+// True when the map is bigger than its window (Large and Huge).
+const mapScrolls = () => W > Math.min(W, CONFIG.viewTiles) || H > Math.min(H, Math.round(Math.min(W, CONFIG.viewTiles) * H / W));
+function centerOn(x, y) {
+  const t = canvas.clientWidth / W; if (!t) return;
+  mapScroll.scrollTo({ left: x * t - mapScroll.clientWidth / 2 + t / 2, top: y * t - mapScroll.clientHeight / 2 + t / 2, behavior: reduceMotion ? "auto" : "smooth" });
+}
 let lastFocus = null;
 // Follow the selected unit when the selection changes or it moves.
 function followSelection() {
@@ -1295,9 +1317,9 @@ function renderUnitPanel() {
   if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : "costs 1 move"}</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot; never fires back</dd>`;
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
-  if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · bombers use 2 · refuels aircraft"}</dd>`;
+  if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
-  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}`;
+  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
   if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
@@ -1338,8 +1360,8 @@ function renderCityList() {
   const rows = mine.map(c => { const need = buildCost(c); return { c, need, left: need - c.progress }; }).sort((a, b) => a.left - b.left || a.c.name.localeCompare(b.c.name));
   const ports = mine.filter(c => isCoastal(idx(c.x, c.y))).length;
   const counts = {}; for (const r of rows) counts[r.c.prod] = (counts[r.c.prod] || 0) + 1;
-  const mix = Object.entries(counts).map(([k, n]) => `${n} ${UNIT_TYPES[k].name}${n > 1 ? "s" : ""}`).join(" · ");
-  let html = `<div class="head"><h3>Your cities</h3><span>${mine.length} cities · ${ports} ports · building ${mix}</span></div>`;
+  const mix = Object.entries(counts).map(([k, n]) => countOf(n, k)).join(" · ");
+  let html = `<div class="head"><h3>Your cities</h3><span>${mine.length} ${mine.length === 1 ? "city" : "cities"} · ${ports} port${ports === 1 ? "" : "s"} · building ${mix}</span></div>`;
   html += `<div class="tablewrap"><table><thead><tr><th>City</th><th>At</th><th>Building</th><th>Progress</th><th>Done in</th><th>Units</th></tr></thead><tbody>`;
   for (const { c, need, left } of rows) {
     const coastal = isCoastal(idx(c.x, c.y));
@@ -1416,9 +1438,10 @@ function act(name) {
   if (name === "clear") { u.orders = null; u.sentry = false; u.skip = false; renderAll(); return; }
   if (name === "load") {
     const tr = G.units.find(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u));
-    if (tr) { board(u, tr); afterAction(); } else flash(isLand(u.type) ? "No transport with space here." : UNIT_TYPES[u.type].domain === "air" ? "No carrier with space here." : "This unit can't be carried.");
+    if (tr) { board(u, tr); afterAction(); } else flash(isLand(u.type) ? "No transport with space here." : UNIT_TYPES[u.type].noCarrier ? `${UNIT_TYPES[u.type].name}s can't land on carriers.` : UNIT_TYPES[u.type].domain === "air" ? "No carrier with space here." : "This unit can't be carried.");
     return;
   }
+  if (name === "center") { centerOn(u.x, u.y); return; }
   if (name === "home") {
     const t = UNIT_TYPES[u.type];
     if (t.domain !== "air") { flash("Only aircraft can be sent home."); return; }
@@ -1459,17 +1482,38 @@ const KEYDIRS = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRig
   "8": [0,-1], "2": [0,1], "4": [-1,0], "6": [1,0], "7": [-1,-1], "9": [1,-1], "1": [-1,1], "3": [1,1] };
 document.addEventListener("keydown", e => {
   if (!newMenu.hidden) { if (e.key === "Escape") newMenu.hidden = true; return; }
+  if (!endConfirm.hidden) {
+    if (e.key === "Enter") { e.preventDefault(); endConfirm.hidden = true; endTurn(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeEndConfirm(); }
+    return;
+  }
   if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey || !G || G.over) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "m") { e.preventDefault(); setMini(!miniOn); return; }
   if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
-  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", l: "load", u: "wake", o: "unload" };
+  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", f: "center", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
-  if (k === "Enter") { e.preventDefault(); endTurn(); return; }
+  if (k === "Enter") { e.preventDefault(); requestEndTurn(); return; }
   if (k === "Escape") { G.gotoMode = false; renderAll(); }
 });
 
-document.getElementById("endBtn").addEventListener("click", endTurn);
+// Ending the turn with units still waiting for orders asks first.
+const endConfirm = document.getElementById("endConfirm");
+function requestEndTurn() {
+  if (!G || G.over) return;
+  const idle = G.units.filter(needsOrders);
+  if (!idle.length) { endTurn(); return; }
+  const counts = {}; for (const u of idle) counts[u.type] = (counts[u.type] || 0) + 1;
+  const list = Object.entries(counts).map(([k, n]) => countOf(n, k)).join(", ");
+  document.getElementById("endConfirmText").textContent =
+    `${idle.length} unit${idle.length > 1 ? "s still need" : " still needs"} orders (${list}). If you end the turn now, ${idle.length > 1 ? "they stay" : "it stays"} where ${idle.length > 1 ? "they are" : "it is"}.`;
+  endConfirm.hidden = false; document.getElementById("endAnyway").focus();
+}
+function closeEndConfirm() { endConfirm.hidden = true; if (!selUnit() || !needsOrders(selUnit())) { G.sel = null; selectNext(); } renderAll(); }
+document.getElementById("endAnyway").addEventListener("click", () => { endConfirm.hidden = true; endTurn(); });
+document.getElementById("endShow").addEventListener("click", closeEndConfirm);
+endConfirm.addEventListener("click", e => { if (e.target === endConfirm) closeEndConfirm(); });
+document.getElementById("endBtn").addEventListener("click", requestEndTurn);
 document.getElementById("saveBtn").addEventListener("click", () => { if (G) saveToFile(); });
 const loadFile = document.getElementById("loadFile");
 document.getElementById("loadBtn").addEventListener("click", () => loadFile.click());
