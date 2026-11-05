@@ -229,6 +229,8 @@ const CONFIG = {
 // captures: true lets the unit take cities. Land units can ride transports;
 // size = transport spaces used (default 1). sight = vision radius (default CONFIG.sight).
 // stealth: hidden unless an enemy detector is within CONFIG.detectRange. detects: can spot stealthy units.
+// cityAttack: can attack an adjacent enemy city; each attack (1 move) is ONE round against the strongest
+//   unit inside. "all" = any unit there, "ships" = docked ships only.
 // carries: domain of units it can hold ("land" | "air"), with capacity and capLossPerHp.
 // noCarrier: can't land on carriers (refuels only in cities). noAttack: can't start fights. refuels: fuel-using units aboard are refuelled like in a city.
 // ranged: one shot (50% to hit, no return fire) at an adjacent unit of domain `vs`
@@ -247,9 +249,9 @@ const UNIT_TYPES = {
   D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 24, sight: 2, detects: true },
   T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 36, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
   C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 72, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
-  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 30, stealth: true },
-  R: { name: "Cruiser",    domain: "sea",  moves: 2, hp: 8,  str: 2, cost: 60 },
-  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 90, ranged: { vs: "land" } },
+  S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 30, stealth: true, cityAttack: "ships" },
+  R: { name: "Cruiser",    domain: "sea",  moves: 2, hp: 8,  str: 2, cost: 60, cityAttack: "all" },
+  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 90, ranged: { vs: "land" }, cityAttack: "all" },
 };
 const isLand = type => UNIT_TYPES[type].domain === "land";
 // "1 Army", "2 Armies", "3 Tanks"
@@ -514,6 +516,11 @@ function classify(u, x, y) {
   const here = unitsAt(x, y);
   const enemy = here.filter(o => o.owner !== u.owner);
   if (enemy.length) {
+    if (city && t.cityAttack && !u.carriedBy) {
+      // Ships attacking a city: one round per move against the strongest unit they're allowed to hit.
+      const pool = enemy.filter(o => !hiddenFrom(o, u.owner) && (t.cityAttack === "all" || UNIT_TYPES[o.type].domain === "sea"));
+      if (pool.length) return { kind: "round", target: pool.reduce((a, b) => (b.hp * UNIT_TYPES[b.type].str > a.hp * UNIT_TYPES[a.type].str ? b : a)) };
+    }
     const r = t.ranged;
     if (r && (!u.carriedBy || t.domain === "air") && ((r.freeInCities && city) || !shotsSpent(u))) {
       const targets = enemy.filter(o => !hiddenFrom(o, u.owner) && [].concat(r.vs).some(v => rangedMatch(v, o, i)));
@@ -570,6 +577,9 @@ function doMove(u, x, y) {
     if (!(UNIT_TYPES[u.type].ranged.freeInCities && cityAt(x, y))) u.shots = (u.shots || 0) + 1;
     shoot(u, a.target, a.dmg);
     if (a.returnFire && !a.target.dead) shoot(a.target, u, UNIT_TYPES[a.target.type].str); // one shot back, then it's over
+  } else if (a.kind === "round") {
+    if (UNIT_TYPES[u.type].stealth) u.revealed = true;
+    fightRound(u, a.target, cityAt(x, y));
   } else if (a.kind === "raid") {
     // Bombing an empty enemy city knocks its production back to zero.
     if (!UNIT_TYPES[u.type].ranged?.freeInCities) u.shots = (u.shots || 0) + 1;
@@ -608,6 +618,21 @@ function doMove(u, x, y) {
   }
   checkOver();
   return true;
+}
+
+// One round of combat (ships attacking a city): 50% the attacker hits, otherwise the defender hits back.
+function fightRound(att, def, city) {
+  const ta = UNIT_TYPES[att.type], td = UNIT_TYPES[def.type];
+  const defFires = !td.oneShotDefense || td.returnFireVs === ta.domain; // bombers only answer fighters
+  let res;
+  if (Math.random() < 0.5) { def.hp -= ta.str; res = def.hp <= 0 ? `destroyed the ${td.name}` : `hit the ${td.name} (${def.hp}/${td.hp} hp left)`; }
+  else if (defFires) { att.hp -= td.str; res = att.hp <= 0 ? `the ${td.name} sank it` : `the ${td.name} hit back (${att.hp}/${ta.hp} hp left)`; }
+  else res = "missed";
+  const where = city ? ` in ${city.name}` : "";
+  if (att.owner === 0) log(`Your ${ta.name} attacked${where}: ${res}.`, def.hp <= 0 ? "good" : att.hp <= 0 ? "bad" : "");
+  else if (def.owner === 0) log(`An enemy ${ta.name} attacked your units${where}: ${res.replace("sank it", "destroyed it")}.`, def.hp <= 0 ? "bad" : att.hp <= 0 ? "good" : "");
+  if (def.hp <= 0) kill(def); else if (def.cargo.length) enforceCargo(def);
+  if (att.hp <= 0) kill(att);
 }
 
 // A single ranged shot: 50% to hit, no return fire.
@@ -704,7 +729,7 @@ function findPath(u, tx, ty) {
       if (cur === start) {
         const a = classify(u, nx, ny);
         if (!a) continue;
-        if (ni !== goal && (a.kind === "attack" || a.kind === "capture" || a.kind === "shot" || a.kind === "raid")) continue;
+        if (ni !== goal && (a.kind === "attack" || a.kind === "capture" || a.kind === "shot" || a.kind === "raid" || a.kind === "round")) continue;
       } else if (ni !== goal && !passable(u, ni)) continue;
       const ng = g[cur] + 1;
       if (stamp[ni] !== gen || ng < g[ni]) { g[ni] = ng; stamp[ni] = gen; came[ni] = cur; heap.push(ni, ng + hfn(ni)); }
@@ -991,6 +1016,10 @@ function aiShip(u) {
     const a = classify(u, u.x + dx, u.y + dy);
     if (a && a.kind === "shot") return doMove(u, u.x + dx, u.y + dy);
   }
+  if (t.cityAttack) for (const [dx, dy] of DIRS) { // attack an adjacent enemy city when a hit back can't sink us
+    const a = classify(u, u.x + dx, u.y + dy);
+    if (a && a.kind === "round" && u.hp > UNIT_TYPES[a.target.type].str) return doMove(u, u.x + dx, u.y + dy);
+  }
   if (u.hp < t.hp / 2) {
     const home = nearestOwnCity(u, AI, true);
     if (home) { if (home.x === u.x && home.y === u.y) return false; if (stepToward(u, home.x, home.y)) return true; }
@@ -1102,6 +1131,16 @@ function onTileClick(x, y) {
     renderAll(); return;
   }
   if (u) {
+    // A far click on an enemy city or a visible enemy unit is just a look, not an order (it used to send
+    // units there, burning aircraft fuel). Armies may still be click-sent to neutral cities to capture them.
+    const i = idx(x, y), kc = city && G.seen[0][i] ? city : null; // only cities you've actually seen
+    const seenOwner = kc ? (visCache[i] ? kc.owner : G.known[0][kc.id] ?? kc.owner) : null;
+    const foe = visCache[i] ? unitsAt(x, y).find(o => o.owner !== 0 && !hiddenFrom(o, 0)) : null;
+    if ((kc && seenOwner !== 0 && !(UNIT_TYPES[u.type].captures && seenOwner === -1)) || foe) {
+      const what = kc ? `${seenOwner === -1 ? "Neutral" : "Enemy"} city ${kc.name}` : `Enemy ${UNIT_TYPES[foe.type].name}`;
+      flash(`${what}. To send your ${UNIT_TYPES[u.type].name} there, press G and then click it.`);
+      return;
+    }
     if (u.moves > 0) { setGoto(u, x, y); return; }
     u.orders = { kind: "goto", x, y }; log(`Your ${UNIT_TYPES[u.type].name} will head there next turn.`);
   }
@@ -1344,6 +1383,7 @@ function renderUnitPanel() {
   html += `<dt>Sight</dt><dd>${UNIT_TYPES[u.type].sight ?? CONFIG.sight} tile${(UNIT_TYPES[u.type].sight ?? CONFIG.sight) > 1 ? "s" : ""}</dd>`;
   if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : t.ranged.perTurn ? `${t.ranged.perTurn} per turn${t.ranged.freeInCities ? " outside cities (used: " + (shotsSpent(u) ? "yes" : "no") + "), unlimited on enemy cities" : shotsSpent(u) ? " (used)" : ""}, each costs 1 move` : "costs 1 move"}</dd>`;
   if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city resets its production</dd>`;
+  if (t.cityAttack) html += `<dt>Cities</dt><dd>Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} an adjacent enemy city: one round per move</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot${t.returnFireVs ? `; fires back once at ${t.returnFireVs === "air" ? "fighters" : t.returnFireVs + " units"}, never at anything else` : "; never fires back"}</dd>`;
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
