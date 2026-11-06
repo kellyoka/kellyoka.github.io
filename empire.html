@@ -20,6 +20,7 @@
   --accent-ink: #1a1206;
   --you: #6fc0ee;
   --cpu: #e2614a;
+  --sel: #ff2b2b;   /* selected-unit outline, dashed with white */
   --neutral: #c9c3ae;
   --sea: #15324a;
   --sea-2: #183850;
@@ -128,6 +129,21 @@ details.guide code { color: var(--fg); }
 .sizebtn span { color: var(--muted); font-size: 11px; }
 .sizebtn.cur { border-color: var(--accent); }
 .modal .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.statscard { width: min(880px, 100%); }
+.record { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.record th, .record td { padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.record th:first-child, .record td:first-child { text-align: left; }
+.record thead th { font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.record thead tr.side th { color: var(--fg); font-size: 12px; letter-spacing: 0.06em; }
+.record thead tr.side th.you { color: var(--you); } .record thead tr.side th.cpu { color: var(--cpu); }
+.record .split { border-left: 1px solid var(--line); }
+.record td.zero { color: var(--muted); opacity: 0.6; }
+.record tfoot td { font-weight: 600; border-bottom: 0; border-top: 1px solid var(--muted); }
+.record .unitkey { display: inline-block; width: 1.6em; color: var(--muted); }
+.statline { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.statline b { color: var(--fg); font-weight: 600; }
+.rechead { margin: 16px 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.recnote { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -151,9 +167,9 @@ details.guide code { color: var(--fg); }
       <div class="mapwrap">
         <div class="mapscroll" id="mapScroll"><canvas id="map" aria-label="Game map"></canvas></div>
         <canvas class="mini-map" id="mini" hidden aria-label="Mini-map. Click or drag to move the view."></canvas>
-        <div class="overlay" id="overlay" hidden><div class="card"><h2 id="overTitle"></h2><div id="overText"></div><button class="btn primary" id="overNew">Play a new map</button></div></div>
+        <div class="overlay" id="overlay" hidden><div class="card"><h2 id="overTitle"></h2><div id="overText"></div><div class="actions" style="justify-content:center"><button class="btn" id="overStats">War record</button><button class="btn primary" id="overNew">Play a new map</button></div></div></div>
       </div>
-      <div class="maprow"><div class="status" id="status">Hover a tile for details.</div><button class="btn" id="miniBtn" aria-pressed="false">Mini-map <kbd>M</kbd></button></div>
+      <div class="maprow"><div class="status" id="status">Hover a tile for details.</div><button class="btn" id="statsBtn">War record</button><button class="btn" id="miniBtn" aria-pressed="false">Mini-map <kbd>M</kbd></button></div>
       <section class="panel cities" id="cityList" aria-label="Your cities"></section>
       <div class="modal" id="newMenu" hidden role="dialog" aria-modal="true" aria-labelledby="newMenuTitle">
         <div class="card">
@@ -161,6 +177,14 @@ details.guide code { color: var(--fg); }
           <p>Pick a map size. Your current game will end.</p>
           <div class="sizes" id="sizeChoices"></div>
           <div class="actions"><button class="btn" id="newCancel">Cancel</button></div>
+        </div>
+      </div>
+      <div class="modal" id="statsModal" hidden role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+        <div class="card statscard">
+          <h2 id="statsTitle">WAR RECORD</h2>
+          <div class="statline" id="statsLine"></div>
+          <div class="tablewrap" id="statsTable"></div>
+          <div class="actions" id="statsActions"></div>
         </div>
       </div>
       <div class="modal" id="endConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="endConfirmTitle" aria-describedby="endConfirmText">
@@ -316,10 +340,10 @@ function nearestRefuel(u) {
 const isCrippled = u => u.hp <= UNIT_TYPES[u.type].hp * CONFIG.crippledAt;
 function maxMoves(u) { const m = UNIT_TYPES[u.type].moves; return isCrippled(u) ? Math.max(1, Math.ceil(m / 2)) : m; }
 // A damaged transport drops cargo it no longer has room for, largest units (tanks) first.
-function enforceCargo(t) {
+function enforceCargo(t, by = null) {
   const cap = transportCap(t), lost = [];
   const aboard = t.cargo.map(unitById).filter(Boolean).sort((a, b) => cargoSize(b.type) - cargoSize(a.type));
-  for (const c of aboard) { if (cargoUsed(t) <= cap) break; lost.push(UNIT_TYPES[c.type].name); kill(c); }
+  for (const c of aboard) { if (cargoUsed(t) <= cap) break; lost.push(UNIT_TYPES[c.type].name); kill(c, by); }
   if (lost.length && t.owner === 0) log(`Your damaged ${UNIT_TYPES[t.type].name.toLowerCase()} lost ${lost.length} unit${lost.length > 1 ? "s" : ""} overboard (${lost.join(", ")}).`, "bad");
 }
 // Turns needed for the city's next unit of this type.
@@ -473,9 +497,28 @@ function spawn(type, owner, x, y) {
   G.units.push(u); return u;
 }
 
-function kill(u) {
+// ---- War record: per player and unit type, how many were built, lost, and destroyed (enemy units killed).
+function stats(p) {
+  if (!G.stats) G.stats = [0, 1].map(() => ({ built: {}, lost: {}, destroyed: {}, captured: 0, citiesLost: 0 }));
+  const s = G.stats[p];
+  // City assaults: capture attempts this player made (by target), and enemy attempts on its own cities.
+  if (!s.assaults) s.assaults = { neutral: { won: 0, failed: 0 }, enemy: { won: 0, failed: 0 } };
+  if (!s.defense) s.defense = { held: 0, lost: 0 };
+  return s;
+}
+const bump = (obj, k) => { obj[k] = (obj[k] || 0) + 1; };
+// Record a unit's loss; `by` is the player who destroyed it (null for crashes, failed captures, etc.).
+function tally(u, by) {
+  if (u.owner < 0) return;
+  bump(stats(u.owner).lost, u.type);
+  if (by != null && by >= 0 && by !== u.owner) bump(stats(by).destroyed, u.type);
+}
+// Remove a unit (and anything it carries). `by` = player who destroyed it; `consumed` = used up, not lost
+// (an army that successfully captures a city becomes its garrison).
+function kill(u, by = null, consumed = false) {
   u.dead = true;
-  for (const cid of u.cargo) { const c = unitById(cid); if (c) c.dead = true; }
+  if (!consumed) tally(u, by);
+  for (const cid of u.cargo) { const c = unitById(cid); if (c) { c.dead = true; tally(c, by); } }
   if (u.carriedBy) { const t = unitById(u.carriedBy); if (t) t.cargo = t.cargo.filter(id => id !== u.id); }
   G.units = G.units.filter(o => !o.dead);
   if (G.sel === u.id || (G.sel && !unitById(G.sel))) G.sel = null;
@@ -598,10 +641,16 @@ function doMove(u, x, y) {
     const c = a.city, prev = c.owner;
     if (Math.random() < CONFIG.captureChance) {
       c.owner = u.owner; c.prod = "A"; c.progress = 0; c.lastBuilt = null;
+      stats(u.owner).captured++; if (prev >= 0) stats(prev).citiesLost++;
       if (mine) { log(`Captured <b>${c.name}</b>. Choose what it builds.`, "good"); G.cityPanel = c.id; }
       else if (prev === 0) log(`The enemy took <b>${c.name}</b>!`, "bad");
     } else if (mine) log(`Your army was repulsed at <b>${c.name}</b>.`, "bad");
-    kill(u);
+    { // city assault record
+      const won = c.owner === u.owner;
+      stats(u.owner).assaults[prev === -1 ? "neutral" : "enemy"][won ? "won" : "failed"]++;
+      if (prev >= 0) stats(prev).defense[won ? "lost" : "held"]++;
+    }
+    kill(u, null, c.owner === u.owner); // a successful capture uses the army up; a failed one loses it
   } else {
     if (u.carriedBy) { const tr = unitById(u.carriedBy); if (tr) tr.cargo = tr.cargo.filter(id => id !== u.id); u.carriedBy = null; }
     if (a.kind === "board") { board(u, a.transport); }
@@ -610,6 +659,7 @@ function doMove(u, x, y) {
       for (const cid of u.cargo) { const c = unitById(cid); if (c) { c.x = x; c.y = y; c.acted = true; } }
       const city = cityAt(x, y);
       if (UNIT_TYPES[u.type].fuel && city && city.owner === u.owner) { u.fuel = UNIT_TYPES[u.type].fuel; }
+      if (city && city.owner === u.owner && UNIT_TYPES[u.type].domain === "air") u.moves = 0; // landing ends the aircraft's move
     }
   }
   if (!u.dead && UNIT_TYPES[u.type].fuel && u.fuel <= 0 && !u.carriedBy) {
@@ -631,8 +681,8 @@ function fightRound(att, def, city) {
   const where = city ? ` in ${city.name}` : "";
   if (att.owner === 0) log(`Your ${ta.name} attacked${where}: ${res}.`, def.hp <= 0 ? "good" : att.hp <= 0 ? "bad" : "");
   else if (def.owner === 0) log(`An enemy ${ta.name} attacked your units${where}: ${res.replace("sank it", "destroyed it")}.`, def.hp <= 0 ? "bad" : att.hp <= 0 ? "good" : "");
-  if (def.hp <= 0) kill(def); else if (def.cargo.length) enforceCargo(def);
-  if (att.hp <= 0) kill(att);
+  if (def.hp <= 0) kill(def, att.owner); else if (def.cargo.length) enforceCargo(def, att.owner);
+  if (att.hp <= 0) kill(att, def.owner);
 }
 
 // A single ranged shot: 50% to hit, no return fire.
@@ -643,7 +693,7 @@ function shoot(att, def, dmg) {
   const result = !hit ? "missed" : def.hp <= 0 ? "destroyed it" : `hit (${def.hp}/${td.hp} hp left)`;
   if (att.owner === 0) log(`Your ${ta.name} fired on an enemy <b>${td.name}</b> at ${def.x},${def.y}: ${result}.`, hit ? "good" : "");
   else if (def.owner === 0) log(`An enemy ${ta.name} fired on your <b>${td.name}</b> at ${def.x},${def.y}: ${result}.`, hit ? "bad" : "");
-  if (def.hp <= 0) kill(def); else if (hit && def.cargo.length) enforceCargo(def);
+  if (def.hp <= 0) kill(def, att.owner); else if (hit && def.cargo.length) enforceCargo(def, att.owner);
 }
 
 function combat(att, def, ambush = false) {
@@ -654,7 +704,7 @@ function combat(att, def, ambush = false) {
     if (def.hp > 0) {
       if (att.owner === 0) log(`Your <b>Submarine</b> ambushed an enemy ${td.name} (${def.hp}/${td.hp} hp left) without return fire.`, "good");
       else if (def.owner === 0) log(`A hidden enemy submarine hit your <b>${td.name}</b> (${def.hp}/${td.hp} hp left).`, "bad");
-      if (def.cargo.length) enforceCargo(def);
+      if (def.cargo.length) enforceCargo(def, att.owner);
       return;
     }
   }
@@ -666,8 +716,8 @@ function combat(att, def, ambush = false) {
     const ours = win.owner === 0;
     log(`${ours ? "Your" : "Enemy"} <b>${UNIT_TYPES[win.type].name}</b> destroyed ${ours ? "an enemy" : "your"} ${UNIT_TYPES[lose.type].name}${lose.cargo.length ? ` and the ${lose.cargo.length} units aboard` : ""}.`, ours ? "good" : "bad");
   }
-  kill(lose);
-  if (win.cargo.length) enforceCargo(win);
+  kill(lose, win.owner);
+  if (win.cargo.length) enforceCargo(win, lose.owner);
 }
 
 function startTurn(p) {
@@ -675,7 +725,7 @@ function startTurn(p) {
     if (c.owner !== p) continue;
     c.progress++;
     if (c.progress >= buildCost(c)) {
-      spawn(c.prod, p, c.x, c.y); c.progress = 0; c.lastBuilt = c.prod;
+      spawn(c.prod, p, c.x, c.y); c.progress = 0; c.lastBuilt = c.prod; bump(stats(p).built, c.prod);
       if (p === 0) log(`<b>${c.name}</b> built a ${UNIT_TYPES[c.prod].name}.`);
     }
   }
@@ -714,6 +764,8 @@ function passable(u, i) {
 
 function findPath(u, tx, ty) {
   const start = idx(u.x, u.y), goal = idx(tx, ty);
+  // Aircraft stop when they land in a city, so routes avoid flying over cities that aren't the destination.
+  const cityToll = UNIT_TYPES[u.type].domain === "air" ? 20 : 0;
   if (start === goal) return [];
   // Buffers are reused between calls; a tile's entries count only when stamped with this call's number.
   if (!pf || pf.n !== N) pf = { n: N, g: new Float32Array(N), came: new Int32Array(N), stamp: new Uint32Array(N), closed: new Uint32Array(N), gen: 0 };
@@ -731,7 +783,7 @@ function findPath(u, tx, ty) {
         if (!a) continue;
         if (ni !== goal && (a.kind === "attack" || a.kind === "capture" || a.kind === "shot" || a.kind === "raid" || a.kind === "round")) continue;
       } else if (ni !== goal && !passable(u, ni)) continue;
-      const ng = g[cur] + 1;
+      const ng = g[cur] + 1 + (cityToll && ni !== goal && G.cityIdx.has(ni) ? cityToll : 0);
       if (stamp[ni] !== gen || ng < g[ni]) { g[ni] = ng; stamp[ni] = gen; came[ni] = cur; heap.push(ni, ng + hfn(ni)); }
     }
   }
@@ -1248,7 +1300,7 @@ function miniJump(e) {
 }
 const css = getComputedStyle(document.documentElement);
 const C = k => css.getPropertyValue("--" + k).trim();
-const COL = { sea: C("sea"), sea2: C("sea-2"), land: [C("land"), C("land-2"), C("land-3")], fog: C("fog"), you: C("you"), cpu: C("cpu"), neutral: C("neutral"), accent: C("accent"), fg: C("fg"), bg: C("bg") };
+const COL = { sel: C("sel"), sea: C("sea"), sea2: C("sea-2"), land: [C("land"), C("land-2"), C("land-3")], fog: C("fog"), you: C("you"), cpu: C("cpu"), neutral: C("neutral"), accent: C("accent"), fg: C("fg"), bg: C("bg") };
 const ownerColor = o => (o === 0 ? COL.you : o === 1 ? COL.cpu : COL.neutral);
 const T = CONFIG.tile;
 let blink = 0, visCache = new Uint8Array(N);
@@ -1308,8 +1360,11 @@ function render() {
     ctx.strokeStyle = COL.accent; ctx.lineWidth = 2; ctx.strokeRect(fc.x * T - 2, fc.y * T - 2, T + 4, T + 4);
   }
   if (sel) {
-    ctx.strokeStyle = COL.fg; ctx.lineWidth = 1.5; ctx.setLineDash([3, 2]);
-    ctx.strokeRect(sel.x * T + 0.75, sel.y * T + 0.75, T - 1.5, T - 1.5); ctx.setLineDash([]);
+    // Selected unit: a red-and-white dashed outline (white underneath, red dashes on top).
+    ctx.lineWidth = 2; ctx.setLineDash([]); ctx.strokeStyle = "#ffffff";
+    ctx.strokeRect(sel.x * T + 1, sel.y * T + 1, T - 2, T - 2);
+    ctx.strokeStyle = COL.sel; ctx.setLineDash([3, 3]);
+    ctx.strokeRect(sel.x * T + 1, sel.y * T + 1, T - 2, T - 2); ctx.setLineDash([]);
     if (sel.orders) {
       const p = findPath(sel, sel.orders.x, sel.orders.y);
       if (p) { ctx.fillStyle = COL.accent; for (const [x, y] of p) ctx.fillRect(x * T + T / 2 - 1.5, y * T + T / 2 - 1.5, 3, 3); }
@@ -1354,7 +1409,47 @@ function renderAll() {
   if (G.over) {
     document.getElementById("overTitle").textContent = G.over === "win" ? "VICTORY" : "DEFEAT";
     document.getElementById("overText").textContent = G.over === "win" ? `The enemy empire fell on turn ${G.turn}.` : `Your empire fell on turn ${G.turn}.`;
+    if (!G.statsShown) { G.statsShown = true; openStats(true); } // show the final war record once
   }
+}
+
+// War record table. final = game over: show both sides; otherwise just yours (the enemy's numbers stay secret).
+function renderStats(final) {
+  const me = stats(0), cpu = stats(1), types = Object.keys(UNIT_TYPES);
+  const cell = (n, split) => `<td class="${n ? "" : "zero"}${split ? " split" : ""}">${n || "–"}</td>`;
+  const sides = final ? [me, cpu] : [me];
+  const rows = types.filter(k => sides.some(sd => sd.built[k] || sd.lost[k] || sd.destroyed[k]));
+  const head = (final ? `<tr class="side"><th></th><th colspan="3" class="you">You</th><th colspan="3" class="cpu split">Computer</th></tr>` : "") +
+    `<tr><th>Unit</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Built</th><th>Lost</th><th>Destroyed</th>`).join("")}</tr>`;
+  const body = rows.length ? rows.map(k => `<tr><td><span class="unitkey">${k}</span>${UNIT_TYPES[k].name}</td>${sides.map((sd, j) => cell(sd.built[k], j > 0) + cell(sd.lost[k]) + cell(sd.destroyed[k])).join("")}</tr>`).join("")
+    : `<tr><td colspan="${1 + sides.length * 3}" class="zero" style="text-align:left">Nothing built or destroyed yet.</td></tr>`;
+  const sum = (sd, f) => Object.values(sd[f]).reduce((a, b) => a + b, 0);
+  const foot = `<tr><td>Total</td>${sides.map((sd, j) => cell(sum(sd, "built"), j > 0) + cell(sum(sd, "lost")) + cell(sum(sd, "destroyed"))).join("")}</tr>`;
+  // City assaults table: attempts, taken, failed, success rate (per side).
+  const pct = (w, f) => (w + f ? Math.round(w / (w + f) * 100) + "%" : "");
+  const aCells = (r, split) => { const n = r.won + r.failed; return cell(n, split) + cell(r.won) + cell(r.failed) + `<td class="${n ? "" : "zero"}">${pct(r.won, r.failed) || "–"}</td>`; };
+  const tot = sd => ({ won: sd.assaults.neutral.won + sd.assaults.enemy.won, failed: sd.assaults.neutral.failed + sd.assaults.enemy.failed });
+  const aHead = (final ? `<tr class="side"><th></th><th colspan="4" class="you">You</th><th colspan="4" class="cpu split">Computer</th></tr>` : "") +
+    `<tr><th>Target</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Tries</th><th>Taken</th><th>Failed</th><th>Rate</th>`).join("")}</tr>`;
+  const aBody = [["Neutral cities", "neutral"], ["Enemy cities", "enemy"]].map(([label, k]) => `<tr><td>${label}</td>${sides.map((sd, j) => aCells(sd.assaults[k], j > 0)).join("")}</tr>`).join("");
+  const aFoot = `<tr><td>Total</td>${sides.map((sd, j) => aCells(tot(sd), j > 0)).join("")}</tr>`;
+  const dLine = sd => { const n = sd.defense.held + sd.defense.lost; return n ? `${n} capture attempt${n > 1 ? "s" : ""} (<b>${sd.defense.held}</b> held, <b>${sd.defense.lost}</b> lost)` : "no capture attempts yet"; };
+  document.getElementById("statsTable").innerHTML = `<table class="record"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>` +
+    `<h3 class="rechead">City assaults</h3><table class="record"><thead>${aHead}</thead><tbody>${aBody}</tbody><tfoot>${aFoot}</tfoot></table>` +
+    `<p class="recnote">A try is an army moving into an empty city (50% to take it; the army is used up either way). Fights with defenders aren't attempts.</p>` +
+    `<p class="recnote">Your cities faced ${dLine(me)}.${final ? ` The computer's cities faced ${dLine(cpu)}.` : ""}</p>`;
+  const mineNow = G.cities.filter(c => c.owner === 0).length;
+  document.getElementById("statsLine").innerHTML = `<span>Turn <b>${G.turn}</b></span><span>Your cities <b>${mineNow}</b></span><span>Cities captured <b>${me.captured}</b></span><span>Cities lost <b>${me.citiesLost}</b></span>` +
+    (final ? `<span>Computer captured <b>${cpu.captured}</b> cities</span>` : "") +
+    `<span style="flex-basis:100%">Built counts units your cities produced. Lost counts your units destroyed in any way. Destroyed counts enemy units of that type you killed.</span>`;
+}
+function openStats(final) {
+  document.getElementById("statsTitle").textContent = final ? (G.over === "win" ? "VICTORY" : "DEFEAT") : "WAR RECORD";
+  renderStats(final);
+  document.getElementById("statsActions").innerHTML = final
+    ? `<button class="btn" id="statsClose">Close</button><button class="btn primary" id="statsNew">Play a new map</button>`
+    : `<button class="btn primary" id="statsClose">Close</button>`;
+  statsModal.hidden = false; document.getElementById("statsClose").focus();
 }
 
 function renderMeta() {
@@ -1385,7 +1480,7 @@ function renderUnitPanel() {
   if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city resets its production</dd>`;
   if (t.cityAttack) html += `<dt>Cities</dt><dd>Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} an adjacent enemy city: one round per move</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot${t.returnFireVs ? `; fires back once at ${t.returnFireVs === "air" ? "fighters" : t.returnFireVs + " units"}, never at anything else` : "; never fires back"}</dd>`;
-  if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}</dd>`;
+  if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""} · landing in a city ends its move</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
   html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
@@ -1551,6 +1646,7 @@ const KEYDIRS = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRig
   "8": [0,-1], "2": [0,1], "4": [-1,0], "6": [1,0], "7": [-1,-1], "9": [1,-1], "1": [-1,1], "3": [1,1] };
 document.addEventListener("keydown", e => {
   if (!newMenu.hidden) { if (e.key === "Escape") newMenu.hidden = true; return; }
+  if (!statsModal.hidden) { if (e.key === "Escape") statsModal.hidden = true; return; }
   if (!endConfirm.hidden) {
     if (e.key === "Enter") { e.preventDefault(); endConfirm.hidden = true; endTurn(); }
     else if (e.key === "Escape") { e.preventDefault(); closeEndConfirm(); }
@@ -1619,6 +1715,13 @@ newMenu.addEventListener("click", e => {
   if (e.target.id === "newCancel" || e.target === newMenu) newMenu.hidden = true;
 });
 document.getElementById("newBtn").addEventListener("click", openNewMenu);
+const statsModal = document.getElementById("statsModal");
+document.getElementById("statsBtn").addEventListener("click", () => { if (G) openStats(!!G.over); });
+document.getElementById("overStats").addEventListener("click", () => openStats(true));
+statsModal.addEventListener("click", e => {
+  if (e.target.id === "statsClose" || e.target === statsModal) statsModal.hidden = true;
+  else if (e.target.id === "statsNew") { statsModal.hidden = true; openNewMenu(); }
+});
 document.getElementById("overNew").addEventListener("click", openNewMenu);
 
 setInterval(() => { if (!G) return; blink = blink ? 0 : 1; render(); }, 420);
