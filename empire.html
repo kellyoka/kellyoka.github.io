@@ -128,6 +128,17 @@ details.guide code { color: var(--fg); }
 .sizebtn b { font-size: 15px; }
 .sizebtn span { color: var(--muted); font-size: 11px; }
 .sizebtn.cur { border-color: var(--accent); }
+.customform { display: grid; gap: 10px; }
+.cf-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 150px; align-items: center; gap: 10px; }
+.cf-row label { color: var(--muted); }
+.cf-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+.cf-row output { font-variant-numeric: tabular-nums; }
+.cf-row output small { color: var(--muted); font-size: 11px; }
+.cf-row .linkbtn { font: inherit; font-size: 11px; color: var(--accent); background: none; border: 0; padding: 0 0 0 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cf-hint { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#cfSeed { box-sizing: border-box; font: inherit; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 5px 8px; width: 100%; }
+#cfSeed:focus-visible, .cf-row input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { .cf-row { grid-template-columns: 1fr; gap: 4px; } }
 .modal .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .statscard { width: min(880px, 100%); }
 .record { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -176,6 +187,15 @@ details.guide code { color: var(--fg); }
           <h2 id="newMenuTitle">NEW MAP</h2>
           <p>Pick a map size. Your current game will end.</p>
           <div class="sizes" id="sizeChoices"></div>
+          <div class="customform" id="customForm" hidden>
+            <div class="cf-row"><label for="cfW">Width</label><input type="range" id="cfW" min="48" max="128" step="1"><output id="cfWo" for="cfW"></output></div>
+            <div class="cf-row"><label for="cfH">Height</label><input type="range" id="cfH" min="30" max="80" step="1"><output id="cfHo" for="cfH"></output></div>
+            <div class="cf-row"><label for="cfLand">Land</label><input type="range" id="cfLand" min="15" max="60" step="1"><output id="cfLando" for="cfLand"></output></div>
+            <div class="cf-row"><label for="cfCities">Cities</label><input type="range" id="cfCities" min="6" max="100" step="1"><output id="cfCitieso" for="cfCities"></output></div>
+            <div class="cf-row"><label for="cfSeed">Map number</label><input type="text" id="cfSeed" inputmode="numeric" maxlength="10" placeholder="Leave blank for a random map" autocomplete="off"><span class="cf-hint">Optional</span></div>
+            <div class="cf-hint" id="cfHint"></div>
+            <div class="actions"><button class="btn" id="cfBack">Back to sizes</button><button class="btn primary" id="cfStart">Start custom map</button></div>
+          </div>
           <div class="actions"><button class="btn" id="newCancel">Cancel</button></div>
         </div>
       </div>
@@ -246,6 +266,7 @@ const CONFIG = {
   detectRange: 1,          // how close a detector must be to see a stealthy unit
   tile: 16,                // drawing size in px
   viewTiles: 64,           // tiles across the visible map window; wider maps scroll inside it
+  viewRows: 40,            // tiles down the visible map window (for viewTiles columns); taller maps scroll
 };
 
 // domain: land | sea | air. Add a type here and it becomes buildable.
@@ -406,7 +427,7 @@ function labelContinents(terrain) {
   return { continent, sizes };
 }
 
-function genMap(rng) {
+function genMap(rng, landFraction = CONFIG.landFraction) {
   const val = new Float32Array(N), smooth = t => t * t * (3 - 2 * t);
   function octave(cell, amp) {
     const gw = Math.ceil(W / cell) + 2, gh = Math.ceil(H / cell) + 2, g = new Float32Array(gw * gh);
@@ -422,7 +443,7 @@ function genMap(rng) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const e = Math.min(x, y, W - 1 - x, H - 1 - y); if (e < 4) val[idx(x, y)] -= (4 - e) * 0.2;
   }
-  const sorted = Array.from(val).sort((a, b) => a - b), thr = sorted[Math.floor(N * (1 - CONFIG.landFraction))];
+  const sorted = Array.from(val).sort((a, b) => a - b), thr = sorted[Math.floor(N * (1 - landFraction))];
   const terrain = new Uint8Array(N); for (let i = 0; i < N; i++) terrain[i] = val[i] > thr ? 1 : 0;
   let L = labelContinents(terrain);
   for (let i = 0; i < N; i++) if (terrain[i] && L.sizes[L.continent[i]] < 4) terrain[i] = 0;
@@ -459,13 +480,15 @@ function placeCities(rng, terrain, cityTarget) {
 let G = null;
 window.G = null;
 
-function newGame(seed, sizeKey = "medium") {
-  const size = MAP_SIZES[sizeKey] ? MAP_SIZES[sizeKey] : MAP_SIZES[sizeKey = "medium"];
+// sizeKey is a MAP_SIZES key, or "custom" with custom = { W, H, cities, land } (land as a fraction, e.g. 0.36).
+function newGame(seed, sizeKey = "medium", custom = null) {
+  const size = sizeKey === "custom" && custom ? { name: "Custom", ...custom }
+    : MAP_SIZES[sizeKey] ? MAP_SIZES[sizeKey] : MAP_SIZES[sizeKey = "medium"];
   setMapSize(size.W, size.H); sizeCanvas();
   const rng = mulberry32(seed);
-  const m = genMap(rng);
+  const m = genMap(rng, size.land ?? CONFIG.landFraction);
   G = {
-    seed, size: sizeKey, W, H, turn: 1, terrain: m.terrain, continent: m.continent, contSize: m.contSize,
+    seed, size: sizeKey, custom: sizeKey === "custom" ? custom : null, W, H, turn: 1, terrain: m.terrain, continent: m.continent, contSize: m.contSize,
     cities: placeCities(rng, m.terrain, size.cities), units: [], nextId: 1,
     seen: [new Uint8Array(N), new Uint8Array(N)], known: [{}, {}],
     sel: null, cityPanel: null, gotoMode: false, hover: null, log: [], over: null,
@@ -479,7 +502,7 @@ function newGame(seed, sizeKey = "medium") {
   hc.owner = 0; ac.owner = 1;
   spawn("A", 0, hc.x, hc.y); spawn("A", 1, ac.x, ac.y);
   G.cityPanel = hc.id;
-  log(`${size.name} map (${W}×${H}, ${G.cities.length} cities), #${seed}. Your capital is <b>${hc.name}</b>. Grey cities are neutral — send armies to take them.`);
+  log(`${size.name} map (${W}×${H}, ${G.cities.length} cities${size.land ? `, ${Math.round(size.land * 100)}% land` : ""}), #${seed}. Your capital is <b>${hc.name}</b>. Grey cities are neutral — send armies to take them.`);
   window.G = G;
   beginHumanTurn(true);
 }
@@ -1305,11 +1328,16 @@ const ownerColor = o => (o === 0 ? COL.you : o === 1 ? COL.cpu : COL.neutral);
 const T = CONFIG.tile;
 let blink = 0, visCache = new Uint8Array(N);
 
+// Tiles visible in the map window: up to viewTiles across, and rows in the same proportion (64×40).
+function viewSize() {
+  const vw = Math.min(W, CONFIG.viewTiles);
+  return [vw, Math.min(H, Math.round(vw * CONFIG.viewRows / CONFIG.viewTiles))];
+}
 function sizeCanvas() {
   const dpr = Math.min(2, window.devicePixelRatio || 1, 4096 / (W * T)); // keep the backing canvas a sane size on Huge
   canvas.width = W * T * dpr; canvas.height = H * T * dpr;
   // The window shows at most CONFIG.viewTiles columns at Medium's tile size; bigger maps scroll.
-  const vw = Math.min(W, CONFIG.viewTiles), vh = Math.min(H, Math.round(vw * H / W));
+  const [vw, vh] = viewSize();
   canvas.style.width = (W / vw * 100) + "%";
   mapScroll.style.aspectRatio = `${vw} / ${vh}`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1388,7 +1416,7 @@ function scrollToTile(x, y, margin = 3) {
   if (left !== sc.scrollLeft || top !== sc.scrollTop) sc.scrollTo({ left, top, behavior: reduceMotion ? "auto" : "smooth" });
 }
 // True when the map is bigger than its window (Large and Huge).
-const mapScrolls = () => W > Math.min(W, CONFIG.viewTiles) || H > Math.min(H, Math.round(Math.min(W, CONFIG.viewTiles) * H / W));
+const mapScrolls = () => { const [vw, vh] = viewSize(); return W > vw || H > vh; };
 function centerOn(x, y) {
   const t = canvas.clientWidth / W; if (!t) return;
   mapScroll.scrollTo({ left: x * t - mapScroll.clientWidth / 2 + t / 2, top: y * t - mapScroll.clientHeight / 2 + t / 2, behavior: reduceMotion ? "auto" : "smooth" });
@@ -1457,7 +1485,7 @@ function renderMeta() {
   const enemyKnown = G.cities.filter(c => G.known[0][c.id] === 1).length;
   const waiting = G.units.filter(needsOrders).length;
   document.getElementById("meta").innerHTML =
-    `<span>${MAP_SIZES[G.size]?.name || "Map"} <b>${W}×${H}</b></span><span>Turn <b>${G.turn}</b></span><span class="you">Your cities <b>${mine}</b></span>` +
+    `<span>${G.size === "custom" ? "Custom" : MAP_SIZES[G.size]?.name || "Map"} <b>${W}×${H}</b></span><span>Turn <b>${G.turn}</b></span><span class="you">Your cities <b>${mine}</b></span>` +
     `<span class="cpu">Known enemy cities <b>${enemyKnown}</b></span><span>Units awaiting orders <b>${waiting}</b></span>`;
 }
 
@@ -1705,11 +1733,62 @@ const newMenu = document.getElementById("newMenu");
 function openNewMenu() {
   const cur = G?.size || lastSize();
   document.getElementById("sizeChoices").innerHTML = Object.entries(MAP_SIZES).map(([k, m]) =>
-    `<button class="btn sizebtn${k === cur ? " cur" : ""}" data-size="${k}"><b>${m.name}</b><span>${m.W}×${m.H} tiles · ${m.cities} cities</span><span>${m.blurb}</span></button>`).join("");
+    `<button class="btn sizebtn${k === cur ? " cur" : ""}" data-size="${k}"><b>${m.name}</b><span>${m.W}×${m.H} tiles · ${m.cities} cities</span><span>${m.blurb}</span></button>`).join("") +
+    `<button class="btn sizebtn${cur === "custom" ? " cur" : ""}" data-custom="1"><b>Custom</b><span>48–128 × 30–80 tiles</span><span>Choose the size, land and cities</span></button>`;
+  showCustom(false);
   newMenu.hidden = false;
   newMenu.querySelector(".sizebtn.cur")?.focus();
 }
+
+// ---- Custom map settings
+const CUSTOM_KEY = "empire-custom-map", cf = id => document.getElementById(id);
+const TILES_PER_CITY = 58; // the presets average about one city per 58 tiles at 36% land
+function citySuggestion(w, h, land) { return Math.round(w * h / TILES_PER_CITY * land / 36); }
+function cityMax(w, h, land) { return Math.max(8, Math.round(w * h * land / 100 / 20)); } // about what spacing lets fit
+function showCustom(on) {
+  cf("customForm").hidden = !on; cf("sizeChoices").hidden = on;
+  newMenu.querySelector("p").textContent = on ? "Set up your own map. Your current game will end." : "Pick a map size. Your current game will end.";
+  if (on) {
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); } catch (e) {}
+    cf("cfW").value = saved.W || 80; cf("cfH").value = saved.H || 50; cf("cfLand").value = saved.land || 36;
+    cf("cfCities").dataset.touched = saved.touched ? "1" : "";
+    if (saved.cities) cf("cfCities").value = saved.cities;
+    updateCustom(); cf("cfW").focus();
+  }
+}
+function updateCustom() {
+  const w = +cf("cfW").value, h = +cf("cfH").value, land = +cf("cfLand").value, ct = cf("cfCities");
+  const sugg = citySuggestion(w, h, land), max = cityMax(w, h, land);
+  ct.max = max;
+  if (!ct.dataset.touched) ct.value = Math.min(sugg, max);
+  if (+ct.value > max) ct.value = max;
+  const cities = +ct.value;
+  cf("cfWo").textContent = `${w} tiles`; cf("cfHo").textContent = `${h} tiles`;
+  cf("cfLando").innerHTML = `${land}% <small>${land < 25 ? "islands" : land < 44 ? "mixed" : "continents"}</small>`;
+  const sg = Math.min(sugg, max);
+  cf("cfCitieso").innerHTML = cities === sg ? `${cities} <small>suggested</small>` : `${cities} <button type="button" class="linkbtn" id="cfSugg">use ${sg}</button>`;
+  const [vw, vh] = (() => { const v = Math.min(w, CONFIG.viewTiles); return [v, Math.min(h, Math.round(v * CONFIG.viewRows / CONFIG.viewTiles))]; })();
+  cf("cfHint").textContent = `${(w * h).toLocaleString()} tiles, about ${Math.round(w * h * land / 100).toLocaleString()} of them land. ` +
+    (w > vw || h > vh ? `The window shows ${vw}×${vh}; the rest scrolls.` : "The whole map fits the window.") +
+    ` Up to ${max} cities fit; if the land is crowded, fewer may be placed.`;
+}
+function startCustom() {
+  const settings = { W: +cf("cfW").value, H: +cf("cfH").value, land: +cf("cfLand").value, cities: +cf("cfCities").value, touched: !!cf("cfCities").dataset.touched };
+  try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(settings)); } catch (e) {}
+  const digits = cf("cfSeed").value.replace(/\D/g, "");
+  const seed = digits ? Number(digits) % 4294967296 : (Math.random() * 1e9) | 0;
+  newMenu.hidden = true;
+  newGame(seed, "custom", { W: settings.W, H: settings.H, cities: settings.cities, land: settings.land / 100 });
+}
+for (const id of ["cfW", "cfH", "cfLand"]) cf(id).addEventListener("input", updateCustom);
+cf("cfCities").addEventListener("input", () => { cf("cfCities").dataset.touched = "1"; updateCustom(); });
+cf("cfSeed").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); startCustom(); } });
+
 newMenu.addEventListener("click", e => {
+  if (e.target.closest("[data-custom]")) { showCustom(true); return; }
+  if (e.target.id === "cfSugg") { cf("cfCities").dataset.touched = ""; updateCustom(); return; }
+  if (e.target.id === "cfBack") { showCustom(false); newMenu.querySelector(".sizebtn")?.focus(); return; }
+  if (e.target.id === "cfStart") { startCustom(); return; }
   const b = e.target.closest("[data-size]");
   if (b) { newMenu.hidden = true; try { localStorage.setItem(SIZE_KEY, b.dataset.size); } catch (err) {} newGame((Math.random() * 1e9) | 0, b.dataset.size); return; }
   if (e.target.id === "newCancel" || e.target === newMenu) newMenu.hidden = true;
