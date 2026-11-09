@@ -20,7 +20,9 @@
   --accent-ink: #1a1206;
   --you: #6fc0ee;
   --cpu: #e2614a;
-  --sel: #ff2b2b;   /* selected-unit outline, dashed with white */
+  --sel: #ff2b2b;
+  --cpu2: #f4d03a;  /* third player (yellow) */
+  --cpu3: #6cf58a;  /* fourth player (bright green, light enough to stand off the olive land) */   /* selected-unit outline, dashed with white */
   --neutral: #c9c3ae;
   --sea: #15324a;
   --sea-2: #183850;
@@ -54,7 +56,17 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 34px; letter
 }
 .btn:hover { border-color: var(--muted); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.tip { position: fixed; z-index: 30; max-width: 270px; background: var(--panel-2); border: 1px solid var(--accent); padding: 9px 11px; display: grid; gap: 6px; font-size: 12px; pointer-events: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.tip .tiphead { display: flex; justify-content: space-between; gap: 12px; }
+.tip .tiphead b { font-size: 13px; }
+.tip .tiphead span { color: var(--muted); }
+.tip .tipstats { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 12px; font-variant-numeric: tabular-nums; }
+.tip .tipstats span { color: var(--muted); font-size: 11px; }
+.tip .tipstats b { display: block; color: var(--fg); font-size: 14px; }
+.tip ul { margin: 0; padding-left: 16px; color: var(--muted); display: grid; gap: 2px; }
+.tip .tiprule { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
+.tip .tiphint { color: var(--accent); font-size: 11px; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .btn.primary kbd { color: var(--accent-ink); border-color: currentColor; opacity: 0.7; }
 .btn.on { border-color: var(--accent); color: var(--accent); }
@@ -140,13 +152,14 @@ details.guide code { color: var(--fg); }
 #cfSeed:focus-visible, .cf-row input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 520px) { .cf-row { grid-template-columns: 1fr; gap: 4px; } }
 .modal .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.statscard { width: min(880px, 100%); }
+.modal .card.statscard { width: min(1120px, 100%); } /* room for up to four empires side by side */
 .record { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .record th, .record td { padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 .record th:first-child, .record td:first-child { text-align: left; }
 .record thead th { font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .record thead tr.side th { color: var(--fg); font-size: 12px; letter-spacing: 0.06em; }
-.record thead tr.side th.you { color: var(--you); } .record thead tr.side th.cpu { color: var(--cpu); }
+.record thead tr.side th.p0 { color: var(--you); } .record thead tr.side th.p1 { color: var(--cpu); }
+.record thead tr.side th.p2 { color: var(--cpu2); } .record thead tr.side th.p3 { color: var(--cpu3); }
 .record .split { border-left: 1px solid var(--line); }
 .record td.zero { color: var(--muted); opacity: 0.6; }
 .record tfoot td { font-weight: 600; border-bottom: 0; border-top: 1px solid var(--muted); }
@@ -192,6 +205,7 @@ details.guide code { color: var(--fg); }
             <div class="cf-row"><label for="cfH">Height</label><input type="range" id="cfH" min="30" max="80" step="1"><output id="cfHo" for="cfH"></output></div>
             <div class="cf-row"><label for="cfLand">Land</label><input type="range" id="cfLand" min="15" max="60" step="1"><output id="cfLando" for="cfLand"></output></div>
             <div class="cf-row"><label for="cfCities">Cities</label><input type="range" id="cfCities" min="6" max="100" step="1"><output id="cfCitieso" for="cfCities"></output></div>
+            <div class="cf-row"><label for="cfAI">Computers</label><input type="range" id="cfAI" min="1" max="3" step="1"><output id="cfAIo" for="cfAI"></output></div>
             <div class="cf-row"><label for="cfSeed">Map number</label><input type="text" id="cfSeed" inputmode="numeric" maxlength="10" placeholder="Leave blank for a random map" autocomplete="off"><span class="cf-hint">Optional</span></div>
             <div class="cf-hint" id="cfHint"></div>
             <div class="actions"><button class="btn" id="cfBack">Back to sizes</button><button class="btn primary" id="cfStart">Start custom map</button></div>
@@ -222,12 +236,14 @@ details.guide code { color: var(--fg); }
       <div class="panel keys">
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
+        <div>Click an enemy unit, or right-click any unit, to see its hit points.</div>
         <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit; <kbd>F</kbd> centers on it. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
+    <div class="tip" id="tip" role="tooltip" hidden></div>
   </div>
 
   <details class="guide">
@@ -373,10 +389,16 @@ function buildCost(c, type = c.prod) {
   return c.lastBuilt === type ? Math.max(1, Math.round(base * (1 - CONFIG.repeatDiscount))) : base;
 }
 
+// Player 0 is you; 1-3 are computer empires (custom maps can have up to three).
 const PLAYERS = [
   { name: "You", human: true },
-  { name: "Computer", human: false },
+  { name: "Red", human: false },
+  { name: "Yellow", human: false },
+  { name: "Green", human: false },
 ];
+const nPlayers = () => G.nPlayers || 2;
+const computers = () => Array.from({ length: nPlayers() - 1 }, (_, i) => i + 1);
+const enemyName = o => (nPlayers() > 2 ? PLAYERS[o]?.name || "Enemy" : "Enemy");
 
 // =====================================================================
 // UTILITIES
@@ -488,7 +510,7 @@ function newGame(seed, sizeKey = "medium", custom = null) {
   const rng = mulberry32(seed);
   const m = genMap(rng, size.land ?? CONFIG.landFraction);
   G = {
-    seed, size: sizeKey, custom: sizeKey === "custom" ? custom : null, W, H, turn: 1, terrain: m.terrain, continent: m.continent, contSize: m.contSize,
+    seed, size: sizeKey, custom: sizeKey === "custom" ? custom : null, nPlayers: 1 + (sizeKey === "custom" && custom?.ai ? custom.ai : 1), W, H, turn: 1, terrain: m.terrain, continent: m.continent, contSize: m.contSize,
     cities: placeCities(rng, m.terrain, size.cities), units: [], nextId: 1,
     seen: [new Uint8Array(N), new Uint8Array(N)], known: [{}, {}],
     sel: null, cityPanel: null, gotoMode: false, hover: null, log: [], over: null,
@@ -496,13 +518,18 @@ function newGame(seed, sizeKey = "medium", custom = null) {
   buildIndex();
   const contOf = c => G.continent[idx(c.x, c.y)];
   let pool = G.cities.filter(c => G.contSize[contOf(c)] >= 40 * N / 2560 && isCoastal(idx(c.x, c.y)));
-  if (pool.length < 2) pool = [...G.cities].sort((a, b) => G.contSize[contOf(b)] - G.contSize[contOf(a)]).slice(0, 10);
-  const hc = pool[Math.floor(rng() * pool.length)];
-  const ac = pool.filter(c => c !== hc).reduce((best, c) => cheb(c, hc) > cheb(best, hc) ? c : best);
-  hc.owner = 0; ac.owner = 1;
-  spawn("A", 0, hc.x, hc.y); spawn("A", 1, ac.x, ac.y);
+  if (pool.length < G.nPlayers) pool = [...G.cities].sort((a, b) => G.contSize[contOf(b)] - G.contSize[contOf(a)]).slice(0, Math.max(10, G.nPlayers));
+  // Starting cities: yours at random, then each computer as far as possible from everyone already placed.
+  const starts = [pool[Math.floor(rng() * pool.length)]];
+  const gap = c => Math.min(...starts.map(st => cheb(c, st)));
+  while (starts.length < G.nPlayers) {
+    const cand = pool.filter(c => !starts.includes(c)).length ? pool.filter(c => !starts.includes(c)) : G.cities.filter(c => !starts.includes(c));
+    starts.push(cand.reduce((best, c) => gap(c) > gap(best) ? c : best));
+  }
+  starts.forEach((c, pl) => { c.owner = pl; spawn("A", pl, c.x, c.y); });
+  const hc = starts[0];
   G.cityPanel = hc.id;
-  log(`${size.name} map (${W}×${H}, ${G.cities.length} cities${size.land ? `, ${Math.round(size.land * 100)}% land` : ""}), #${seed}. Your capital is <b>${hc.name}</b>. Grey cities are neutral — send armies to take them.`);
+  log(`${size.name} map (${W}×${H}, ${G.cities.length} cities${size.land ? `, ${Math.round(size.land * 100)}% land` : ""}), #${seed}. Your capital is <b>${hc.name}</b>.${G.nPlayers > 2 ? ` You face ${G.nPlayers - 1} computer empires: ${computers().map(q => PLAYERS[q].name).join(", ")}. They fight each other too.` : ""} Grey cities are neutral — send armies to take them.`);
   window.G = G;
   beginHumanTurn(true);
 }
@@ -522,7 +549,8 @@ function spawn(type, owner, x, y) {
 
 // ---- War record: per player and unit type, how many were built, lost, and destroyed (enemy units killed).
 function stats(p) {
-  if (!G.stats) G.stats = [0, 1].map(() => ({ built: {}, lost: {}, destroyed: {}, captured: 0, citiesLost: 0 }));
+  if (!G.stats) G.stats = [];
+  if (!G.stats[p]) G.stats[p] = { built: {}, lost: {}, destroyed: {}, captured: 0, citiesLost: 0 };
   const s = G.stats[p];
   // City assaults: capture attempts this player made (by target), and enemy attempts on its own cities.
   if (!s.assaults) s.assaults = { neutral: { won: 0, failed: 0 }, enemy: { won: 0, failed: 0 } };
@@ -767,7 +795,12 @@ function startTurn(p) {
 function alive(p) { return G.cities.some(c => c.owner === p) || G.units.some(u => u.owner === p); }
 function checkOver() {
   if (G.over) return;
-  if (!alive(1)) G.over = "win"; else if (!alive(0)) G.over = "lose";
+  if (!alive(0)) { G.over = "lose"; return; }
+  for (const q of computers()) if (!alive(q) && !(G.out && G.out[q])) {
+    (G.out || (G.out = {}))[q] = true;
+    if (nPlayers() > 2) log(`The <b>${PLAYERS[q].name}</b> empire has been wiped out.`, "good");
+  }
+  if (computers().every(q => !alive(q))) G.over = "win";
 }
 
 // =====================================================================
@@ -855,7 +888,7 @@ function executeOrders(u) {
 // =====================================================================
 // COMPUTER OPPONENT
 // =====================================================================
-const AI = 1;
+let AI = 1; // the computer player whose turn is running; the AI code works for whichever one it is
 let aiTargets = new Set(); // continents that still hold non-AI cities
 let aiLand = {};           // our land units per continent this turn
 
@@ -1144,10 +1177,16 @@ function beginHumanTurn(first) {
 function endTurn() {
   if (G.over) return;
   G.gotoMode = false;
-  // A revealed sub stays visible until its owner's next turn begins.
-  for (const u of G.units) if (u.owner === AI) u.revealed = false;
-  startTurn(AI);
-  aiTurn();
+  // Each computer empire takes its turn in order. A revealed sub stays visible until its owner's next turn begins.
+  for (const q of computers()) {
+    if (!alive(q)) continue;
+    AI = q;
+    for (const u of G.units) if (u.owner === q) u.revealed = false;
+    startTurn(q);
+    aiTurn();
+    if (!alive(0)) break;
+  }
+  AI = 1;
   for (const u of G.units) if (u.owner === 0) u.revealed = false;
   checkOver();
   G.turn++;
@@ -1205,6 +1244,9 @@ function onTileClick(x, y) {
     if (own.length) { const k = own.indexOf(u); const pick = own[(k + 1) % own.length]; G.sel = pick.id; pick.waitSeq = 0; }
     renderAll(); return;
   }
+  // Clicking enemy units (not adjacent to a unit ready to attack) shows their hit points.
+  const foes = visibleUnitsAt(x, y).filter(o => o.owner !== 0);
+  if (foes.length) { showTileInfo(x, y, foes, u ? `To send your ${UNIT_TYPES[u.type].name} there, press G and then click it.` : ""); return; }
   if (u) {
     // A far click on an enemy city or a visible enemy unit is just a look, not an order (it used to send
     // units there, burning aircraft fuel). Armies may still be click-sent to neutral cities to capture them.
@@ -1305,7 +1347,7 @@ function drawMini() {
   for (const u of G.units) {
     if (u.carriedBy) continue; const i = idx(u.x, u.y);
     if (u.owner !== 0 && (!vis[i] || hiddenFrom(u, 0))) continue;
-    mctx.fillStyle = u.owner === 0 ? COL.you : COL.cpu; mctx.fillRect(u.x * s, u.y * s, s, s);
+    mctx.fillStyle = ownerColor(u.owner); mctx.fillRect(u.x * s, u.y * s, s, s);
   }
   const t = canvas.clientWidth / W;
   if (t) {
@@ -1323,8 +1365,9 @@ function miniJump(e) {
 }
 const css = getComputedStyle(document.documentElement);
 const C = k => css.getPropertyValue("--" + k).trim();
-const COL = { sel: C("sel"), sea: C("sea"), sea2: C("sea-2"), land: [C("land"), C("land-2"), C("land-3")], fog: C("fog"), you: C("you"), cpu: C("cpu"), neutral: C("neutral"), accent: C("accent"), fg: C("fg"), bg: C("bg") };
-const ownerColor = o => (o === 0 ? COL.you : o === 1 ? COL.cpu : COL.neutral);
+const COL = { sel: C("sel"), sea: C("sea"), sea2: C("sea-2"), land: [C("land"), C("land-2"), C("land-3")], fog: C("fog"), you: C("you"), cpu: C("cpu"), cpu2: C("cpu2"), cpu3: C("cpu3"), neutral: C("neutral"), accent: C("accent"), fg: C("fg"), bg: C("bg") };
+const ownerColor = o => (o === 0 ? COL.you : o === 1 ? COL.cpu : o === 2 ? COL.cpu2 : o === 3 ? COL.cpu3 : COL.neutral);
+const ownerToken = o => ["you", "cpu", "cpu2", "cpu3"][o] || "neutral"; // CSS color token for a player
 const T = CONFIG.tile;
 let blink = 0, visCache = new Uint8Array(N);
 
@@ -1436,19 +1479,20 @@ function renderAll() {
   ov.hidden = !G.over;
   if (G.over) {
     document.getElementById("overTitle").textContent = G.over === "win" ? "VICTORY" : "DEFEAT";
-    document.getElementById("overText").textContent = G.over === "win" ? `The enemy empire fell on turn ${G.turn}.` : `Your empire fell on turn ${G.turn}.`;
+    document.getElementById("overText").textContent = G.over === "win" ? `${nPlayers() > 2 ? "Every enemy empire has fallen" : "The enemy empire fell"} on turn ${G.turn}.` : `Your empire fell on turn ${G.turn}.`;
     if (!G.statsShown) { G.statsShown = true; openStats(true); } // show the final war record once
   }
 }
 
 // War record table. final = game over: show both sides; otherwise just yours (the enemy's numbers stay secret).
 function renderStats(final) {
-  const me = stats(0), cpu = stats(1), types = Object.keys(UNIT_TYPES);
+  const me = stats(0), types = Object.keys(UNIT_TYPES);
+  const ids = final ? Array.from({ length: nPlayers() }, (_, i) => i) : [0]; // the enemy's numbers stay secret until the end
+  const sides = ids.map(i => stats(i)), label = i => (i === 0 ? "You" : nPlayers() > 2 ? PLAYERS[i].name : "Computer");
   const cell = (n, split) => `<td class="${n ? "" : "zero"}${split ? " split" : ""}">${n || "–"}</td>`;
-  const sides = final ? [me, cpu] : [me];
+  const sideRow = cols => final ? `<tr class="side"><th></th>${ids.map((i, j) => `<th colspan="${cols}" class="p${i}${j ? " split" : ""}">${label(i)}</th>`).join("")}</tr>` : "";
   const rows = types.filter(k => sides.some(sd => sd.built[k] || sd.lost[k] || sd.destroyed[k]));
-  const head = (final ? `<tr class="side"><th></th><th colspan="3" class="you">You</th><th colspan="3" class="cpu split">Computer</th></tr>` : "") +
-    `<tr><th>Unit</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Built</th><th>Lost</th><th>Destroyed</th>`).join("")}</tr>`;
+  const head = sideRow(3) + `<tr><th>Unit</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Built</th><th>Lost</th><th>Destroyed</th>`).join("")}</tr>`;
   const body = rows.length ? rows.map(k => `<tr><td><span class="unitkey">${k}</span>${UNIT_TYPES[k].name}</td>${sides.map((sd, j) => cell(sd.built[k], j > 0) + cell(sd.lost[k]) + cell(sd.destroyed[k])).join("")}</tr>`).join("")
     : `<tr><td colspan="${1 + sides.length * 3}" class="zero" style="text-align:left">Nothing built or destroyed yet.</td></tr>`;
   const sum = (sd, f) => Object.values(sd[f]).reduce((a, b) => a + b, 0);
@@ -1457,18 +1501,18 @@ function renderStats(final) {
   const pct = (w, f) => (w + f ? Math.round(w / (w + f) * 100) + "%" : "");
   const aCells = (r, split) => { const n = r.won + r.failed; return cell(n, split) + cell(r.won) + cell(r.failed) + `<td class="${n ? "" : "zero"}">${pct(r.won, r.failed) || "–"}</td>`; };
   const tot = sd => ({ won: sd.assaults.neutral.won + sd.assaults.enemy.won, failed: sd.assaults.neutral.failed + sd.assaults.enemy.failed });
-  const aHead = (final ? `<tr class="side"><th></th><th colspan="4" class="you">You</th><th colspan="4" class="cpu split">Computer</th></tr>` : "") +
-    `<tr><th>Target</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Tries</th><th>Taken</th><th>Failed</th><th>Rate</th>`).join("")}</tr>`;
-  const aBody = [["Neutral cities", "neutral"], ["Enemy cities", "enemy"]].map(([label, k]) => `<tr><td>${label}</td>${sides.map((sd, j) => aCells(sd.assaults[k], j > 0)).join("")}</tr>`).join("");
+  const aHead = sideRow(4) + `<tr><th>Target</th>${sides.map((_, j) => `<th${j ? ' class="split"' : ""}>Tries</th><th>Taken</th><th>Failed</th><th>Rate</th>`).join("")}</tr>`;
+  const aBody = [["Neutral cities", "neutral"], ["Enemy cities", "enemy"]].map(([lab, k]) => `<tr><td>${lab}</td>${sides.map((sd, j) => aCells(sd.assaults[k], j > 0)).join("")}</tr>`).join("");
   const aFoot = `<tr><td>Total</td>${sides.map((sd, j) => aCells(tot(sd), j > 0)).join("")}</tr>`;
   const dLine = sd => { const n = sd.defense.held + sd.defense.lost; return n ? `${n} capture attempt${n > 1 ? "s" : ""} (<b>${sd.defense.held}</b> held, <b>${sd.defense.lost}</b> lost)` : "no capture attempts yet"; };
+  const whose = i => (i === 0 ? "Your cities" : nPlayers() > 2 ? `${PLAYERS[i].name}'s cities` : "The computer's cities");
   document.getElementById("statsTable").innerHTML = `<table class="record"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>` +
     `<h3 class="rechead">City assaults</h3><table class="record"><thead>${aHead}</thead><tbody>${aBody}</tbody><tfoot>${aFoot}</tfoot></table>` +
     `<p class="recnote">A try is an army moving into an empty city (50% to take it; the army is used up either way). Fights with defenders aren't attempts.</p>` +
-    `<p class="recnote">Your cities faced ${dLine(me)}.${final ? ` The computer's cities faced ${dLine(cpu)}.` : ""}</p>`;
+    `<p class="recnote">${ids.map(i => `${whose(i)} faced ${dLine(stats(i))}.`).join(" ")}</p>`;
   const mineNow = G.cities.filter(c => c.owner === 0).length;
   document.getElementById("statsLine").innerHTML = `<span>Turn <b>${G.turn}</b></span><span>Your cities <b>${mineNow}</b></span><span>Cities captured <b>${me.captured}</b></span><span>Cities lost <b>${me.citiesLost}</b></span>` +
-    (final ? `<span>Computer captured <b>${cpu.captured}</b> cities</span>` : "") +
+    (final ? ids.slice(1).map(i => `<span>${label(i)} captured <b>${stats(i).captured}</b> cities</span>`).join("") : "") +
     `<span style="flex-basis:100%">Built counts units your cities produced. Lost counts your units destroyed in any way. Destroyed counts enemy units of that type you killed.</span>`;
 }
 function openStats(final) {
@@ -1482,7 +1526,7 @@ function openStats(final) {
 
 function renderMeta() {
   const mine = G.cities.filter(c => c.owner === 0).length;
-  const enemyKnown = G.cities.filter(c => G.known[0][c.id] === 1).length;
+  const enemyKnown = G.cities.filter(c => G.known[0][c.id] > 0).length;
   const waiting = G.units.filter(needsOrders).length;
   document.getElementById("meta").innerHTML =
     `<span>${G.size === "custom" ? "Custom" : MAP_SIZES[G.size]?.name || "Map"} <b>${W}×${H}</b></span><span>Turn <b>${G.turn}</b></span><span class="you">Your cities <b>${mine}</b></span>` +
@@ -1526,7 +1570,68 @@ function renderUnitPanel() {
   el.innerHTML = html;
 }
 
+// ---- Unit info card for production buttons: stats plus short notes, all read from UNIT_TYPES.
+function unitNotes(k) {
+  const t = UNIT_TYPES[k], n = [];
+  if (t.captures) n.push("Captures cities (used up either way)");
+  if (t.domain === "sea") n.push("Built in port cities only");
+  if (t.fuel) n.push(`Fuel ${t.fuel}; refuels in cities${t.noCarrier ? " only" : " and on carriers"}`);
+  if (t.carries) n.push(`Carries ${t.capacity} ${t.carries === "land" ? "spaces of armies and tanks" : "fighters"}; loses ${t.capLossPerHp} per hp of damage`);
+  if (t.size > 1) n.push(`Takes ${t.size} transport spaces`);
+  if (t.noAttack && !t.ranged) n.push("Can't attack; defends normally");
+  if (t.stealth) n.push("Hidden unless an enemy destroyer or fighter is adjacent; ambushes get a free first shot");
+  if (t.detects) n.push("Spots hidden subs next to it");
+  if (t.ranged) { const r = t.ranged; n.push(`Fires at adjacent ${[].concat(r.vs).join("/").replace("ground", "land")} units, ${r.dmg ?? t.str} dmg, ${r.returnFire ? "only ships at sea fire back (once)" : "no return fire"}${r.endsTurn ? "; ends its turn" : r.perTurn ? `; ${r.perTurn} per turn${r.freeInCities ? " outside cities, unlimited on cities" : ""}` : ""}`); }
+  if (t.raids) n.push("Bombing an empty enemy city resets its production");
+  if (t.cityAttack) n.push(`Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} enemy cities, one round per move`);
+  if (t.oneShotDefense) n.push(`Attackers get one shot${t.returnFireVs ? "; fires back at fighters" : ""}`);
+  return n;
+}
+const tipEl = () => document.getElementById("tip");
+function showUnitTip(btn) {
+  const k = btn.dataset.prod, t = UNIT_TYPES[k], c = G.cities[G.cityPanel]; if (!t || !c) return;
+  const cost = buildCost(c, k), notes = unitNotes(k);
+  const tip = tipEl();
+  tip.innerHTML = `<div class="tiphead"><b>${t.name}</b><span>${cost} turns${cost < t.cost ? " (repeat)" : t.cost !== Math.max(1, Math.round(t.cost * (1 - CONFIG.repeatDiscount))) ? `, then ${Math.max(1, Math.round(t.cost * (1 - CONFIG.repeatDiscount)))}` : ""}</span></div>` +
+    `<div class="tipstats"><span>HP<b>${t.hp}</b></span><span>Damage<b>${t.str}</b></span><span>Moves<b>${t.moves}</b></span><span>Sight<b>${t.sight ?? CONFIG.sight}</b></span></div>` +
+    (notes.length ? `<ul>${notes.map(s => `<li>${s}</li>`).join("")}</ul>` : "");
+  tip.hidden = false;
+  const r = btn.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = Math.min(Math.max(8, r.left + r.width / 2 - tw / 2), window.innerWidth - tw - 8);
+  let top = r.bottom + 8; if (top + th > window.innerHeight - 8) top = r.top - th - 8;
+  tip.style.left = left + "px"; tip.style.top = Math.max(8, top) + "px";
+}
+function hideUnitTip() { const t = tipEl(); if (t) { t.hidden = true; delete t.dataset.mode; } }
+
+// ---- Unit info card for a map tile: hit points and condition of the units there (strongest first).
+function showTileInfo(x, y, units, hint = "") {
+  const list = [...units].sort((a, b) => b.hp * UNIT_TYPES[b.type].str - a.hp * UNIT_TYPES[a.type].str);
+  const shown = list.slice(0, 4), more = list.length - shown.length;
+  const html = shown.map((o, n) => {
+    const t = UNIT_TYPES[o.type], mine = o.owner === 0, notes = [];
+    if (n === 0 && list.length > 1) notes.push("Fights first if this tile is attacked");
+    if (t.hp > 1 && isCrippled(o)) notes.push("Badly damaged: moves at half speed");
+    if (o.cargo.length) notes.push(`Carrying ${o.cargo.length} unit${o.cargo.length > 1 ? "s" : ""}`);
+    if (mine && t.fuel) notes.push(`Fuel ${o.fuel}/${t.fuel}`);
+    return `<div class="tiphead"><b style="color:var(--${ownerToken(o.owner)})">${mine ? "Your" : enemyName(o.owner)} ${t.name}</b><span>${o.x},${o.y}</span></div>` +
+      `<div class="tipstats"><span>HP<b>${o.hp}/${t.hp}</b></span><span>Damage<b>${t.str}</b></span><span>Moves<b>${maxMoves(o)}</b></span><span>Sight<b>${sightOf(o)}</b></span></div>` +
+      (notes.length ? `<ul>${notes.map(s => `<li>${s}</li>`).join("")}</ul>` : "");
+  }).join('<hr class="tiprule">') + (more > 0 ? `<div class="tiphint" style="color:var(--muted)">+${more} more unit${more > 1 ? "s" : ""} here</div>` : "") + (hint ? `<div class="tiphint">${hint}</div>` : "");
+  const tip = tipEl(); tip.innerHTML = html; tip.hidden = false; tip.dataset.mode = "info";
+  const r = canvas.getBoundingClientRect(), ts = r.width / W, tx = r.left + x * ts, ty = r.top + y * ts;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const left = Math.min(Math.max(8, tx + ts / 2 - tw / 2), window.innerWidth - tw - 8);
+  let top = ty + ts + 8; if (top + th > window.innerHeight - 8) top = ty - th - 8;
+  tip.style.left = left + "px"; tip.style.top = Math.max(8, top) + "px";
+}
+const visibleUnitsAt = (x, y) => unitsAt(x, y).filter(o => o.owner === 0 || (visCache[idx(x, y)] && !hiddenFrom(o, 0)));
+document.addEventListener("pointerdown", () => { if (tipEl()?.dataset.mode === "info") hideUnitTip(); }, true);
+document.addEventListener("pointerover", e => { const b = e.target.closest?.("[data-prod]"); if (b && G) showUnitTip(b); });
+document.addEventListener("pointerout", e => { const b = e.target.closest?.("[data-prod]"); if (b && !b.contains(e.relatedTarget)) hideUnitTip(); });
+document.addEventListener("focusin", e => { const b = e.target.closest?.("[data-prod]"); if (b && G) showUnitTip(b); else hideUnitTip(); });
+
 function renderCityPanel() {
+  hideUnitTip();
   const el = document.getElementById("cityPanel");
   const c = G.cityPanel != null ? G.cities[G.cityPanel] : null;
   if (!c || c.owner !== 0) { el.hidden = true; return; }
@@ -1538,7 +1643,7 @@ function renderCityPanel() {
   html += `<div>Building <b>${t.name}</b> · ${c.progress}/${need} turns${need < t.cost ? " · repeat discount" : ""}</div><div class="bar"><i style="width:${(c.progress / need) * 100}%"></i></div>`;
   html += `<div class="prod">` + Object.entries(UNIT_TYPES).map(([k, ut]) => {
     const dis = ut.domain === "sea" && !coastal;
-    return `<button class="btn${k === c.prod ? " on" : ""}" data-prod="${k}" ${dis ? "disabled" : ""}><span>${ut.name}</span><span>${buildCost(c, k)}t</span></button>`;
+    return `<button class="btn${k === c.prod ? " on" : ""}" data-prod="${k}"${dis ? ' aria-disabled="true"' : ""} aria-describedby="tip"><span>${ut.name}</span><span>${buildCost(c, k)}t</span></button>`;
   }).join("") + `</div>`;
   html += `<div class="empty" style="font-size:12px">Switching production restarts progress. Building the same unit again takes 1/6 less time.</div>`;
   if (here.length) html += `<div class="row">` + here.map(u => `<button class="btn" data-sel="${u.id}">${UNIT_TYPES[u.type].name}</button>`).join("") + `</div>`;
@@ -1559,7 +1664,7 @@ function renderCityList() {
     const coastal = isCoastal(idx(c.x, c.y));
     const opts = Object.entries(UNIT_TYPES).map(([k, ut]) => {
       const dis = ut.domain === "sea" && !coastal;
-      return `<option value="${k}"${k === c.prod ? " selected" : ""}${dis ? " disabled" : ""}>${ut.name} (${buildCost(c, k)}t)</option>`;
+      return `<option value="${k}"${k === c.prod ? " selected" : ""}${dis ? " disabled" : ""} title="HP ${ut.hp} · Damage ${ut.str} · Moves ${ut.moves} · Sight ${ut.sight ?? CONFIG.sight}">${ut.name} (${buildCost(c, k)}t)</option>`;
     }).join("");
     const here = unitsAt(c.x, c.y).filter(u => u.owner === 0).length;
     html += `<tr${G.cityPanel === c.id ? ' class="cur"' : ""}><td><button class="linkbtn" data-city="${c.id}">${c.name}</button>${coastal ? "" : ' <span class="disc" style="color:var(--muted)">inland</span>'}</td><td>${c.x},${c.y}</td>` +
@@ -1582,9 +1687,9 @@ function updateStatus() {
   if (!G.seen[0][i]) { s.textContent = `${x},${y} · unexplored`; return; }
   const parts = [`${x},${y}`, G.terrain[i] ? "land" : "sea"];
   const c = G.cityIdx.get(i);
-  if (c) { const o = visCache[i] ? c.owner : G.known[0][c.id]; parts.push(`${c.name} (${o === 0 ? "yours" : o === 1 ? "enemy" : "neutral"})`); }
+  if (c) { const o = visCache[i] ? c.owner : G.known[0][c.id]; parts.push(`${c.name} (${o === 0 ? "yours" : o > 0 ? (nPlayers() > 2 ? PLAYERS[o].name : "enemy") : "neutral"})`); }
   const us = unitsAt(x, y).filter(u => u.owner === 0 || (visCache[i] && !hiddenFrom(u, 0)));
-  if (us.length) parts.push(us.map(u => `${u.owner === 0 ? "" : "enemy "}${UNIT_TYPES[u.type].name}${u.cargo.length ? ` +${u.cargo.length}` : ""}`).join(", "));
+  if (us.length) parts.push(us.map(u => `${u.owner === 0 ? "" : enemyName(u.owner).toLowerCase() + " "}${UNIT_TYPES[u.type].name} ${u.hp}/${UNIT_TYPES[u.type].hp} hp${u.cargo.length ? ` +${u.cargo.length} aboard` : ""}`).join(", "));
   s.textContent = parts.join(" · ");
 }
 
@@ -1611,6 +1716,13 @@ document.addEventListener("pointermove", e => {
 });
 document.addEventListener("pointerup", () => { drag = null; mapScroll.classList.remove("dragging"); });
 canvas.addEventListener("click", e => { if (dragged) { dragged = false; return; } const t = tileFromEvent(e); if (t) onTileClick(t[0], t[1]); });
+// Right-click any tile to inspect the units there without acting.
+canvas.addEventListener("contextmenu", e => {
+  e.preventDefault(); const t = tileFromEvent(e); if (!t || !G) return;
+  const us = visibleUnitsAt(t[0], t[1]);
+  if (us.length) showTileInfo(t[0], t[1], us); else hideUnitTip();
+});
+mapScroll.addEventListener("scroll", () => { if (tipEl()?.dataset.mode === "info") hideUnitTip(); }, { passive: true });
 canvas.addEventListener("mousemove", e => { const t = tileFromEvent(e); if (String(t) !== String(G.hover)) { G.hover = t; render(); updateStatus(); } });
 canvas.addEventListener("mouseleave", () => { G.hover = null; render(); updateStatus(); });
 
@@ -1665,6 +1777,7 @@ document.addEventListener("click", e => {
   else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; u.waitSeq = 0; renderAll(); } }
   else if (b.dataset.step) { const [dx, dy] = b.dataset.step.split(",").map(Number); humanStep(dx, dy); }
   else if (b.dataset.prod) {
+    if (b.getAttribute("aria-disabled") === "true") { flash(`${UNIT_TYPES[b.dataset.prod].name}s can only be built in port cities.`); return; }
     const c = G.cities[G.cityPanel];
     if (c && c.prod !== b.dataset.prod) { c.prod = b.dataset.prod; c.progress = 0; renderAll(); }
   }
@@ -1750,6 +1863,7 @@ function showCustom(on) {
   newMenu.querySelector("p").textContent = on ? "Set up your own map. Your current game will end." : "Pick a map size. Your current game will end.";
   if (on) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); } catch (e) {}
+    cf("cfAI").value = saved.ai || 1;
     cf("cfW").value = saved.W || 80; cf("cfH").value = saved.H || 50; cf("cfLand").value = saved.land || 36;
     cf("cfCities").dataset.touched = saved.touched ? "1" : "";
     if (saved.cities) cf("cfCities").value = saved.cities;
@@ -1758,8 +1872,12 @@ function showCustom(on) {
 }
 function updateCustom() {
   const w = +cf("cfW").value, h = +cf("cfH").value, land = +cf("cfLand").value, ct = cf("cfCities");
+  const ai = +cf("cfAI").value;
   const sugg = citySuggestion(w, h, land), max = cityMax(w, h, land);
+  ct.min = Math.min(max, 4 + 2 * ai); // enough cities for every empire to start with room to grow
   ct.max = max;
+  if (+ct.value < +ct.min) ct.value = ct.min;
+  cf("cfAIo").innerHTML = computersLabel(ai);
   if (!ct.dataset.touched) ct.value = Math.min(sugg, max);
   if (+ct.value > max) ct.value = max;
   const cities = +ct.value;
@@ -1772,15 +1890,18 @@ function updateCustom() {
     (w > vw || h > vh ? `The window shows ${vw}×${vh}; the rest scrolls.` : "The whole map fits the window.") +
     ` Up to ${max} cities fit; if the land is crowded, fewer may be placed.`;
 }
+function computersLabel(ai) {
+  return `${ai} <small>${[1, 2, 3].slice(0, ai).map(q => `<span style="color:var(--${ownerToken(q)})">${PLAYERS[q].name}</span>`).join(", ")}</small>`;
+}
 function startCustom() {
-  const settings = { W: +cf("cfW").value, H: +cf("cfH").value, land: +cf("cfLand").value, cities: +cf("cfCities").value, touched: !!cf("cfCities").dataset.touched };
+  const settings = { W: +cf("cfW").value, H: +cf("cfH").value, land: +cf("cfLand").value, cities: +cf("cfCities").value, ai: +cf("cfAI").value, touched: !!cf("cfCities").dataset.touched };
   try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(settings)); } catch (e) {}
   const digits = cf("cfSeed").value.replace(/\D/g, "");
   const seed = digits ? Number(digits) % 4294967296 : (Math.random() * 1e9) | 0;
   newMenu.hidden = true;
-  newGame(seed, "custom", { W: settings.W, H: settings.H, cities: settings.cities, land: settings.land / 100 });
+  newGame(seed, "custom", { W: settings.W, H: settings.H, cities: settings.cities, land: settings.land / 100, ai: settings.ai });
 }
-for (const id of ["cfW", "cfH", "cfLand"]) cf(id).addEventListener("input", updateCustom);
+for (const id of ["cfW", "cfH", "cfLand", "cfAI"]) cf(id).addEventListener("input", updateCustom);
 cf("cfCities").addEventListener("input", () => { cf("cfCities").dataset.touched = "1"; updateCustom(); });
 cf("cfSeed").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); startCustom(); } });
 
