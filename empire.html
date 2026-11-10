@@ -44,9 +44,10 @@ body {
   padding-block: 16px 32px;
 }
 .app { max-width: 1260px; margin: 0 auto; display: grid; gap: 14px; }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
-h1 { font-family: var(--font-display); font-weight: 800; font-size: 34px; letter-spacing: 0.06em; margin: 0; line-height: 1; color: var(--accent); }
-.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+header .btn { padding: 6px 8px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter-spacing: 0.06em; margin: 0; line-height: 1; color: var(--accent); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .meta b { color: var(--fg); font-weight: 600; }
 .meta .you b { color: var(--you); } .meta .cpu b { color: var(--cpu); }
 .spacer { flex: 1; }
@@ -280,6 +281,7 @@ const CONFIG = {
   crippledAt: 0.5,         // at or below this share of max hp, a unit moves at half speed
   cargoLossPerHp: 2,       // default cargo spaces lost per hp of damage (units can override with capLossPerHp)
   detectRange: 1,          // how close a detector must be to see a stealthy unit
+  raidSetback: 4,          // turns of production a bomber raid knocks off an empty enemy city
   tile: 16,                // drawing size in px
   viewTiles: 64,           // tiles across the visible map window; wider maps scroll inside it
   viewRows: 40,            // tiles down the visible map window (for viewTiles columns); taller maps scroll
@@ -298,7 +300,7 @@ const CONFIG = {
 //   ("land", "sea", or "ground" = any non-air unit on a land tile, cities included; may be a list).
 //   returnFire: target kinds that get one shot back if they survive. perTurn: max shots per turn (it can still move).
 //   freeInCities: strikes on enemy cities don't count toward perTurn (each still costs 1 move).
-// raids: bombing an undefended enemy city resets that city's production progress.
+// raids: bombing an undefended enemy city sets its production back CONFIG.raidSetback turns.
 // oneShotDefense: anything attacking it gets a single shot. returnFireVs: if it survives, it fires back once
 //   at attackers of this domain (bombers answer fighters); everyone else gets no return fire.
 //   dmg defaults to the unit's damage; endsTurn: true uses up all remaining moves.
@@ -678,9 +680,10 @@ function doMove(u, x, y) {
     // Bombing an empty enemy city knocks its production back to zero.
     if (!UNIT_TYPES[u.type].ranged?.freeInCities) u.shots = (u.shots || 0) + 1;
     const c = a.city, was = c.progress, what = UNIT_TYPES[c.prod].name;
-    c.progress = 0;
-    if (mine) log(`Your Bomber hit <b>${c.name}</b>: its ${what} production was set back to 0 (was ${was}/${buildCost(c)}).`, "good");
-    else if (c.owner === 0) log(`An enemy bomber hit <b>${c.name}</b>: your ${what} production was set back to 0 (was ${was}/${buildCost(c)}).`, "bad");
+    c.progress = Math.max(0, was - CONFIG.raidSetback);
+    const lost = was - c.progress, now = `${c.progress}/${buildCost(c)}`;
+    if (mine) log(`Your Bomber hit <b>${c.name}</b>: its ${what} production lost ${lost} turn${lost === 1 ? "" : "s"} (now ${now}).`, "good");
+    else if (c.owner === 0) log(`An enemy bomber hit <b>${c.name}</b>: your ${what} production lost ${lost} turn${lost === 1 ? "" : "s"} (now ${now}).`, "bad");
   } else if (a.kind === "bump") {
     // Ran into a sub it couldn't see: ships stop dead; aircraft just lose the one move. The sub is exposed.
     const air = UNIT_TYPES[u.type].domain === "air";
@@ -1530,7 +1533,7 @@ function renderMeta() {
   const waiting = G.units.filter(needsOrders).length;
   document.getElementById("meta").innerHTML =
     `<span>${G.size === "custom" ? "Custom" : MAP_SIZES[G.size]?.name || "Map"} <b>${W}×${H}</b></span><span>Turn <b>${G.turn}</b></span><span class="you">Your cities <b>${mine}</b></span>` +
-    `<span class="cpu">Known enemy cities <b>${enemyKnown}</b></span><span>Units awaiting orders <b>${waiting}</b></span>`;
+    `<span class="cpu" title="Enemy cities you know about">Enemy cities <b>${enemyKnown}</b></span><span title="Your units still waiting for orders this turn">Awaiting orders <b>${waiting}</b></span>`;
 }
 
 function renderUnitPanel() {
@@ -1549,7 +1552,7 @@ function renderUnitPanel() {
   if (u.hp < t.hp) { const inCity = cityAt(u.x, u.y)?.owner === 0; html += `<dt>Repair</dt><dd>${inCity ? `+${CONFIG.cityRepair} hp next turn` : `rested ${Math.min(u.idle || 0, CONFIG.fieldRestTurns)}/${CONFIG.fieldRestTurns} turns${u.acted ? " (moved this turn)" : ""}`}</dd>`; }
   html += `<dt>Sight</dt><dd>${UNIT_TYPES[u.type].sight ?? CONFIG.sight} tile${(UNIT_TYPES[u.type].sight ?? CONFIG.sight) > 1 ? "s" : ""}</dd>`;
   if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : t.ranged.perTurn ? `${t.ranged.perTurn} per turn${t.ranged.freeInCities ? " outside cities (used: " + (shotsSpent(u) ? "yes" : "no") + "), unlimited on enemy cities" : shotsSpent(u) ? " (used)" : ""}, each costs 1 move` : "costs 1 move"}</dd>`;
-  if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city resets its production</dd>`;
+  if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city sets its production back ${CONFIG.raidSetback} turns</dd>`;
   if (t.cityAttack) html += `<dt>Cities</dt><dd>Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} an adjacent enemy city: one round per move</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot${t.returnFireVs ? `; fires back once at ${t.returnFireVs === "air" ? "fighters" : t.returnFireVs + " units"}, never at anything else` : "; never fires back"}</dd>`;
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""} · landing in a city ends its move</dd>`;
@@ -1582,7 +1585,7 @@ function unitNotes(k) {
   if (t.stealth) n.push("Hidden unless an enemy destroyer or fighter is adjacent; ambushes get a free first shot");
   if (t.detects) n.push("Spots hidden subs next to it");
   if (t.ranged) { const r = t.ranged; n.push(`Fires at adjacent ${[].concat(r.vs).join("/").replace("ground", "land")} units, ${r.dmg ?? t.str} dmg, ${r.returnFire ? "only ships at sea fire back (once)" : "no return fire"}${r.endsTurn ? "; ends its turn" : r.perTurn ? `; ${r.perTurn} per turn${r.freeInCities ? " outside cities, unlimited on cities" : ""}` : ""}`); }
-  if (t.raids) n.push("Bombing an empty enemy city resets its production");
+  if (t.raids) n.push(`Bombing an empty enemy city sets its production back ${CONFIG.raidSetback} turns`);
   if (t.cityAttack) n.push(`Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} enemy cities, one round per move`);
   if (t.oneShotDefense) n.push(`Attackers get one shot${t.returnFireVs ? "; fires back at fighters" : ""}`);
   return n;
@@ -1681,11 +1684,16 @@ function renderLog() {
 
 function updateStatus() {
   const s = document.getElementById("status");
-  if (G.gotoMode) { s.textContent = "Click the destination tile. Esc cancels."; return; }
+  // Straight-line distance from the active unit, counted in moves (diagonal steps count as 1). Not a route.
+  const su = selUnit(), dist = (x, y) => {
+    if (!su) return ""; const d = cheb(su, { x, y }); if (!d) return "";
+    return ` · ${d} tile${d === 1 ? "" : "s"} from your ${UNIT_TYPES[su.type].name}${UNIT_TYPES[su.type].fuel ? ` (fuel ${su.fuel})` : ""}`;
+  };
+  if (G.gotoMode) { s.textContent = `Click the destination tile${G.hover ? dist(...G.hover) : ""}. Esc cancels.`; return; }
   if (!G.hover) { s.textContent = "Hover a tile for details."; return; }
   const [x, y] = G.hover, i = idx(x, y);
-  if (!G.seen[0][i]) { s.textContent = `${x},${y} · unexplored`; return; }
-  const parts = [`${x},${y}`, G.terrain[i] ? "land" : "sea"];
+  if (!G.seen[0][i]) { s.textContent = `${x},${y} · unexplored${dist(x, y)}`; return; }
+  const parts = [`${x},${y}${dist(x, y)}`, G.terrain[i] ? "land" : "sea"];
   const c = G.cityIdx.get(i);
   if (c) { const o = visCache[i] ? c.owner : G.known[0][c.id]; parts.push(`${c.name} (${o === 0 ? "yours" : o > 0 ? (nPlayers() > 2 ? PLAYERS[o].name : "enemy") : "neutral"})`); }
   const us = unitsAt(x, y).filter(u => u.owner === 0 || (visCache[i] && !hiddenFrom(u, 0)));
