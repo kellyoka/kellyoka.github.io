@@ -240,7 +240,7 @@ details.guide code { color: var(--fg); }
         <div>Click an enemy unit, or right-click any unit, to see its hit points.</div>
         <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit; <kbd>F</kbd> centers on it. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
-        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home</div>
+        <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home · <kbd>X</kbd> explore (aircraft and ships) · <kbd>P</kbd> fighter patrol (then click the far end)</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
     </aside>
@@ -758,7 +758,7 @@ function intercept(att, tx, ty, defOwner) {
   if (defOwner == null || defOwner < 0) return;
   const key = `${G.turn}:${att.owner}`, at = { x: tx, y: ty };
   const guards = G.units.filter(f => f.owner === defOwner && !f.dead && UNIT_TYPES[f.type].intercepts && f.intercepted !== key &&
-      cheb(f, at) <= CONFIG.interceptRange && (f.sentry || f.carriedBy || cityAt(f.x, f.y)?.owner === f.owner))
+      cheb(f, at) <= CONFIG.interceptRange && (f.sentry || f.carriedBy || f.orders?.kind === "patrol" || cityAt(f.x, f.y)?.owner === f.owner))
     .sort((a, b) => cheb(a, at) - cheb(b, at));
   for (const f of guards) {
     if (att.dead) break;
@@ -886,7 +886,119 @@ function findPath(u, tx, ty) {
 // Follow go-to orders. Land units headed for explored land across water walk to the
 // nearest friendly transport with room, ride it, and go ashore once it's next to
 // the target's landmass. You still steer the transport.
+// ---- Explore orders (aircraft and ships): head for the nearest spot that would reveal unexplored tiles.
+// How many unexplored tiles a unit with sight r would reveal from (x, y).
+function unknownAround(x, y, r) {
+  let n = 0;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const nx = x + dx, ny = y + dy; if (inb(nx, ny) && !G.seen[0][idx(nx, ny)]) n++; }
+  return n;
+}
+// Can an exploring unit pass through tile i? Aircraft avoid cities (landing ends the flight); ships stay on known water and own ports.
+function exploreOpen(u, i, air) {
+  const city = G.cityIdx.get(i);
+  if (air) { if (city) return false; }
+  else if (!G.seen[0][i]) return false;
+  else if (city) { if (city.owner !== u.owner || !isCoastal(i)) return false; }
+  else if (G.terrain[i] !== 0) return false;
+  if (!city && unitsAt(i % W, (i / W) | 0).some(o => o !== u && (o.owner === u.owner || !hiddenFrom(o, u.owner)))) return false;
+  return true;
+}
+// First step toward the best spot to scout: lots of new tiles, not too far away. Aircraft only pick spots they can fly back from.
+function exploreStep(u, air) {
+  const r = sightOf(u), start = idx(u.x, u.y);
+  const bases = air ? [...G.cities.filter(c => c.owner === u.owner), ...G.units.filter(c => UNIT_TYPES[c.type].refuels && (c.id === u.carriedBy || canCarry(c, u)))] : [];
+  const baseDist = (x, y) => { let m = 1e9; for (const b of bases) m = Math.min(m, Math.max(Math.abs(b.x - x), Math.abs(b.y - y))); return m; };
+  const dist = new Int16Array(N).fill(-1), prev = new Int32Array(N).fill(-1), q = [start]; dist[start] = 0;
+  let best = -1, bestScore = -Infinity;
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h], x = i % W, y = (i / W) | 0, d = dist[i];
+    if (i !== start && (!air || d + baseDist(x, y) <= u.fuel - 1)) {
+      const k = unknownAround(x, y, r);
+      if (k) { const score = 2 * k - d; if (score > bestScore) { bestScore = score; best = i; } }
+    }
+    if (air && d >= u.fuel) continue;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy; if (!inb(nx, ny)) continue;
+      const ni = idx(nx, ny); if (dist[ni] !== -1 || !exploreOpen(u, ni, air)) continue;
+      dist[ni] = d + 1; prev[ni] = i; q.push(ni);
+    }
+  }
+  if (best < 0) return null;
+  let c = best; while (prev[c] !== start) c = prev[c];
+  return [c % W, (c / W) | 0];
+}
+// ---- Patrol orders (fighters): fly back and forth between two points, refuelling when needed.
+// Distance from (x, y) to the nearest place aircraft u can refuel.
+function baseDistance(u, x, y) {
+  let m = 1e9;
+  for (const c of G.cities) if (c.owner === u.owner) m = Math.min(m, Math.max(Math.abs(c.x - x), Math.abs(c.y - y)));
+  for (const c of G.units) if (UNIT_TYPES[c.type].refuels && (c.id === u.carriedBy || canCarry(c, u))) m = Math.min(m, Math.max(Math.abs(c.x - x), Math.abs(c.y - y)));
+  return m;
+}
+const enemyNextTo = u => G.units.some(o => o.owner !== u.owner && o.owner >= 0 && !o.carriedBy && cheb(o, u) <= 1 && !hiddenFrom(o, u.owner));
+function setPatrol(u, x, y) {
+  const t = UNIT_TYPES[u.type], i = idx(x, y), c = cityAt(x, y);
+  if (x === u.x && y === u.y) { flash("Pick a different tile for the far end of the patrol."); return; }
+  if ((c && G.seen[0][i] && c.owner !== u.owner) || (visCache[i] && unitsAt(x, y).some(o => o.owner !== u.owner && !hiddenFrom(o, u.owner)))) { flash("A patrol can't end on an enemy city or unit."); return; }
+  const reach = Math.floor(t.fuel / 2), bd = baseDistance(u, x, y);
+  if (bd > reach) { flash(`That spot is ${bd} tiles from your nearest city or carrier. A ${t.name} can patrol about ${reach} tiles out.`); return; }
+  u.orders = { kind: "patrol", ax: u.x, ay: u.y, bx: x, by: y, leg: "b", x, y };
+  u.sentry = false; u.skip = false; u.waitSeq = 0;
+  log(`Your ${t.name} is patrolling between ${u.x},${u.y} and ${x},${y}.`);
+  if (u.moves > 0) executeOrders(u);
+  afterAction();
+}
+function patrolTurn(u) {
+  const t = UNIT_TYPES[u.type], name = t.name;
+  let guard = 0;
+  while (!u.dead && u.moves > 0 && u.orders?.kind === "patrol" && guard++ < 20) {
+    const o = u.orders;
+    if (enemyNextTo(u)) { u.orders = null; log(`Your ${name} at ${u.x},${u.y} spotted an enemy and broke off its patrol.`, "bad"); break; }
+    if (u.x === o.x && u.y === o.y) { // end of this leg: turn around
+      const toB = o.leg === "a"; o.leg = toB ? "b" : "a"; o.x = toB ? o.bx : o.ax; o.y = toB ? o.by : o.ay;
+    }
+    const p = findPath(u, o.x, o.y);
+    if (!p || !p.length) { u.orders = null; log(`Your ${name} can't find a route for its patrol.`); break; }
+    const [nx, ny] = p[0];
+    // Fuel: only take a step it can still get back to base from; otherwise refuel first, then carry on next turn.
+    if (t.fuel && cityAt(nx, ny)?.owner !== u.owner && baseDistance(u, nx, ny) > u.fuel - 1) {
+      if (u.carriedBy || inOwnCity(u)) break;
+      const h = pickHome(u), hp = h && findPath(u, h.x, h.y);
+      if (!hp || !hp.length) break;
+      doMove(u, hp[0][0], hp[0][1]); continue;
+    }
+    const a = classify(u, nx, ny);
+    if (!a || (a.kind !== "move" && a.kind !== "board" && a.kind !== "bump")) break;
+    doMove(u, nx, ny);
+  }
+}
+
+function exploreTurn(u) {
+  const t = UNIT_TYPES[u.type], air = t.domain === "air", name = t.name;
+  let guard = 0;
+  while (!u.dead && u.moves > 0 && u.orders?.kind === "explore" && guard++ < 20) {
+    if (G.units.some(o => o.owner !== u.owner && o.owner >= 0 && !o.carriedBy && cheb(o, u) <= 1 && !hiddenFrom(o, u.owner))) {
+      u.orders = null; log(`Your ${name} at ${u.x},${u.y} spotted an enemy and stopped exploring.`, "bad"); break;
+    }
+    const step = exploreStep(u, air);
+    if (!step) {
+      if (air && !u.carriedBy && !inOwnCity(u)) { // nothing safe left to scout from here: fly back to refuel, then carry on
+        const h = pickHome(u), p = h && findPath(u, h.x, h.y);
+        if (!p || !p.length) { u.orders = null; break; }
+        doMove(u, p[0][0], p[0][1]); computeVisible(0); continue;
+      }
+      u.orders = null; log(`Your ${name} at ${u.x},${u.y} has nothing left to explore within reach.`); break;
+    }
+    const a = classify(u, step[0], step[1]);
+    if (!a) break;
+    doMove(u, step[0], step[1]); computeVisible(0);
+    if (a.kind !== "move" && a.kind !== "bump") break;
+  }
+}
+
 function executeOrders(u) {
+  if (u.orders?.kind === "explore") { exploreTurn(u); return; }
+  if (u.orders?.kind === "patrol") { patrolTurn(u); return; }
   let guard = 0;
   while (!u.dead && u.moves > 0 && u.orders && guard++ < 20) {
     if (u.orders.kind === "home" && !refreshHome(u)) { u.orders = null; if (u.owner === 0) log(`Your ${UNIT_TYPES[u.type].name} has no city or carrier with room to return to.`, "bad"); break; }
@@ -1283,7 +1395,11 @@ function onTileClick(x, y) {
   if (G.over) return;
   const u = selUnit(), city = cityAt(x, y), ownCity = city && city.owner === 0;
   const own = unitsAt(x, y).filter(o => o.owner === 0);
-  if (G.gotoMode && u) { G.gotoMode = false; if (x !== u.x || y !== u.y) setGoto(u, x, y); else renderAll(); return; }
+  if (G.gotoMode && u) {
+    const mode = G.gotoMode; G.gotoMode = false;
+    if (mode === "patrol") { setPatrol(u, x, y); return; }
+    if (x !== u.x || y !== u.y) setGoto(u, x, y); else renderAll(); return;
+  }
   G.gotoMode = false;
   if (u && u.moves > 0 && cheb(u, { x, y }) === 1 && classify(u, x, y)) { humanStep(x - u.x, y - u.y); return; }
   if (own.length || ownCity) {
@@ -1483,7 +1599,7 @@ function render() {
     ctx.strokeRect(sel.x * T + 1, sel.y * T + 1, T - 2, T - 2);
     ctx.strokeStyle = COL.sel; ctx.setLineDash([3, 3]);
     ctx.strokeRect(sel.x * T + 1, sel.y * T + 1, T - 2, T - 2); ctx.setLineDash([]);
-    if (sel.orders) {
+    if (sel.orders && sel.orders.x != null) {
       const p = findPath(sel, sel.orders.x, sel.orders.y);
       if (p) { ctx.fillStyle = COL.accent; for (const [x, y] of p) ctx.fillRect(x * T + T / 2 - 1.5, y * T + T / 2 - 1.5, 3, 3); }
       const ox = sel.orders.x * T, oy = sel.orders.y * T;
@@ -1588,7 +1704,7 @@ function renderUnitPanel() {
     return;
   }
   const t = UNIT_TYPES[u.type], carrier = u.carriedBy ? unitById(u.carriedBy) : null;
-  const status = u.orders ? (u.orders.kind === "home" ? `Returning to ${u.orders.unitId ? "carrier" : cityAt(u.orders.x, u.orders.y)?.name ?? "base"} at ${u.orders.x},${u.orders.y}` : `Heading to ${u.orders.x},${u.orders.y}`) : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
+  const status = u.orders ? (u.orders.kind === "explore" ? "Exploring" : u.orders.kind === "patrol" ? `Patrolling ${u.orders.ax},${u.orders.ay} ↔ ${u.orders.bx},${u.orders.by}` : u.orders.kind === "home" ? `Returning to ${u.orders.unitId ? "carrier" : cityAt(u.orders.x, u.orders.y)?.name ?? "base"} at ${u.orders.x},${u.orders.y}` : `Heading to ${u.orders.x},${u.orders.y}`) : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
   const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
   let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
@@ -1596,14 +1712,14 @@ function renderUnitPanel() {
   if (u.hp < t.hp) { const inCity = cityAt(u.x, u.y)?.owner === 0; html += `<dt>Repair</dt><dd>${inCity ? `+${CONFIG.cityRepair} hp next turn` : `rested ${Math.min(u.idle || 0, CONFIG.fieldRestTurns)}/${CONFIG.fieldRestTurns} turns${u.acted ? " (moved this turn)" : ""}`}</dd>`; }
   html += `<dt>Sight</dt><dd>${UNIT_TYPES[u.type].sight ?? CONFIG.sight} tile${(UNIT_TYPES[u.type].sight ?? CONFIG.sight) > 1 ? "s" : ""}</dd>`;
   if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : t.ranged.perTurn ? `${t.ranged.perTurn} per turn${t.ranged.cityPerTurn != null ? ` outside cities (${shotsSpent(u) ? "used" : "ready"}), ${t.ranged.cityPerTurn} on cities (${Math.max(0, t.ranged.cityPerTurn - (u.cityShots || 0))} left)` : shotsSpent(u) ? " (used)" : ""}, each costs 1 move` : "costs 1 move"}</dd>`;
-  if (t.intercepts) html += `<dt>Intercepts</dt><dd>${u.sentry || u.carriedBy || cityAt(u.x, u.y)?.owner === 0 ? "On guard" : "Not on guard"}: fires first at enemy bombers attacking within ${CONFIG.interceptRange} tiles (in a city, on sentry or on a carrier)</dd>`;
+  if (t.intercepts) html += `<dt>Intercepts</dt><dd>${u.sentry || u.carriedBy || u.orders?.kind === "patrol" || cityAt(u.x, u.y)?.owner === 0 ? "On guard" : "Not on guard"}: fires first at enemy bombers attacking within ${CONFIG.interceptRange} tiles (in a city, on sentry, on patrol or on a carrier)</dd>`;
   if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city sets its production back ${CONFIG.raidSetback} turns</dd>`;
   if (t.cityAttack) html += `<dt>Cities</dt><dd>Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} an adjacent enemy city: one round per move</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot${t.returnFireVs ? `; fires back once at ${t.returnFireVs === "air" ? "fighters" : t.returnFireVs + " units"}, never at anything else` : "; never fires back"}</dd>`;
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""} · landing in a city ends its move</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
-  html += `<div class="row"><button class="btn${G.gotoMode ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button><button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
+  html += `<div class="row"><button class="btn${G.gotoMode === true ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button>${t.intercepts ? `<button class="btn${G.gotoMode === "patrol" ? " on" : ""}" data-act="patrol">Patrol <kbd>P</kbd></button>` : ""}<button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${t.domain !== "land" ? '<button class="btn" data-act="explore">Explore <kbd>X</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
   if (t.carries && u.cargo.length) html += `<button class="btn" data-act="wake">Wake cargo <kbd>U</kbd></button>`;
@@ -1737,7 +1853,7 @@ function updateStatus() {
     if (!su) return ""; const d = cheb(su, { x, y }); if (!d) return "";
     return ` · ${d} tile${d === 1 ? "" : "s"} from your ${UNIT_TYPES[su.type].name}${UNIT_TYPES[su.type].fuel ? ` (fuel ${su.fuel})` : ""}`;
   };
-  if (G.gotoMode) { s.textContent = `Click the destination tile${G.hover ? dist(...G.hover) : ""}. Esc cancels.`; return; }
+  if (G.gotoMode) { s.textContent = `${G.gotoMode === "patrol" ? "Click the far end of the patrol" : "Click the destination tile"}${G.hover ? dist(...G.hover) : ""}. Esc cancels.`; return; }
   if (!G.hover) { s.textContent = "Hover a tile for details."; return; }
   const [x, y] = G.hover, i = idx(x, y);
   if (!G.seen[0][i]) { s.textContent = `${x},${y} · unexplored${dist(x, y)}`; return; }
@@ -1792,7 +1908,11 @@ function act(name) {
     return;
   }
   if (!u) return;
-  if (name === "goto") { G.gotoMode = !G.gotoMode; renderAll(); return; }
+  if (name === "goto") { G.gotoMode = G.gotoMode === true ? false : true; renderAll(); return; }
+  if (name === "patrol") {
+    if (!UNIT_TYPES[u.type].intercepts) { flash("Only fighters can patrol."); return; }
+    G.gotoMode = G.gotoMode === "patrol" ? false : "patrol"; renderAll(); return;
+  }
   if (name === "sentry") { u.sentry = true; u.orders = null; afterAction(); return; }
   if (name === "skip") { u.skip = true; afterAction(); return; }
   if (name === "clear") { u.orders = null; u.sentry = false; u.skip = false; renderAll(); return; }
@@ -1802,6 +1922,13 @@ function act(name) {
     return;
   }
   if (name === "center") { centerOn(u.x, u.y); return; }
+  if (name === "explore") {
+    if (UNIT_TYPES[u.type].domain === "land") { flash("Only aircraft and ships can explore."); return; }
+    u.orders = { kind: "explore" }; u.sentry = false; u.skip = false; u.waitSeq = 0; G.gotoMode = false;
+    if (u.moves > 0) executeOrders(u);
+    if (u.orders?.kind === "explore") log(`Your ${UNIT_TYPES[u.type].name} is exploring.`);
+    afterAction(); return;
+  }
   if (name === "home") {
     const t = UNIT_TYPES[u.type];
     if (t.domain !== "air") { flash("Only aircraft can be sent home."); return; }
@@ -1853,7 +1980,7 @@ document.addEventListener("keydown", e => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "m") { e.preventDefault(); setMini(!miniOn); return; }
   if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
-  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", f: "center", l: "load", u: "wake", o: "unload" };
+  const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", f: "center", x: "explore", p: "patrol", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
   if (k === "Enter") { e.preventDefault(); requestEndTurn(); return; }
   if (k === "Escape") { G.gotoMode = false; renderAll(); }
