@@ -171,6 +171,34 @@ details.guide code { color: var(--fg); }
 .statline b { color: var(--fg); font-weight: 600; }
 .rechead { margin: 16px 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .recnote { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.modal .card.helpcard { width: min(920px, 100%); }
+.helphead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.helphead .btn { white-space: nowrap; flex: none; }
+.htabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.htabs .btn { padding: 5px 9px; }
+.htabs .btn b { color: var(--muted); font-weight: 600; margin-right: 5px; }
+.htabs .btn[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.htabs .btn[aria-selected="true"] b { color: var(--accent); }
+.hpanel { display: grid; gap: 14px; min-height: 320px; }
+.hpanel h3 { margin: 0; font-family: var(--font-display); font-size: 24px; letter-spacing: 0.04em; color: var(--fg); }
+.hpanel .role { color: var(--muted); margin-top: -8px; }
+.hstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.hstats div { background: var(--panel-2); border: 1px solid var(--line); padding: 6px 9px; }
+.hstats span { display: block; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.hstats b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.hstats small { display: block; color: var(--muted); font-size: 11px; }
+.hcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 720px) { .hcols { grid-template-columns: 1fr; } }
+.hsec h4 { margin: 0 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.hsec ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+.hsec li { line-height: 1.45; }
+.hsec p { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.odds { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.odds th, .odds td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.odds thead th { font-weight: 500; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.odds td.no { color: var(--muted); opacity: 0.6; }
+.odds .good { color: var(--good); } .odds .bad { color: var(--bad, #e06c5a); }
+.odds tr.self td { background: var(--panel-2); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -182,6 +210,7 @@ details.guide code { color: var(--fg); }
     <h1>EMPIRE</h1>
     <div class="meta" id="meta"></div>
     <div class="spacer"></div>
+    <button class="btn" id="helpBtn">Help <kbd>?</kbd></button>
     <button class="btn" id="saveBtn">Save to file</button>
     <button class="btn" id="loadBtn">Load file</button>
     <input type="file" id="loadFile" accept=".json,application/json" hidden>
@@ -225,6 +254,13 @@ details.guide code { color: var(--fg); }
           <div class="actions" id="statsActions"></div>
         </div>
       </div>
+      <div class="modal" id="helpModal" hidden role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <div class="card helpcard">
+          <div class="helphead"><h2 id="helpTitle">FIELD MANUAL</h2><button class="btn" id="helpClose">Close <kbd>Esc</kbd></button></div>
+          <div class="htabs" role="tablist" aria-label="Help topics" id="helpTabs"></div>
+          <div class="hpanel" role="tabpanel" id="helpPanel" tabindex="0"></div>
+        </div>
+      </div>
       <div class="modal" id="endConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="endConfirmTitle" aria-describedby="endConfirmText">
         <div class="card">
           <h2 id="endConfirmTitle">END TURN?</h2>
@@ -240,7 +276,7 @@ details.guide code { color: var(--fg); }
       <div class="panel keys">
         <h3>Controls</h3>
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
-        <div>Click an enemy unit, or right-click any unit, to see its hit points.</div>
+        <div>Click an enemy unit, or right-click any unit, to see its hit points. <kbd>?</kbd> opens the field manual: every unit's stats, rules and odds.</div>
         <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit; <kbd>F</kbd> centers on it. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
         <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals · hold <kbd>Shift</kbd> to keep going that way every turn</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home · <kbd>X</kbd> explore (aircraft and ships) · <kbd>P</kbd> fighter patrol (then click the far end)</div>
@@ -1917,6 +1953,241 @@ function showUnitTip(btn) {
 }
 function hideUnitTip() { const t = tipEl(); if (t) { t.hidden = true; delete t.dataset.mode; } }
 
+// =====================================================================
+// HELP: a tab per unit with stats, rules and head-to-head odds (all read from UNIT_TYPES / CONFIG)
+// =====================================================================
+// Exact chance the attacker wins a coin-flip fight to the death (both at full health).
+function duelOdds(a, d) {
+  const need = Math.ceil(d.hp / a.str), give = Math.ceil(a.hp / d.str); // hits each side must land
+  let p = 0, c = 1; // c = C(need-1+k, k)
+  for (let k = 0; k < give; k++) { if (k) c = c * (need - 1 + k) / k; p += c * Math.pow(0.5, need + k); }
+  return p;
+}
+// What happens when a healthy `ak` attacks a healthy `dk` in open country (not in a city)?
+// Returns null if it can't attack, else { kind, win (defender destroyed), lose (attacker destroyed), ... }.
+function matchup(ak, dk) {
+  const a = UNIT_TYPES[ak], d = UNIT_TYPES[dk];
+  // Where the defender sits: its own terrain; aircraft are met over whatever the attacker moves on.
+  const where = d.domain !== "air" ? d.domain : a.domain === "sea" ? "sea" : "land";
+  const hits = v => v === "sea" ? where === "sea" && d.domain === "sea" : v === "land" ? where === "land" && d.domain === "land" : v === "ground" ? where === "land" && d.domain !== "air" : false;
+  const hidden = !!d.stealth && !a.detects;
+  const r = a.ranged;
+  if (r && [].concat(r.vs).some(hits)) {
+    const dmg = r.dmg ?? a.str, kills = dmg >= d.hp, ret = [].concat(r.returnFire || []).some(hits);
+    const lose = ret ? (kills ? 0.5 : 1) * 0.5 * (d.str >= a.hp ? 1 : 0) : 0;
+    return { kind: "shot", win: kills ? 0.5 : 0, lose, dmg, ret, hidden };
+  }
+  if (a.domain === "land" && where === "sea") return null;
+  if (a.domain === "sea" && where === "land") return null;
+  if (a.noAttack) return null;
+  if (d.oneShotDefense) {
+    const kills = a.str >= d.hp, ret = d.returnFireVs === a.domain;
+    return { kind: "shot", win: kills ? 0.5 : 0, lose: ret ? (kills ? 0.5 : 1) * 0.5 * (d.str >= a.hp ? 1 : 0) : 0, dmg: a.str, ret, hidden };
+  }
+  const win = duelOdds(a, d);
+  const amb = a.stealth ? { win: 0.5 * (a.str >= d.hp ? 1 : 0) + 0.5 * win, lose: 0.5 * (1 - win), kills: a.str >= d.hp, dmg: a.str } : null;
+  return { kind: "fight", win, lose: 1 - win, amb, hidden };
+}
+const pct = p => p <= 0 ? "0%" : p >= 1 ? "100%" : p < 0.01 ? "<1%" : p > 0.99 ? ">99%" : `${Math.round(p * 100)}%`;
+const oddsCls = p => p >= 0.6 ? "good" : p <= 0.4 ? "bad" : "";
+function attackCell(m) {
+  if (!m) return `<td class="no">Can't</td>`;
+  const star = m.hidden ? "*" : "";
+  if (m.kind === "fight") {
+    // From hiding: a free shot that kills small targets outright; on big ones a hit just ends the attack.
+    const amb = !m.amb ? "" : m.amb.kills ? ` · ${pct(m.amb.win)} from hiding` : ` · from hiding: 50% free hit for ${m.amb.dmg}, then it ends`;
+    return `<td><span class="${oddsCls(m.win)}">${pct(m.win)} win</span>${amb}${star}</td>`;
+  }
+  const what = m.win ? `${pct(m.win)} to kill` : `50% to hit for ${m.dmg}`;
+  return `<td>1 shot: ${what}${m.ret ? `, it fires back once${m.lose ? ` (${pct(m.lose)} you're lost)` : ""}` : ""}${star}</td>`;
+}
+function defendCell(m) {
+  if (!m) return `<td class="no">Can't attack it</td>`;
+  const live = 1 - m.win;
+  let s = `<span class="${oddsCls(live)}">${pct(live)} survive</span>`;
+  if (m.kind === "fight") { if (m.amb) s += ` · ${pct(1 - m.amb.win)} vs ambush`; }
+  else if (!m.win) return `<td>Survives · 50% to take ${m.dmg} dmg${m.ret ? ", fires back once" : ""}</td>`;
+  else s += m.ret ? ` (takes 1 shot, fires back once)` : ` (takes 1 shot)`;
+  return `<td>${s}</td>`;
+}
+
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function repeatCost(k) { return Math.max(1, Math.round(UNIT_TYPES[k].cost * (1 - CONFIG.repeatDiscount))); }
+// Hand-written rules per unit. Numbers come from the stats so they stay right when you mod them.
+function helpRules(k) {
+  const t = UNIT_TYPES[k], C = CONFIG, T = UNIT_TYPES, cap = pct(C.captureChance);
+  switch (k) {
+    case "A": return {
+      role: "The only unit that can capture cities.",
+      attack: [
+        `Moving into an empty enemy or neutral city tries to capture it: ${cap} chance. The army is used up either way.`,
+        `If the city has defenders, the army fights the strongest one (hit points × damage) instead. Every defender must be cleared before a capture attempt.`,
+        `Fights land units and aircraft over land normally. It can't attack ships.`],
+      defend: [`Defends normally. With ${t.hp} hp and ${t.str} damage it's the weakest fighter on the board.`],
+      other: [`Takes ${t.size || 1} transport space. Move it onto a transport at sea to board, or press L in a city.`] };
+    case "K": return {
+      role: "Heavy land unit: stronger and faster than an army, but it can't capture.",
+      attack: [
+        `Fights land units and aircraft over land normally, including units inside enemy cities.`,
+        `Can't capture cities. Moving into an empty enemy city does nothing; bring an army.`,
+        `Fires at an adjacent ship at sea: 1 shot, 50% to hit for ${t.ranged.dmg}, no return fire. It ends the tank's turn.`],
+      defend: [`Defends normally against anything that can reach it.`],
+      other: [`Takes ${t.size} transport spaces. When a damaged transport runs short of room, tanks go overboard first.`] };
+    case "F": return {
+      role: "Fast scout and interceptor. The bomber's natural enemy.",
+      attack: [
+        `Fights anything it can see normally: land units, ships and other fighters.`,
+        `Against a bomber it fires first, one shot (50% for ${t.str}). If the bomber survives it fires back once, and that's the end of it.`,
+        `Spots hidden submarines ${plural(C.detectRange, "tile")} away, so it can attack them.`],
+      defend: [
+        `Defends normally. A bomber can only strike it while it's parked in a city.`,
+        `Interception: when on guard (in its own city, on sentry, on patrol or aboard a carrier) it fires first at an enemy bomber attacking within ${plural(C.interceptRange, "tile")}. Once per enemy turn; a surviving bomber fires back once.`],
+      other: [
+        `Fuel ${t.fuel}: each move uses 1. It refuels fully in your cities and aboard carriers, and crashes if it runs dry anywhere else.`,
+        `Landing in a city ends its move for the turn.`,
+        `Orders: H home (nearest city or carrier), X explore, P patrol between two points.`] };
+    case "H": return {
+      role: "Long-range striker. Bombs units and cities, but can't win a dogfight.",
+      attack: [
+        `Doesn't fight normally. Each strike is a single shot: 50% to hit for ${t.ranged.dmg ?? t.str}, costing 1 move.`,
+        `Outside cities: ${plural(t.ranged.perTurn, "strike")} per turn, on land units or ships. A ship at sea that survives fires back once; land units can't.`,
+        `On enemy cities: up to ${plural(t.ranged.cityPerTurn, "strike")} per turn on the strongest unit inside, parked aircraft included. No return fire.`,
+        `Bombing an empty enemy city knocks ${plural(C.raidSetback, "turn")} off whatever it's building.`,
+        `Can't attack aircraft in the open, and can't see hidden subs.`],
+      defend: [
+        `Anything attacking it gets a single shot. It fires back once only at fighters.`,
+        `Enemy fighters on guard within ${plural(C.interceptRange, "tile")} of its target shoot at it first.`],
+      other: [`Fuel ${t.fuel}; refuels only in your cities. It can't land on carriers.`, `Landing in a city ends its move for the turn.`] };
+    case "D": return {
+      role: "Fast, cheap escort and the main submarine hunter.",
+      attack: [`Fights ships and aircraft over the sea normally.`, `Spots hidden submarines ${plural(C.detectRange, "tile")} away, so it can attack them without being ambushed.`],
+      defend: [`Defends normally. With ${t.hp} hp and ${t.str} damage it loses to every bigger warship; its job is spotting and screening.`],
+      other: [`Sees ${t.sight} tiles; built in port cities only.`] };
+    case "T": return {
+      role: "Carries armies and tanks across the sea.",
+      attack: [`Can't attack.`],
+      defend: [
+        `Defends normally (${t.hp} hp, ${t.str} damage).`,
+        `Each hp of damage costs ${t.capLossPerHp} cargo spaces. Units that no longer fit are lost, tanks first.`,
+        `If it sinks, everything aboard is lost.`],
+      other: [
+        `Holds ${t.capacity} spaces: an army takes ${T.A.size || 1}, a tank ${T.K.size}.`,
+        `Land units board by moving onto it, or with L in a city. Unload with O in a city, or just move them onto land.`] };
+    case "C": return {
+      role: "A floating airfield for fighters.",
+      attack: [`Can't attack.`],
+      defend: [
+        `Defends normally (${t.hp} hp, ${t.str} damage).`,
+        `Each hp of damage costs ${t.capLossPerHp} fighter space${t.capLossPerHp === 1 ? "" : "s"}; fighters that no longer fit are lost. If it sinks, they all go down with it.`,
+        `Fighters aboard still intercept bombers, but they can't defend the carrier from ships.`],
+      other: [`Holds ${t.capacity} fighters and refuels them fully. Bombers can't land on it.`, `Fighters land by flying onto it, or with L in a city.`] };
+    case "S": return {
+      role: "Hidden ambusher with the hardest hit in the game.",
+      attack: [
+        `Hidden from the enemy unless one of their destroyers or fighters is within ${plural(C.detectRange, "tile")}, or it's in port.`,
+        `Attacking from hiding: a free first shot (50% for ${t.str}). If it hits, there's no return fire and the attack ends. If it misses, a normal fight follows.`,
+        `Attacking a unit that can see it is a normal fight.`,
+        `Attacks ships docked in enemy cities: one round per move (it can't hit land units or aircraft there).`],
+      defend: [
+        `Defends normally, but only ${t.hp} hp.`,
+        `After it attacks, it stays visible until your next turn.`,
+        `A ship that runs into an unseen sub stops dead (aircraft only lose the move) and the sub is revealed.`],
+      other: [`Built in port cities only.`] };
+    case "R": return {
+      role: "Mid-weight warship. Hunts carriers, transports and destroyers.",
+      attack: [`Fights ships and aircraft over the sea normally.`, `Attacks units in an adjacent enemy city: each move is one round against the strongest unit there.`],
+      defend: [`Defends normally (${t.hp} hp, ${t.str} damage).`],
+      other: [`Built in port cities only.`] };
+    case "B": return {
+      role: "The heaviest ship. Rules the sea and shells the coast.",
+      attack: [
+        `Fights ships and aircraft over the sea normally.`,
+        `Shells land units next to the coast: 1 shot per move, 50% to hit for ${t.str}, no return fire.`,
+        `Attacks units in an adjacent enemy city: each move is one round against the strongest unit there.`],
+      defend: [`Defends normally (${t.hp} hp, ${t.str} damage).`],
+      other: [`Built in port cities only.`] };
+  }
+  return { role: "", attack: unitNotes(k), defend: [], other: [] };
+}
+
+function helpBasics() {
+  const C = CONFIG, ex = Object.keys(UNIT_TYPES).find(k => UNIT_TYPES[k].cost >= 12) || "A";
+  const sec = (h, items) => `<div class="hsec"><h4>${h}</h4><ul>${items.map(s => `<li>${s}</li>`).join("")}</ul></div>`;
+  return `<h3>How it works</h3>` +
+    `<div class="hcols"><div style="display:grid;gap:14px">` +
+    sec("Combat", [
+      `A normal fight is a series of coin flips. Whoever wins a flip deals its damage to the other. It goes on until one side is destroyed.`,
+      `More hp and more damage both matter: a unit needs (enemy hp ÷ its damage, rounded up) hits to win.`,
+      `Some units don't fight normally: bombers, tank and battleship shots, and submarine ambushes are single shots. See each unit's tab.`,
+      `Ships attacking a city fight one round per move instead of to the death.`]) +
+    sec("Defenders", [
+      `With several units in a city, attackers face the strongest first: highest hit points × damage. Ties go to the unit that's been there longest.`,
+      `Outside cities only one unit fits per tile (cargo aboard a transport or carrier doesn't count).`]) +
+    sec("Cities", [
+      `Only armies capture: ${pct(C.captureChance)} chance against an empty city, and the army is used up either way.`,
+      `Ships are built only in port cities (cities next to the sea).`]) +
+    `</div><div style="display:grid;gap:14px">` +
+    sec("Production", [
+      `Costs are in turns. Building the same unit again is ${Math.round(C.repeatDiscount * 100)}% cheaper (a ${UNIT_TYPES[ex].name.toLowerCase()} goes from ${UNIT_TYPES[ex].cost} to ${repeatCost(ex)}).`,
+      `Switching what a city builds starts it over from 0.`]) +
+    sec("Damage and repair", [
+      `At half hp or less a unit is crippled and moves at half speed.`,
+      `Units in your cities repair ${C.cityRepair} hp a turn. Elsewhere, a unit that doesn't move for ${plural(C.fieldRestTurns, "turn")} heals ${C.fieldRepair}.`,
+      `Damaged transports and carriers lose cargo space, and anything that no longer fits is lost.`]) +
+    sec("Sight and aircraft", [
+      `Most units see ${plural(C.sight, "tile")} around them; fighters, bombers and destroyers see 2.`,
+      `Aircraft burn 1 fuel per move and crash if they run dry away from a city (or a carrier, for fighters). Landing in a city ends their move.`]) +
+    `</div></div>`;
+}
+
+function helpUnit(k) {
+  const t = UNIT_TYPES[k], R = helpRules(k), crip = Math.max(1, Math.ceil(t.moves / 2));
+  const stat = (label, val, note = "") => `<div><span>${label}</span><b>${val}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  let stats = stat("Hit points", t.hp) + stat("Damage", t.str) + stat("Moves", t.moves, crip < t.moves ? `${crip} crippled` : "") +
+    stat("Sight", t.sight ?? CONFIG.sight) + stat("Build", t.cost, `then ${repeatCost(k)}`) + stat("Built in", t.domain === "sea" ? "Ports" : "Any", t.domain === "sea" ? "" : "city");
+  if (t.fuel) stats += stat("Fuel", t.fuel);
+  if (t.carries) stats += stat("Carries", t.capacity, t.carries === "land" ? "spaces" : "fighters");
+  if (t.domain === "land") stats += stat("Transport", t.size || 1, (t.size || 1) === 1 ? "space" : "spaces");
+  if (t.domain === "air" && !t.noCarrier) stats += stat("Carrier", 1, "space");
+  const sec = (h, items) => items.length ? `<div class="hsec"><h4>${h}</h4><ul>${items.map(s => `<li>${s}</li>`).join("")}</ul></div>` : "";
+  const keys = Object.keys(UNIT_TYPES);
+  const rows = keys.map(o => `<tr${o === k ? ' class="self"' : ""}><td>${UNIT_TYPES[o].name}</td>${attackCell(matchup(k, o))}${defendCell(matchup(o, k))}</tr>`).join("");
+  const anyHidden = keys.some(o => matchup(k, o)?.hidden);
+  return `<h3>${t.name}</h3><div class="role">${R.role}</div><div class="hstats">${stats}</div>` +
+    `<div class="hcols"><div style="display:grid;gap:14px">${sec("Attacking", R.attack)}${sec("Defending", R.defend)}${sec("Also", R.other)}</div>` +
+    `<div class="hsec"><h4>Head to head</h4><p>Both at full health, in the open (not in a city).</p>` +
+    `<table class="odds"><thead><tr><th>Against</th><th>When it attacks</th><th>When attacked by</th></tr></thead><tbody>${rows}</tbody></table>` +
+    (anyHidden ? `<p style="margin-top:6px">* Only once the sub is spotted by a destroyer or fighter, or after it reveals itself.</p>` : "") + `</div></div>`;
+}
+
+const helpModal = document.getElementById("helpModal"), helpTabs = document.getElementById("helpTabs"), helpPanel = document.getElementById("helpPanel");
+let helpTab = "basics";
+function renderHelp() {
+  const tabs = [["basics", "", "Basics"], ...Object.entries(UNIT_TYPES).map(([k, t]) => [k, k, t.name])];
+  helpTabs.innerHTML = tabs.map(([id, key, name]) =>
+    `<button class="btn" role="tab" id="htab-${id}" data-htab="${id}" aria-selected="${id === helpTab}" aria-controls="helpPanel" tabindex="${id === helpTab ? 0 : -1}">${key ? `<b>${key}</b>` : ""}${name}</button>`).join("");
+  helpPanel.setAttribute("aria-labelledby", `htab-${helpTab}`);
+  helpPanel.innerHTML = helpTab === "basics" ? helpBasics() : helpUnit(helpTab);
+}
+function openHelp(tab) {
+  if (tab) helpTab = tab;
+  else { const u = G ? selUnit() : null; if (u) helpTab = u.type; } // open on the selected unit's tab
+  hideUnitTip(); renderHelp(); helpModal.hidden = false;
+  document.getElementById(`htab-${helpTab}`).focus();
+}
+helpModal.addEventListener("click", e => {
+  if (e.target === helpModal || e.target.closest("#helpClose")) { helpModal.hidden = true; return; }
+  const b = e.target.closest("[data-htab]");
+  if (b) { helpTab = b.dataset.htab; renderHelp(); document.getElementById(`htab-${helpTab}`).focus(); }
+});
+helpTabs.addEventListener("keydown", e => {
+  const ids = [...helpTabs.querySelectorAll("[data-htab]")].map(b => b.dataset.htab), i = ids.indexOf(helpTab);
+  const j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? ids.length - 1 : null;
+  if (j == null) return;
+  e.preventDefault(); e.stopPropagation(); helpTab = ids[(j + ids.length) % ids.length]; renderHelp(); document.getElementById(`htab-${helpTab}`).focus();
+});
+document.getElementById("helpBtn").addEventListener("click", () => openHelp());
+
 // ---- Unit info card for a map tile: hit points and condition of the units there (strongest first).
 function showTileInfo(x, y, units, hint = "") {
   const list = [...units].sort((a, b) => b.hp * UNIT_TYPES[b.type].str - a.hp * UNIT_TYPES[a.type].str);
@@ -2122,6 +2393,8 @@ const KEYDIRS = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRig
 document.addEventListener("keydown", e => {
   if (!newMenu.hidden) { if (e.key === "Escape") newMenu.hidden = true; return; }
   if (!statsModal.hidden) { if (e.key === "Escape") statsModal.hidden = true; return; }
+  if (!helpModal.hidden) { if (e.key === "Escape" || e.key === "?") { e.preventDefault(); helpModal.hidden = true; document.getElementById("helpBtn").focus(); } return; }
+  if (e.key === "?" && !e.target.closest("input, textarea, select")) { e.preventDefault(); openHelp(); return; }
   if (!endConfirm.hidden) {
     if (e.key === "Enter") { e.preventDefault(); endConfirm.hidden = true; endTurn(); }
     else if (e.key === "Escape") { e.preventDefault(); closeEndConfirm(); }
