@@ -143,7 +143,9 @@ details.guide code { color: var(--fg); }
 .sizebtn.cur { border-color: var(--accent); }
 .customform { display: grid; gap: 10px; }
 .cf-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 150px; align-items: center; gap: 10px; }
-.cf-row label { color: var(--muted); }
+.cf-row label, .cf-row .cf-label { color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg .btn.on { border-color: var(--accent); color: var(--accent); }
 .cf-row input[type="range"] { width: 100%; accent-color: var(--accent); }
 .cf-row output { font-variant-numeric: tabular-nums; }
 .cf-row output small { color: var(--muted); font-size: 11px; }
@@ -204,7 +206,8 @@ details.guide code { color: var(--fg); }
           <div class="customform" id="customForm" hidden>
             <div class="cf-row"><label for="cfW">Width</label><input type="range" id="cfW" min="48" max="128" step="1"><output id="cfWo" for="cfW"></output></div>
             <div class="cf-row"><label for="cfH">Height</label><input type="range" id="cfH" min="30" max="80" step="1"><output id="cfHo" for="cfH"></output></div>
-            <div class="cf-row"><label for="cfLand">Land</label><input type="range" id="cfLand" min="15" max="60" step="1"><output id="cfLando" for="cfLand"></output></div>
+            <div class="cf-row"><span class="cf-label" id="cfTypeLabel">Map type</span><div class="seg" role="radiogroup" aria-labelledby="cfTypeLabel"><button type="button" class="btn" role="radio" data-maptype="islands">Islands</button><button type="button" class="btn" role="radio" data-maptype="continents">Continents</button><button type="button" class="btn" role="radio" data-maptype="land">All land</button></div><span></span></div>
+            <div class="cf-row" id="cfLandRow"><label for="cfLand" id="cfLandLabel">Land</label><input type="range" id="cfLand" min="15" max="60" step="1"><output id="cfLando" for="cfLand"></output></div>
             <div class="cf-row"><label for="cfCities">Cities</label><input type="range" id="cfCities" min="6" max="100" step="1"><output id="cfCitieso" for="cfCities"></output></div>
             <div class="cf-row"><label for="cfAI">Computers</label><input type="range" id="cfAI" min="1" max="3" step="1"><output id="cfAIo" for="cfAI"></output></div>
             <div class="cf-row"><label for="cfSeed">Map number</label><input type="text" id="cfSeed" inputmode="numeric" maxlength="10" placeholder="Leave blank for a random map" autocomplete="off"><span class="cf-hint">Optional</span></div>
@@ -239,7 +242,7 @@ details.guide code { color: var(--fg); }
         <div>Click a unit or your city to select. Click a far tile to set a destination; an adjacent tile moves one step.</div>
         <div>Click an enemy unit, or right-click any unit, to see its hit points.</div>
         <div>On Large and Huge maps, drag the map or scroll to look around. It follows the selected unit; <kbd>F</kbd> centers on it. <kbd>M</kbd> shows the mini-map; click it to jump.</div>
-        <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals</div>
+        <div><kbd>←↑→↓</kbd> move · <kbd>Q</kbd><kbd>E</kbd><kbd>Z</kbd><kbd>C</kbd> diagonals · hold <kbd>Shift</kbd> to keep going that way every turn</div>
         <div><kbd>G</kbd> go to (then click) · <kbd>S</kbd> sentry · <kbd>W</kbd> wait (back of the line) · <kbd>Space</kbd> skip this turn · <kbd>H</kbd> send aircraft home · <kbd>X</kbd> explore (aircraft and ships) · <kbd>P</kbd> fighter patrol (then click the far end)</div>
         <div><kbd>O</kbd> unload in your city · <kbd>L</kbd> load onto a transport (armies, tanks) or carrier (fighters) in the same city; fighters can also fly straight onto a carrier · <kbd>U</kbd> wake cargo</div>
       </div>
@@ -490,6 +493,74 @@ function coastalT(terrain, i) {
   return DIRS.some(([dx, dy]) => inb(x + dx, y + dy) && !terrain[idx(x + dx, y + dy)]);
 }
 
+// Islands: `count` separate islands with water between them. The first `P` (one per empire) are
+// spread far apart and made big enough for at least 3 cities.
+function genIslands(rng, count, P) {
+  const terrain = new Uint8Array(N), own = new Int16Array(N).fill(-1);
+  const avg = Math.max(16, Math.min(90, N * 0.25 / count));
+  const seeds = []; let minD = Math.max(4, Math.floor(Math.sqrt(N / count) * 0.75));
+  for (let tries = 1; seeds.length < count && tries < 40000; tries++) {
+    if (tries % 2000 === 0) minD = Math.max(3, minD - 1);
+    const x = 2 + Math.floor(rng() * (W - 4)), y = 2 + Math.floor(rng() * (H - 4));
+    if (seeds.every(sd => Math.max(Math.abs(sd.x - x), Math.abs(sd.y - y)) >= minD)) seeds.push({ x, y });
+  }
+  const startIdx = [Math.floor(rng() * seeds.length)];
+  const gapTo = k => Math.min(...startIdx.map(j => Math.max(Math.abs(seeds[j].x - seeds[k].x), Math.abs(seeds[j].y - seeds[k].y))));
+  while (startIdx.length < Math.min(P, seeds.length)) {
+    let best = -1; for (let k = 0; k < seeds.length; k++) if (!startIdx.includes(k) && (best < 0 || gapTo(k) > gapTo(best))) best = k;
+    startIdx.push(best);
+  }
+  const target = seeds.map((sd, k) => (startIdx.includes(k) ? Math.max(40, avg) : Math.round(avg * (0.5 + rng()))));
+  const tiles = seeds.map((sd, k) => { const i = idx(sd.x, sd.y); terrain[i] = 1; own[i] = k; return [i]; });
+  const fails = seeds.map(() => 0);
+  const canTake = (k, i) => {
+    const x = i % W, y = (i / W) | 0;
+    if (x < 1 || y < 1 || x > W - 2 || y > H - 2 || terrain[i]) return false;
+    for (const [dx, dy] of DIRS) { const o = own[idx(x + dx, y + dy)]; if (o !== -1 && o !== k) return false; } // keep a water gap
+    return true;
+  };
+  for (let active = true; active;) {
+    active = false;
+    for (let k = 0; k < seeds.length; k++) {
+      if (tiles[k].length >= target[k] || fails[k] > 300) continue;
+      active = true; let grew = false;
+      for (let t = 0; t < 8 && !grew; t++) {
+        const from = tiles[k][Math.floor(rng() * tiles[k].length)], [dx, dy] = DIRS[Math.floor(rng() * 8)];
+        const fx = from % W + dx, fy = ((from / W) | 0) + dy;
+        if (inb(fx, fy) && canTake(k, idx(fx, fy))) { const ni = idx(fx, fy); terrain[ni] = 1; own[ni] = k; tiles[k].push(ni); grew = true; }
+      }
+      if (!grew) fails[k]++;
+    }
+  }
+  let L = labelContinents(terrain);
+  for (let i = 0; i < N; i++) if (terrain[i] && L.sizes[L.continent[i]] < 4) terrain[i] = 0;
+  L = labelContinents(terrain);
+  return { terrain, continent: L.continent, contSize: L.sizes, startConts: startIdx.map(k => L.continent[idx(seeds[k].x, seeds[k].y)]) };
+}
+// All land: no water at all (so no ports and no ships).
+function genAllLand() {
+  const terrain = new Uint8Array(N).fill(1), L = labelContinents(terrain);
+  return { terrain, continent: L.continent, contSize: L.sizes };
+}
+// Make sure a starting island has at least 3 cities, one of them a port (adds cities if needed).
+function ensureStartIsland(rng, k) {
+  const onK = i => G.continent[i] === k;
+  const mine = () => G.cities.filter(c => onK(idx(c.x, c.y)));
+  const spot = (needCoast) => {
+    const cand = []; for (let i = 0; i < N; i++) if (onK(i) && (!needCoast || isCoastal(i))) cand.push(i);
+    shuffle(cand, rng);
+    for (const spacing of [CONFIG.citySpacing, 2, 1]) {
+      const i = cand.find(i => G.cities.every(c => Math.max(Math.abs(c.x - i % W), Math.abs(c.y - ((i / W) | 0))) > spacing));
+      if (i != null) return i;
+    }
+    return null;
+  };
+  const add = i => { G.cities.push({ id: G.cities.length, x: i % W, y: (i / W) | 0, owner: -1, prod: "A", progress: 0, name: makeName(rng) }); };
+  if (!mine().some(c => isCoastal(idx(c.x, c.y)))) { const i = spot(true); if (i != null) add(i); }
+  while (mine().length < 3) { const i = spot(false); if (i == null) break; add(i); }
+  const cs = mine(); return cs.find(c => isCoastal(idx(c.x, c.y))) || cs[0];
+}
+
 function placeCities(rng, terrain, cityTarget) {
   const cand = []; for (let i = 0; i < N; i++) if (terrain[i]) cand.push(i);
   shuffle(cand, rng);
@@ -516,7 +587,8 @@ function newGame(seed, sizeKey = "medium", custom = null) {
     : MAP_SIZES[sizeKey] ? MAP_SIZES[sizeKey] : MAP_SIZES[sizeKey = "medium"];
   setMapSize(size.W, size.H); sizeCanvas();
   const rng = mulberry32(seed);
-  const m = genMap(rng, size.land ?? CONFIG.landFraction);
+  const mapType = size.mapType || "continents", P = 1 + (sizeKey === "custom" && custom?.ai ? custom.ai : 1);
+  const m = mapType === "islands" ? genIslands(rng, size.islands || 20, P) : mapType === "land" ? genAllLand() : genMap(rng, size.land ?? CONFIG.landFraction);
   G = {
     seed, size: sizeKey, custom: sizeKey === "custom" ? custom : null, nPlayers: 1 + (sizeKey === "custom" && custom?.ai ? custom.ai : 1), W, H, turn: 1, terrain: m.terrain, continent: m.continent, contSize: m.contSize,
     cities: placeCities(rng, m.terrain, size.cities), units: [], nextId: 1,
@@ -524,20 +596,30 @@ function newGame(seed, sizeKey = "medium", custom = null) {
     sel: null, cityPanel: null, gotoMode: false, hover: null, log: [], over: null,
   };
   buildIndex();
-  const contOf = c => G.continent[idx(c.x, c.y)];
-  let pool = G.cities.filter(c => G.contSize[contOf(c)] >= 40 * N / 2560 && isCoastal(idx(c.x, c.y)));
-  if (pool.length < G.nPlayers) pool = [...G.cities].sort((a, b) => G.contSize[contOf(b)] - G.contSize[contOf(a)]).slice(0, Math.max(10, G.nPlayers));
-  // Starting cities: yours at random, then each computer as far as possible from everyone already placed.
-  const starts = [pool[Math.floor(rng() * pool.length)]];
-  const gap = c => Math.min(...starts.map(st => cheb(c, st)));
-  while (starts.length < G.nPlayers) {
-    const cand = pool.filter(c => !starts.includes(c)).length ? pool.filter(c => !starts.includes(c)) : G.cities.filter(c => !starts.includes(c));
-    starts.push(cand.reduce((best, c) => gap(c) > gap(best) ? c : best));
+  let starts;
+  if (mapType === "islands" && m.startConts?.length >= G.nPlayers) {
+    // Islands: each empire gets its own island (3+ cities, at least one port). Which one is yours is random.
+    starts = m.startConts.slice(0, G.nPlayers).map(k => ensureStartIsland(rng, k));
+    buildIndex();
+    const r = Math.floor(rng() * starts.length); starts = [...starts.slice(r), ...starts.slice(0, r)];
+  } else {
+    const contOf = c => G.continent[idx(c.x, c.y)], big = c => G.contSize[contOf(c)] >= 40 * N / 2560;
+    let pool = G.cities.filter(c => big(c) && isCoastal(idx(c.x, c.y)));
+    if (pool.length < G.nPlayers * 2) pool = G.cities.filter(big);
+    if (pool.length < G.nPlayers) pool = [...G.cities];
+    // Starting cities: yours at random, then each computer as far as possible from everyone already placed.
+    starts = [pool[Math.floor(rng() * pool.length)]];
+    const gap = c => Math.min(...starts.map(st => cheb(c, st)));
+    while (starts.length < G.nPlayers) {
+      const cand = pool.filter(c => !starts.includes(c)).length ? pool.filter(c => !starts.includes(c)) : G.cities.filter(c => !starts.includes(c));
+      starts.push(cand.reduce((best, c) => gap(c) > gap(best) ? c : best));
+    }
   }
   starts.forEach((c, pl) => { c.owner = pl; spawn("A", pl, c.x, c.y); });
   const hc = starts[0];
   G.cityPanel = hc.id;
-  log(`${size.name} map (${W}×${H}, ${G.cities.length} cities${size.land ? `, ${Math.round(size.land * 100)}% land` : ""}), #${seed}. Your capital is <b>${hc.name}</b>.${G.nPlayers > 2 ? ` You face ${G.nPlayers - 1} computer empires: ${computers().map(q => PLAYERS[q].name).join(", ")}. They fight each other too.` : ""} Grey cities are neutral — send armies to take them.`);
+  const kind = mapType === "islands" ? " islands" : mapType === "land" ? " all-land" : "";
+  log(`${size.name}${kind} map (${W}×${H}, ${G.cities.length} cities${mapType === "islands" ? `, ${size.islands} islands` : ""}${size.land && mapType !== "land" ? `, ${Math.round(G.terrain.reduce((a, b) => a + b, 0) / N * 100)}% land` : ""}), #${seed}. Your capital is <b>${hc.name}</b>.${G.nPlayers > 2 ? ` You face ${G.nPlayers - 1} computer empires: ${computers().map(q => PLAYERS[q].name).join(", ")}. They fight each other too.` : ""} Grey cities are neutral — send armies to take them.`);
   window.G = G;
   beginHumanTurn(true);
 }
@@ -973,6 +1055,42 @@ function patrolTurn(u) {
   }
 }
 
+// ---- Repeat-direction orders: keep stepping one way, every turn, until something needs your attention.
+const DIR_NAMES = { "0,-1": "north", "1,-1": "northeast", "1,0": "east", "1,1": "southeast", "0,1": "south", "-1,1": "southwest", "-1,0": "west", "-1,-1": "northwest" };
+function setDir(u, dx, dy) {
+  u.orders = { kind: "dir", dx, dy }; u.sentry = false; u.skip = false; u.waitSeq = 0; G.repeatArmed = false;
+  if (u.moves > 0) executeOrders(u);
+  afterAction();
+}
+function dirTurn(u) {
+  const t = UNIT_TYPES[u.type], name = t.name;
+  const stop = why => { u.orders = null; if (u.owner === 0) log(`Your ${name} at ${u.x},${u.y} stopped: ${why}.`); };
+  let guard = 0;
+  while (!u.dead && u.moves > 0 && u.orders?.kind === "dir" && guard++ < 30) {
+    const o = u.orders, nx = u.x + o.dx, ny = u.y + o.dy;
+    if (enemyNextTo(u)) { stop("an enemy is next to it"); break; }
+    if (!inb(nx, ny)) { stop("it reached the edge of the map"); break; }
+    // Aircraft: don't fly past the point of no return; head back to refuel instead.
+    if (t.fuel && cityAt(nx, ny)?.owner !== u.owner && baseDistance(u, nx, ny) > u.fuel - 1) {
+      const h = pickHome(u);
+      if (h) { u.orders = { kind: "home", x: h.x, y: h.y, unitId: h.unitId }; log(`Your ${name} at ${u.x},${u.y} turned back to refuel.`); executeOrders(u); }
+      else stop("it's too low on fuel to go further");
+      break;
+    }
+    const a = classify(u, nx, ny);
+    if (!a || a.kind !== "move") {
+      const i = idx(nx, ny);
+      if (a?.kind === "bump") { doMove(u, nx, ny); stop("it found a hidden submarine"); break; }
+      const tc = cityAt(nx, ny);
+      stop(a?.kind === "capture" ? `it reached ${tc.name}; step in to try to capture it` : a?.kind === "board" ? "a transport is in the way; step onto it to board" : a ? "an enemy is in the way" : t.domain === "land" && G.terrain[i] === 0 ? "it reached the coast" : t.domain === "sea" && G.terrain[i] === 1 && !cityAt(nx, ny) ? "it reached land" : "the way is blocked");
+      break;
+    }
+    doMove(u, nx, ny); computeVisible(0);
+    const c = cityAt(u.x, u.y); if (c) { stop(`it reached ${c.name}`); break; }
+    if (enemyNextTo(u)) { stop("an enemy is next to it"); break; }
+  }
+}
+
 function exploreTurn(u) {
   const t = UNIT_TYPES[u.type], air = t.domain === "air", name = t.name;
   let guard = 0;
@@ -999,6 +1117,7 @@ function exploreTurn(u) {
 function executeOrders(u) {
   if (u.orders?.kind === "explore") { exploreTurn(u); return; }
   if (u.orders?.kind === "patrol") { patrolTurn(u); return; }
+  if (u.orders?.kind === "dir") { dirTurn(u); return; }
   let guard = 0;
   while (!u.dead && u.moves > 0 && u.orders && guard++ < 20) {
     if (u.orders.kind === "home" && !refreshHome(u)) { u.orders = null; if (u.owner === 0) log(`Your ${UNIT_TYPES[u.type].name} has no city or carrier with room to return to.`, "bad"); break; }
@@ -1076,7 +1195,17 @@ function aiWander(u, radius, test) {
   return true;
 }
 
+// How the computer should play this map, read from the map itself (cached per game):
+// "land" = no ports at all, "islands" = many small landmasses (few cities each), else "continents".
+function aiStyle() {
+  if (G.aiStyle) return G.aiStyle;
+  const masses = new Set(G.cities.map(c => G.continent[idx(c.x, c.y)]));
+  const ports = G.cities.some(c => isCoastal(idx(c.x, c.y)));
+  return (G.aiStyle = !ports ? "land" : G.cities.length / masses.size <= 4 ? "islands" : "continents");
+}
+
 function aiProduction() {
+  const style = aiStyle();
   const mine = G.cities.filter(c => c.owner === AI);
   const transports = G.units.filter(u => u.owner === AI && u.type === "T").length;
   // Carriers: about one per 8 cities, counting ones already being built.
@@ -1084,17 +1213,33 @@ function aiProduction() {
   // Per landmass: our land units there vs. cities still to take, so contested landmasses don't soak up all production.
   const landHere = {}, toTake = {};
   for (const u of G.units) if (u.owner === AI && isLand(u.type) && !u.carriedBy) { const k = G.continent[idx(u.x, u.y)]; landHere[k] = (landHere[k] || 0) + 1; }
-  for (const c of G.cities) if (c.owner !== AI) { const k = G.continent[idx(c.x, c.y)]; toTake[k] = (toTake[k] || 0) + 1; }
+  const neutralHere = {}, enemyHere = {};
+  for (const c of G.cities) if (c.owner !== AI) {
+    const k = G.continent[idx(c.x, c.y)]; toTake[k] = (toTake[k] || 0) + 1;
+    if (c.owner < 0) neutralHere[k] = (neutralHere[k] || 0) + 1; else enemyHere[k] = (enemyHere[k] || 0) + 1;
+  }
   for (const c of mine) {
     if (c.progress > 0) continue; // only choose when a build just finished, so progress isn't wasted
     const i = idx(c.x, c.y), coastal = isCoastal(i);
     const k = G.continent[i], enough = (landHere[k] || 0) >= 8 + 4 * (toTake[k] || 0);
-    if (aiTargets.has(k) && !(enough && coastal)) { c.prod = Math.random() < 0.2 ? "K" : "A"; continue; }
-    if (!coastal) { const q = Math.random(); c.prod = q < 0.3 ? "F" : q < 0.5 ? "H" : "A"; continue; }
-    if (transports >= 2 && carriers < Math.floor(mine.length / 8) && Math.random() < 0.3) { c.prod = "C"; carriers++; continue; }
-    if (transports < Math.max(1, Math.ceil(mine.length / 3))) { c.prod = "T"; continue; }
+    const q = Math.random();
+    if (style === "land") {
+      // No sea war. Expansion phase (mostly neutral cities left): armies grab cities.
+      // War phase (mostly enemy cities left): tanks to fight, aircraft for air cover and bombing.
+      const war = (enemyHere[k] || 0) > (neutralHere[k] || 0);
+      c.prod = !war ? (q < 0.78 ? "A" : q < 0.95 ? "K" : "F")
+        : enough ? (q < 0.3 ? "K" : q < 0.55 ? "A" : q < 0.8 ? "H" : "F") : (q < 0.5 ? "A" : q < 0.8 ? "K" : q < 0.9 ? "F" : "H");
+      continue;
+    }
+    if (aiTargets.has(k) && !(enough && coastal)) { c.prod = q < (style === "islands" ? 0.12 : 0.2) ? "K" : "A"; continue; }
+    if (!coastal) { c.prod = q < 0.3 ? "F" : q < 0.5 ? "H" : "A"; continue; }
+    if (transports >= 2 && carriers < Math.floor(mine.length / (style === "islands" ? 6 : 8)) && Math.random() < 0.3) { c.prod = "C"; carriers++; continue; }
+    const wantT = Math.max(1, Math.ceil(mine.length / 3));
+    if (transports < wantT) { c.prod = "T"; continue; }
     const r = Math.random();
-    c.prod = r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.9 ? "S" : r < 0.95 ? "R" : "B";
+    c.prod = style === "islands"
+      ? (r < 0.55 ? "A" : r < 0.72 ? "D" : r < 0.82 ? "S" : r < 0.87 ? "F" : r < 0.9 ? "H" : r < 0.95 ? "R" : "B") // islands: armies fill the transports
+      : (r < 0.42 ? "A" : r < 0.6 ? "D" : r < 0.72 ? "F" : r < 0.8 ? "H" : r < 0.9 ? "S" : r < 0.95 ? "R" : "B");
   }
 }
 
@@ -1121,7 +1266,8 @@ function aiArmy(u) {
   const cont = G.continent[idx(u.x, u.y)];
   const cities = G.cities.filter(c => c.owner !== AI && G.continent[idx(c.x, c.y)] === cont).sort((a, b) => cheb(u, a) - cheb(u, b));
   // A landmass with far more of our troops than it needs: units away from the front ship out instead of queueing.
-  const crowded = cities.length && (aiLand[cont] || 0) >= 8 + 4 * cities.length && cheb(u, cities[0]) > 8;
+  // (Never on all-land maps: there are no ships to board, so everyone keeps pushing toward the front.)
+  const crowded = aiStyle() !== "land" && cities.length && (aiLand[cont] || 0) >= 8 + 4 * cities.length && cheb(u, cities[0]) > 8;
   if (!UNIT_TYPES[u.type].captures) {
     // Tanks: hunt enemy units here. They can't take cities, so they hang back and never block the approaches.
     let target = null, bd = 1e9;
@@ -1704,7 +1850,7 @@ function renderUnitPanel() {
     return;
   }
   const t = UNIT_TYPES[u.type], carrier = u.carriedBy ? unitById(u.carriedBy) : null;
-  const status = u.orders ? (u.orders.kind === "explore" ? "Exploring" : u.orders.kind === "patrol" ? `Patrolling ${u.orders.ax},${u.orders.ay} ↔ ${u.orders.bx},${u.orders.by}` : u.orders.kind === "home" ? `Returning to ${u.orders.unitId ? "carrier" : cityAt(u.orders.x, u.orders.y)?.name ?? "base"} at ${u.orders.x},${u.orders.y}` : `Heading to ${u.orders.x},${u.orders.y}`) : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
+  const status = u.orders ? (u.orders.kind === "dir" ? `Heading ${DIR_NAMES[u.orders.dx + "," + u.orders.dy]} until something's in the way` : u.orders.kind === "explore" ? "Exploring" : u.orders.kind === "patrol" ? `Patrolling ${u.orders.ax},${u.orders.ay} ↔ ${u.orders.bx},${u.orders.by}` : u.orders.kind === "home" ? `Returning to ${u.orders.unitId ? "carrier" : cityAt(u.orders.x, u.orders.y)?.name ?? "base"} at ${u.orders.x},${u.orders.y}` : `Heading to ${u.orders.x},${u.orders.y}`) : u.sentry ? "On sentry" : u.waitSeq && u.moves ? "Waiting: comes back after the others" : carrier ? "Aboard transport" : u.moves ? "Awaiting orders" : "Done this turn";
   const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
   let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
@@ -1730,7 +1876,8 @@ function renderUnitPanel() {
   }
   if (carrier) html += `<div class="row">${inOwnCity(u) ? `<button class="btn" data-act="unload">Unload <kbd>O</kbd></button>` : ""}<button class="btn" data-sel="${carrier.id}">Select its ${UNIT_TYPES[carrier.type].name.toLowerCase()}</button></div>`;
   const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
-  html += `<div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn" data-step="${dx},${dy}" aria-label="Move">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>`;
+  html += `<div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn${G.repeatArmed ? " on" : ""}" data-step="${dx},${dy}" aria-label="Move ${DIR_NAMES[dx + "," + dy]}">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>`;
+  html += `<div class="row"><button class="btn${G.repeatArmed ? " on" : ""}" data-act="repeat" aria-pressed="${!!G.repeatArmed}">Repeat direction</button><span class="empty" style="font-size:12px;align-self:center">${G.repeatArmed ? "Now pick a direction" : "or hold Shift"}</span></div>`;
   el.innerHTML = html;
 }
 
@@ -1922,6 +2069,7 @@ function act(name) {
     return;
   }
   if (name === "center") { centerOn(u.x, u.y); return; }
+  if (name === "repeat") { G.repeatArmed = !G.repeatArmed; renderAll(); return; }
   if (name === "explore") {
     if (UNIT_TYPES[u.type].domain === "land") { flash("Only aircraft and ships can explore."); return; }
     u.orders = { kind: "explore" }; u.sentry = false; u.skip = false; u.waitSeq = 0; G.gotoMode = false;
@@ -1958,7 +2106,10 @@ document.addEventListener("click", e => {
   if (b.dataset.act) act(b.dataset.act);
   else if (b.dataset.city) { G.cityPanel = +b.dataset.city; renderAll(); const c = G.cities[G.cityPanel]; scrollToTile(c.x, c.y); }
   else if (b.dataset.sel) { const u = unitById(+b.dataset.sel); if (u) { G.sel = u.id; u.skip = false; u.waitSeq = 0; renderAll(); } }
-  else if (b.dataset.step) { const [dx, dy] = b.dataset.step.split(",").map(Number); humanStep(dx, dy); }
+  else if (b.dataset.step) {
+    const [dx, dy] = b.dataset.step.split(",").map(Number), u = selUnit();
+    if ((e.shiftKey || G.repeatArmed) && u) setDir(u, dx, dy); else humanStep(dx, dy);
+  }
   else if (b.dataset.prod) {
     if (b.getAttribute("aria-disabled") === "true") { flash(`${UNIT_TYPES[b.dataset.prod].name}s can only be built in port cities.`); return; }
     const c = G.cities[G.cityPanel];
@@ -1979,7 +2130,11 @@ document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey || !G || G.over) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "m") { e.preventDefault(); setMini(!miniOn); return; }
-  if (KEYDIRS[k]) { e.preventDefault(); humanStep(...KEYDIRS[k]); return; }
+  if (KEYDIRS[k]) {
+    e.preventDefault(); const u = selUnit();
+    if ((e.shiftKey || G.repeatArmed) && u) setDir(u, ...KEYDIRS[k]); else humanStep(...KEYDIRS[k]);
+    return;
+  }
   const map = { g: "goto", s: "sentry", " ": "skip", n: "next", w: "wait", h: "home", f: "center", x: "explore", p: "patrol", l: "load", u: "wake", o: "unload" };
   if (map[k]) { e.preventDefault(); act(map[k]); return; }
   if (k === "Enter") { e.preventDefault(); requestEndTurn(); return; }
@@ -2041,22 +2196,43 @@ const CUSTOM_KEY = "empire-custom-map", cf = id => document.getElementById(id);
 const TILES_PER_CITY = 58; // the presets average about one city per 58 tiles at 36% land
 function citySuggestion(w, h, land) { return Math.round(w * h / TILES_PER_CITY * land / 36); }
 function cityMax(w, h, land) { return Math.max(8, Math.round(w * h * land / 100 / 20)); } // about what spacing lets fit
+// Map type for custom maps: "islands" (slider = number of islands), "continents" (slider = land %), "land" (no water).
+const customType = () => cf("customForm").dataset.type || "continents";
+function islandRange(w, h, ai) { return [4 + ai, Math.max(8 + ai, Math.min(80, Math.floor(w * h / 40)))]; }
+function islandLand(w, h, n) { const avg = Math.max(16, Math.min(90, w * h * 0.25 / n)); return Math.min(60, Math.round(n * avg / (w * h) * 100)); }
+function setCustomType(type) {
+  const f = cf("customForm"), sl = cf("cfLand"), prev = f.dataset.type;
+  if (prev === "continents") f.dataset.landVal = sl.value; else if (prev === "islands") f.dataset.islandVal = sl.value;
+  f.dataset.type = type;
+  for (const b of f.querySelectorAll("[data-maptype]")) { const on = b.dataset.maptype === type; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); }
+  cf("cfLandRow").hidden = type === "land";
+  cf("cfLandLabel").textContent = type === "islands" ? "Islands" : "Land";
+  if (type === "continents") { sl.min = 15; sl.max = 60; sl.value = f.dataset.landVal || 36; }
+  if (type === "islands") {
+    const [lo, hi] = islandRange(+cf("cfW").value, +cf("cfH").value, +cf("cfAI").value);
+    sl.min = lo; sl.max = hi; sl.value = f.dataset.islandVal || Math.round(+cf("cfW").value * +cf("cfH").value / 100);
+  }
+  updateCustom();
+}
 function showCustom(on) {
   cf("customForm").hidden = !on; cf("sizeChoices").hidden = on;
   newMenu.querySelector("p").textContent = on ? "Set up your own map. Your current game will end." : "Pick a map size. Your current game will end.";
   if (on) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); } catch (e) {}
     cf("cfAI").value = saved.ai || 1;
-    cf("cfW").value = saved.W || 80; cf("cfH").value = saved.H || 50; cf("cfLand").value = saved.land || 36;
+    cf("cfW").value = saved.W || 80; cf("cfH").value = saved.H || 50;
+    const f = cf("customForm"); f.dataset.type = ""; f.dataset.landVal = saved.land || 36; f.dataset.islandVal = saved.islands || "";
     cf("cfCities").dataset.touched = saved.touched ? "1" : "";
     if (saved.cities) cf("cfCities").value = saved.cities;
-    updateCustom(); cf("cfW").focus();
+    setCustomType(saved.mapType || "continents"); cf("cfW").focus();
   }
 }
 function updateCustom() {
-  const w = +cf("cfW").value, h = +cf("cfH").value, land = +cf("cfLand").value, ct = cf("cfCities");
+  const w = +cf("cfW").value, h = +cf("cfH").value, ct = cf("cfCities"), type = customType(), sl = cf("cfLand");
   const ai = +cf("cfAI").value;
-  const sugg = citySuggestion(w, h, land), max = cityMax(w, h, land);
+  if (type === "islands") { const [lo, hi] = islandRange(w, h, ai); sl.min = lo; sl.max = hi; if (+sl.value > hi) sl.value = hi; if (+sl.value < lo) sl.value = lo; }
+  const land = type === "continents" ? +sl.value : type === "islands" ? islandLand(w, h, +sl.value) : 100;
+  const sugg = citySuggestion(w, h, Math.min(land, 50)), max = cityMax(w, h, land);
   ct.min = Math.min(max, 4 + 2 * ai); // enough cities for every empire to start with room to grow
   ct.max = max;
   if (+ct.value < +ct.min) ct.value = ct.min;
@@ -2065,11 +2241,12 @@ function updateCustom() {
   if (+ct.value > max) ct.value = max;
   const cities = +ct.value;
   cf("cfWo").textContent = `${w} tiles`; cf("cfHo").textContent = `${h} tiles`;
-  cf("cfLando").innerHTML = `${land}% <small>${land < 25 ? "islands" : land < 44 ? "mixed" : "continents"}</small>`;
+  cf("cfLando").innerHTML = type === "islands" ? `${sl.value} <small>about ${land}% land</small>` : `${land}% <small>${land < 25 ? "small" : land < 44 ? "medium" : "large"} landmasses</small>`;
   const sg = Math.min(sugg, max);
   cf("cfCitieso").innerHTML = cities === sg ? `${cities} <small>suggested</small>` : `${cities} <button type="button" class="linkbtn" id="cfSugg">use ${sg}</button>`;
   const [vw, vh] = (() => { const v = Math.min(w, CONFIG.viewTiles); return [v, Math.min(h, Math.round(v * CONFIG.viewRows / CONFIG.viewTiles))]; })();
   cf("cfHint").textContent = `${(w * h).toLocaleString()} tiles, about ${Math.round(w * h * land / 100).toLocaleString()} of them land. ` +
+    (type === "islands" ? "Every empire starts on its own island with at least 3 cities, including a port. " : type === "land" ? "No water means no ports: armies, tanks and aircraft only. " : "") +
     (w > vw || h > vh ? `The window shows ${vw}×${vh}; the rest scrolls.` : "The whole map fits the window.") +
     ` Up to ${max} cities fit; if the land is crowded, fewer may be placed.`;
 }
@@ -2077,12 +2254,16 @@ function computersLabel(ai) {
   return `${ai} <small>${[1, 2, 3].slice(0, ai).map(q => `<span style="color:var(--${ownerToken(q)})">${PLAYERS[q].name}</span>`).join(", ")}</small>`;
 }
 function startCustom() {
-  const settings = { W: +cf("cfW").value, H: +cf("cfH").value, land: +cf("cfLand").value, cities: +cf("cfCities").value, ai: +cf("cfAI").value, touched: !!cf("cfCities").dataset.touched };
+  const type = customType(), f = cf("customForm"), sl = +cf("cfLand").value;
+  const settings = { W: +cf("cfW").value, H: +cf("cfH").value, mapType: type,
+    land: type === "continents" ? sl : +f.dataset.landVal || 36, islands: type === "islands" ? sl : +f.dataset.islandVal || undefined,
+    cities: +cf("cfCities").value, ai: +cf("cfAI").value, touched: !!cf("cfCities").dataset.touched };
   try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(settings)); } catch (e) {}
   const digits = cf("cfSeed").value.replace(/\D/g, "");
   const seed = digits ? Number(digits) % 4294967296 : (Math.random() * 1e9) | 0;
   newMenu.hidden = true;
-  newGame(seed, "custom", { W: settings.W, H: settings.H, cities: settings.cities, land: settings.land / 100, ai: settings.ai });
+  const landFrac = type === "continents" ? sl / 100 : type === "islands" ? islandLand(settings.W, settings.H, sl) / 100 : 1;
+  newGame(seed, "custom", { W: settings.W, H: settings.H, cities: settings.cities, land: landFrac, ai: settings.ai, mapType: type, islands: type === "islands" ? sl : undefined });
 }
 for (const id of ["cfW", "cfH", "cfLand", "cfAI"]) cf(id).addEventListener("input", updateCustom);
 cf("cfCities").addEventListener("input", () => { cf("cfCities").dataset.touched = "1"; updateCustom(); });
@@ -2090,6 +2271,7 @@ cf("cfSeed").addEventListener("keydown", e => { if (e.key === "Enter") { e.preve
 
 newMenu.addEventListener("click", e => {
   if (e.target.closest("[data-custom]")) { showCustom(true); return; }
+  const mt = e.target.closest("[data-maptype]"); if (mt) { setCustomType(mt.dataset.maptype); return; }
   if (e.target.id === "cfSugg") { cf("cfCities").dataset.touched = ""; updateCustom(); return; }
   if (e.target.id === "cfBack") { showCustom(false); newMenu.querySelector(".sizebtn")?.focus(); return; }
   if (e.target.id === "cfStart") { startCustom(); return; }
