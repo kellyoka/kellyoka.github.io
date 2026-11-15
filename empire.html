@@ -354,10 +354,10 @@ const UNIT_TYPES = {
   H: { name: "Bomber",     domain: "air",  moves: 4, hp: 1,  str: 2, cost: 18, fuel: 32, sight: 2, noCarrier: true, noAttack: true, oneShotDefense: true, returnFireVs: "air", ranged: { vs: ["ground", "sea"], returnFire: "sea", perTurn: 1, cityPerTurn: 2, parkedAir: true }, raids: true, interceptable: true },
   D: { name: "Destroyer",  domain: "sea",  moves: 3, hp: 3,  str: 1, cost: 24, sight: 2, detects: true },
   T: { name: "Transport",  domain: "sea",  moves: 2, hp: 3,  str: 1, cost: 36, carries: "land", capacity: 6, capLossPerHp: 2, noAttack: true },
-  C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 72, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
+  C: { name: "Carrier",    domain: "sea",  moves: 2, hp: 6,  str: 1, cost: 60, carries: "air",  capacity: 6, capLossPerHp: 1, noAttack: true, refuels: true },
   S: { name: "Submarine",  domain: "sea",  moves: 2, hp: 2,  str: 3, cost: 30, stealth: true, cityAttack: "ships" },
-  R: { name: "Cruiser",    domain: "sea",  moves: 2, hp: 8,  str: 2, cost: 60, cityAttack: "all" },
-  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 90, ranged: { vs: "land" }, cityAttack: "all" },
+  R: { name: "Cruiser",    domain: "sea",  moves: 2, hp: 8,  str: 2, cost: 54, cityAttack: "all" },
+  B: { name: "Battleship", domain: "sea",  moves: 2, hp: 12, str: 2, cost: 75, ranged: { vs: "land" }, cityAttack: "all" },
 };
 const isLand = type => UNIT_TYPES[type].domain === "land";
 // "1 Army", "2 Armies", "3 Tanks"
