@@ -1727,7 +1727,12 @@ function sizeCanvas() {
   // The window shows at most CONFIG.viewTiles columns at Medium's tile size; bigger maps scroll.
   const [vw, vh] = viewSize();
   canvas.style.width = (W / vw * 100) + "%";
-  mapScroll.style.aspectRatio = `${vw} / ${vh}`;
+  // Only show a scroll bar along an axis that actually needs one. When the whole height fits, the
+  // window sizes to the map (plus any horizontal bar), so a wide map like 128×40 gets a single bar.
+  const scrollX = W > vw, scrollY = H > vh;
+  mapScroll.style.overflowX = scrollX ? "auto" : "hidden";
+  mapScroll.style.overflowY = scrollY ? "auto" : "hidden";
+  mapScroll.style.aspectRatio = scrollY ? `${vw} / ${vh}` : "auto";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
