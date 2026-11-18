@@ -261,6 +261,13 @@ details.guide code { color: var(--fg); }
           <div class="hpanel" role="tabpanel" id="helpPanel" tabindex="0"></div>
         </div>
       </div>
+      <div class="modal" id="fuelConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="fuelConfirmTitle" aria-describedby="fuelConfirmText">
+        <div class="card">
+          <h2 id="fuelConfirmTitle">LOW FUEL</h2>
+          <p id="fuelConfirmText"></p>
+          <div class="actions"><button class="btn" id="fuelCancel">Cancel <kbd>Esc</kbd></button><button class="btn primary" id="fuelGo">Send it anyway <kbd>Enter</kbd></button></div>
+        </div>
+      </div>
       <div class="modal" id="endConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="endConfirmTitle" aria-describedby="endConfirmText">
         <div class="card">
           <h2 id="endConfirmTitle">END TURN?</h2>
@@ -944,6 +951,22 @@ function startTurn(p) {
   }
 }
 
+// Aircraft that end their turn in the air (not in your city or aboard a carrier) burn half their
+// unused moves in fuel, rounded up: a bomber that passes with all 4 moves loses 2.
+function idleBurn(u) {
+  const t = UNIT_TYPES[u.type];
+  if (!t.fuel || u.carriedBy || u.moves <= 0 || inOwnCity(u)) return 0;
+  return Math.ceil(u.moves / 2);
+}
+function burnIdleFuel(p) {
+  for (const u of [...G.units]) {
+    if (u.owner !== p || u.dead) continue;
+    const b = idleBurn(u); if (!b) continue;
+    u.fuel -= b;
+    if (u.fuel <= 0) { if (p === 0) log(`Your ${UNIT_TYPES[u.type].name.toLowerCase()} at ${u.x},${u.y} ran out of fuel circling and crashed.`, "bad"); kill(u); }
+  }
+}
+
 function alive(p) { return G.cities.some(c => c.owner === p) || G.units.some(u => u.owner === p); }
 function checkOver() {
   if (G.over) return;
@@ -991,7 +1014,9 @@ function findPath(u, tx, ty) {
         if (!a) continue;
         if (ni !== goal && (a.kind === "attack" || a.kind === "capture" || a.kind === "shot" || a.kind === "raid" || a.kind === "round")) continue;
       } else if (ni !== goal && !passable(u, ni)) continue;
-      const ng = g[cur] + 1 + (cityToll && ni !== goal && G.cityIdx.has(ni) ? cityToll : 0);
+      // Every step costs 1; a tiny extra on diagonals makes equally short routes prefer straight lines
+      // (no zig-zags), without ever making a route longer.
+      const ng = g[cur] + 1 + (dx && dy ? 0.001 : 0) + (cityToll && ni !== goal && G.cityIdx.has(ni) ? cityToll : 0);
       if (stamp[ni] !== gen || ng < g[ni]) { g[ni] = ng; stamp[ni] = gen; came[ni] = cur; heap.push(ni, ng + hfn(ni)); }
     }
   }
@@ -1159,6 +1184,7 @@ function executeOrders(u) {
     if (u.orders.kind === "home" && !refreshHome(u)) { u.orders = null; if (u.owner === 0) log(`Your ${UNIT_TYPES[u.type].name} has no city or carrier with room to return to.`, "bad"); break; }
     const o = u.orders, gi = idx(o.x, o.y), name = UNIT_TYPES[u.type].name;
     if (u.x === o.x && u.y === o.y) { if (u.carriedBy && inOwnCity(u)) unload(u); u.orders = null; break; }
+    if (gotoHalt(u)) break;
     const overseas = isLand(u.type) && G.terrain[gi] === 1 && G.seen[u.owner][gi] &&
       (!!u.carriedBy || G.continent[gi] !== G.continent[idx(u.x, u.y)]);
     let p;
@@ -1184,6 +1210,32 @@ function executeOrders(u) {
     if (a.kind !== "move" || u.carriedBy) u.orders = null;
   }
   if (!u.dead && u.orders && !u.carriedBy && u.x === u.orders.x && u.y === u.orders.y) u.orders = null;
+  if (!u.dead && u.orders) gotoHalt(u); // anything new in sight after the last step?
+}
+// Your units on go-to orders stop (and wait for new orders) when they spot an enemy unit they hadn't
+// seen when the order was given, or when they're next to the destination and something is sitting on it.
+function gotoHalt(u) {
+  const o = u.orders;
+  if (u.owner !== 0 || o?.kind !== "goto" || u.carriedBy) return false;
+  const name = UNIT_TYPES[u.type].name, stop = (msg) => { u.orders = null; log(msg, "bad"); return true; };
+  if (!o.seen) { o.seen = enemiesInSight(u, o.x, o.y).map(e => e.id); return false; } // order from an old save
+  const fresh = enemiesInSight(u, o.x, o.y).filter(e => !o.seen.includes(e.id));
+  if (fresh.length) {
+    const near = fresh.reduce((a, b) => (cheb(u, b) < cheb(u, a) ? b : a));
+    const what = fresh.length === 1 ? `an enemy ${UNIT_TYPES[near.type].name.toLowerCase()}` : `${fresh.length} enemy units`;
+    return stop(`Your <b>${name}</b> at ${u.x},${u.y} stopped: it spotted ${what} (nearest at ${near.x},${near.y}).`);
+  }
+  if (cheb(u, o) === 1) {
+    const there = unitsAt(o.x, o.y).filter(e => e.owner === u.owner || !hiddenFrom(e, u.owner));
+    if (there.length) {
+      const enemy = there.some(e => e.owner !== u.owner), a = classify(u, o.x, o.y);
+      if (!a || (enemy && !o.foe)) {
+        const who = there[0], whose = who.owner === u.owner ? "your" : "an enemy";
+        return stop(`Your <b>${name}</b> at ${u.x},${u.y} stopped next to its destination: ${whose} ${UNIT_TYPES[who.type].name.toLowerCase()} is in the way.`);
+      }
+    }
+  }
+  return false;
 }
 
 // =====================================================================
@@ -1517,6 +1569,7 @@ function beginHumanTurn(first) {
 function endTurn() {
   if (G.over) return;
   G.gotoMode = false;
+  burnIdleFuel(0);
   // Each computer empire takes its turn in order. A revealed sub stays visible until its owner's next turn begins.
   for (const q of computers()) {
     if (!alive(q)) continue;
@@ -1524,6 +1577,7 @@ function endTurn() {
     for (const u of G.units) if (u.owner === q) u.revealed = false;
     startTurn(q);
     aiTurn();
+    burnIdleFuel(q);
     if (!alive(0)) break;
   }
   AI = 1;
@@ -1563,13 +1617,65 @@ function humanStep(dx, dy) {
   afterAction();
 }
 
+// Visible enemy units within this unit's own sight (not the ones sitting on its destination).
+function enemiesInSight(u, gx = -1, gy = -1) {
+  const r = sightOf(u);
+  return G.units.filter(o => o.owner !== u.owner && !o.carriedBy && cheb(u, o) <= r && !(o.x === gx && o.y === gy) && !hiddenFrom(o, u.owner));
+}
+// A go-to order. It remembers the enemies already in view, so only newly spotted ones stop it,
+// and whether the destination held an enemy (then it's a deliberate attack).
+function makeGoto(u, x, y) {
+  const i = idx(x, y), c = G.cityIdx.get(i);
+  const foe = (visCache[i] && unitsAt(x, y).some(o => o.owner !== u.owner && !hiddenFrom(o, u.owner))) || (!!c && c.owner !== u.owner);
+  return { kind: "goto", x, y, seen: enemiesInSight(u, x, y).map(o => o.id), foe };
+}
+// Where could this aircraft refuel? Own cities, plus carriers with room (not for bombers).
+function refuelSpots(u) {
+  const s = G.cities.filter(c => c.owner === u.owner).map(c => ({ x: c.x, y: c.y }));
+  for (const c of G.units) if (UNIT_TYPES[c.type].refuels && c.id !== u.id && canCarry(c, u)) s.push({ x: c.x, y: c.y });
+  return s;
+}
+// Would this flight strand the aircraft? Returns a warning sentence, or null if it's fine.
+// Fuel left after flying path p and circling at the end of the arrival turn (half the unused moves, rounded up).
+function fuelOnArrival(u, p) {
+  const mm = maxMoves(u), rest = p.length <= u.moves ? u.moves - p.length : (mm - (p.length - u.moves) % mm) % mm;
+  return u.fuel - p.length - Math.ceil(rest / 2);
+}
+function fuelWarning(u, x, y) {
+  const t = UNIT_TYPES[u.type]; if (!t.fuel || u.owner !== 0) return null;
+  const p = findPath(u, x, y); if (!p) return null;
+  const name = t.name.toLowerCase();
+  if (p.length > u.fuel) return `Your ${name} has ${u.fuel} fuel, but that trip is ${p.length} moves. It will run dry ${plural(p.length - u.fuel, "tile")} short and crash.`;
+  const spots = refuelSpots(u), there = { x, y };
+  if (spots.some(s => s.x === x && s.y === y)) return null; // landing to refuel
+  const left = fuelOnArrival(u, p);
+  if (left <= 0) return `Your ${name} can just reach it, but circling there at the end of the turn burns the rest of its fuel, so it will crash.`;
+  const back = spots.length ? Math.min(...spots.map(s => cheb(there, s))) : Infinity;
+  if (left >= back) return null;
+  return `Your ${name} can reach it, but will have only ${left} fuel left there (after circling at the end of the turn). ${back === Infinity ? "You have nowhere for it to refuel" : `The nearest place to refuel is ${plural(back, "tile")} from there`}, so it won't make it back.`;
+}
+const fuelConfirm = document.getElementById("fuelConfirm");
+let fuelPending = null;
+function orderGoto(u, x, y) {
+  const warn = fuelWarning(u, x, y);
+  if (!warn) { setGoto(u, x, y); return; }
+  fuelPending = { id: u.id, x, y };
+  document.getElementById("fuelConfirmText").textContent = warn;
+  fuelConfirm.hidden = false; document.getElementById("fuelGo").focus();
+}
+function closeFuelConfirm(go) {
+  fuelConfirm.hidden = true; const f = fuelPending; fuelPending = null;
+  const u = f && unitById(f.id);
+  if (go && u) setGoto(u, f.x, f.y); else renderAll();
+}
+document.getElementById("fuelGo").addEventListener("click", () => closeFuelConfirm(true));
+document.getElementById("fuelCancel").addEventListener("click", () => closeFuelConfirm(false));
+fuelConfirm.addEventListener("click", e => { if (e.target === fuelConfirm) closeFuelConfirm(false); });
+
 function setGoto(u, x, y) {
-  u.orders = { kind: "goto", x, y }; u.sentry = false;
+  u.orders = makeGoto(u, x, y); u.sentry = false;
   if (u.moves > 0) executeOrders(u);
-  if (!u.dead && u.orders && UNIT_TYPES[u.type].fuel) {
-    const p = findPath(u, x, y);
-    if (p && p.length > u.fuel) log(`Warning: that ${UNIT_TYPES[u.type].name.toLowerCase()} lacks the fuel to get there.`, "bad");
-  }
+  else log(`Your ${UNIT_TYPES[u.type].name} will head there next turn.`);
   afterAction();
 }
 
@@ -1580,7 +1686,7 @@ function onTileClick(x, y) {
   if (G.gotoMode && u) {
     const mode = G.gotoMode; G.gotoMode = false;
     if (mode === "patrol") { setPatrol(u, x, y); return; }
-    if (x !== u.x || y !== u.y) setGoto(u, x, y); else renderAll(); return;
+    if (x !== u.x || y !== u.y) orderGoto(u, x, y); else renderAll(); return;
   }
   G.gotoMode = false;
   if (u && u.moves > 0 && cheb(u, { x, y }) === 1 && classify(u, x, y)) { humanStep(x - u.x, y - u.y); return; }
@@ -1603,8 +1709,7 @@ function onTileClick(x, y) {
       flash(`${what}. To send your ${UNIT_TYPES[u.type].name} there, press G and then click it.`);
       return;
     }
-    if (u.moves > 0) { setGoto(u, x, y); return; }
-    u.orders = { kind: "goto", x, y }; log(`Your ${UNIT_TYPES[u.type].name} will head there next turn.`);
+    orderGoto(u, x, y); return;
   }
   G.cityPanel = null; renderAll();
 }
@@ -1903,7 +2008,7 @@ function renderUnitPanel() {
   if (t.raids) html += `<dt>Raids</dt><dd>Bombing an empty enemy city sets its production back ${CONFIG.raidSetback} turns</dd>`;
   if (t.cityAttack) html += `<dt>Cities</dt><dd>Attacks ${t.cityAttack === "ships" ? "ships docked in" : "units in"} an adjacent enemy city: one round per move</dd>`;
   if (t.oneShotDefense) html += `<dt>Defense</dt><dd>Attackers get one shot${t.returnFireVs ? `; fires back once at ${t.returnFireVs === "air" ? "fighters" : t.returnFireVs + " units"}, never at anything else` : "; never fires back"}</dd>`;
-  if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""} · landing in a city ends its move</dd>`;
+  if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}${idleBurn(u) ? ` · <span style="color:var(--bad)">burns ${idleBurn(u)} if it ends the turn here</span>` : ""} · landing in a city ends its move</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
   html += `<div class="row"><button class="btn${G.gotoMode === true ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button>${t.intercepts ? `<button class="btn${G.gotoMode === "patrol" ? " on" : ""}" data-act="patrol">Patrol <kbd>P</kbd></button>` : ""}<button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${t.domain !== "land" ? '<button class="btn" data-act="explore">Explore <kbd>X</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
@@ -1927,7 +2032,7 @@ function unitNotes(k) {
   const t = UNIT_TYPES[k], n = [];
   if (t.captures) n.push("Captures cities (used up either way)");
   if (t.domain === "sea") n.push("Built in port cities only");
-  if (t.fuel) n.push(`Fuel ${t.fuel}; refuels in cities${t.noCarrier ? " only" : " and on carriers"}`);
+  if (t.fuel) n.push(`Fuel ${t.fuel}; refuels in cities${t.noCarrier ? " only" : " and on carriers"}. Ending a turn in the air burns half its unused moves`);
   if (t.carries) n.push(`Carries ${t.capacity} ${t.carries === "land" ? "spaces of armies and tanks" : "fighters"}; loses ${t.capLossPerHp} per hp of damage`);
   if (t.size > 1) n.push(`Takes ${t.size} transport spaces`);
   if (t.noAttack && !t.ranged) n.push("Can't attack; defends normally");
@@ -2049,6 +2154,7 @@ function helpRules(k) {
         `Interception: when on guard (in its own city, on sentry, on patrol or aboard a carrier) it fires first at an enemy bomber attacking within ${plural(C.interceptRange, "tile")}. Once per enemy turn; a surviving bomber fires back once.`],
       other: [
         `Fuel ${t.fuel}: each move uses 1. It refuels fully in your cities and aboard carriers, and crashes if it runs dry anywhere else.`,
+        `Ending a turn in the air (skip, sentry, or just not moving) burns half its unused moves in fuel, rounded up: ${Math.ceil(t.moves / 2)} for a full turn.`,
         `Landing in a city ends its move for the turn.`,
         `Orders: H home (nearest city or carrier), X explore, P patrol between two points.`] };
     case "H": return {
@@ -2062,7 +2168,7 @@ function helpRules(k) {
       defend: [
         `Anything attacking it gets a single shot. It fires back once only at fighters.`,
         `Enemy fighters on guard within ${plural(C.interceptRange, "tile")} of its target shoot at it first.`],
-      other: [`Fuel ${t.fuel}; refuels only in your cities. It can't land on carriers.`, `Landing in a city ends its move for the turn.`] };
+      other: [`Fuel ${t.fuel}; refuels only in your cities. It can't land on carriers.`, `Ending a turn in the air burns half its unused moves in fuel, rounded up: ${Math.ceil(t.moves / 2)} if it doesn't move at all.`, `Landing in a city ends its move for the turn.`] };
     case "D": return {
       role: "Fast, cheap escort and the main submarine hunter.",
       attack: [`Fights ships and aircraft over the sea normally.`, `Spots hidden submarines ${plural(C.detectRange, "tile")} away, so it can attack them without being ambushed.`],
@@ -2141,7 +2247,8 @@ function helpBasics() {
       `Damaged transports and carriers lose cargo space, and anything that no longer fits is lost.`]) +
     sec("Sight and aircraft", [
       `Most units see ${plural(C.sight, "tile")} around them; fighters, bombers and destroyers see 2.`,
-      `Aircraft burn 1 fuel per move and crash if they run dry away from a city (or a carrier, for fighters). Landing in a city ends their move.`]) +
+      `Aircraft burn 1 fuel per move and crash if they run dry away from a city (or a carrier, for fighters). Landing in a city ends their move.`,
+      `Aircraft that end a turn in the air burn half their unused moves in fuel, rounded up (a bomber that doesn't move loses 2).`]) +
     `</div></div>`;
 }
 
@@ -2400,6 +2507,11 @@ document.addEventListener("keydown", e => {
   if (!statsModal.hidden) { if (e.key === "Escape") statsModal.hidden = true; return; }
   if (!helpModal.hidden) { if (e.key === "Escape" || e.key === "?") { e.preventDefault(); helpModal.hidden = true; document.getElementById("helpBtn").focus(); } return; }
   if (e.key === "?" && !e.target.closest("input, textarea, select")) { e.preventDefault(); openHelp(); return; }
+  if (!fuelConfirm.hidden) {
+    if (e.key === "Enter") { e.preventDefault(); closeFuelConfirm(true); }
+    else if (e.key === "Escape") { e.preventDefault(); closeFuelConfirm(false); }
+    return;
+  }
   if (!endConfirm.hidden) {
     if (e.key === "Enter") { e.preventDefault(); endConfirm.hidden = true; endTurn(); }
     else if (e.key === "Escape") { e.preventDefault(); closeEndConfirm(); }
@@ -2424,11 +2536,14 @@ const endConfirm = document.getElementById("endConfirm");
 function requestEndTurn() {
   if (!G || G.over) return;
   const idle = G.units.filter(needsOrders);
-  if (!idle.length) { endTurn(); return; }
+  const doomed = G.units.filter(u => u.owner === 0 && idleBurn(u) && idleBurn(u) >= u.fuel); // would crash from circling
+  if (!idle.length && !doomed.length) { endTurn(); return; }
   const counts = {}; for (const u of idle) counts[u.type] = (counts[u.type] || 0) + 1;
   const list = Object.entries(counts).map(([k, n]) => countOf(n, k)).join(", ");
-  document.getElementById("endConfirmText").textContent =
-    `${idle.length} unit${idle.length > 1 ? "s still need" : " still needs"} orders (${list}). If you end the turn now, ${idle.length > 1 ? "they stay" : "it stays"} where ${idle.length > 1 ? "they are" : "it is"}.`;
+  const crash = doomed.length ? `${doomed.length === 1 ? `Your ${UNIT_TYPES[doomed[0].type].name.toLowerCase()} at ${doomed[0].x},${doomed[0].y} doesn't` : `${doomed.length} aircraft don't`} have the fuel to circle until next turn and will crash.` : "";
+  document.getElementById("endConfirmText").textContent = [
+    idle.length ? `${idle.length} unit${idle.length > 1 ? "s still need" : " still needs"} orders (${list}). If you end the turn now, ${idle.length > 1 ? "they stay" : "it stays"} where ${idle.length > 1 ? "they are" : "it is"}.` : "",
+    crash].filter(Boolean).join(" ");
   endConfirm.hidden = false; document.getElementById("endAnyway").focus();
 }
 function closeEndConfirm() { endConfirm.hidden = true; if (!selUnit() || !needsOrders(selUnit())) { G.sel = null; selectNext(); } renderAll(); }
