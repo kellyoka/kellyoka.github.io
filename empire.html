@@ -268,6 +268,13 @@ details.guide code { color: var(--fg); }
           <div class="actions"><button class="btn" id="fuelCancel">Cancel <kbd>Esc</kbd></button><button class="btn primary" id="fuelGo">Send it anyway <kbd>Enter</kbd></button></div>
         </div>
       </div>
+      <div class="modal" id="surrenderModal" hidden role="alertdialog" aria-modal="true" aria-labelledby="surrenderTitle" aria-describedby="surrenderText">
+        <div class="card" tabindex="-1" id="surrenderCard">
+          <h2 id="surrenderTitle">SURRENDER OFFERED</h2>
+          <p id="surrenderText"></p>
+          <div class="actions"><button class="btn" id="surrenderFight">Fight to the end <kbd>Esc</kbd></button><button class="btn primary" id="surrenderAccept">Accept surrender and win</button></div>
+        </div>
+      </div>
       <div class="modal" id="endConfirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="endConfirmTitle" aria-describedby="endConfirmText">
         <div class="card">
           <h2 id="endConfirmTitle">END TURN?</h2>
@@ -1564,7 +1571,32 @@ function beginHumanTurn(first) {
   G.sel = null; selectNext();
   if (!first) save();
   renderAll();
+  offerSurrender();
 }
+
+// Once every city has an owner and the computer empires hold under 10% of them between them,
+// they offer to surrender. You can win on the spot or fight on (they won't ask again).
+const SURRENDER_SHARE = 0.1;
+const surrenderModal = document.getElementById("surrenderModal");
+function offerSurrender() {
+  if (G.over || G.surrender) return;
+  if (G.cities.some(c => c.owner < 0)) return; // neutral cities left
+  const theirs = G.cities.filter(c => c.owner > 0).length, total = G.cities.length;
+  if (!theirs || theirs / total >= SURRENDER_SHARE) return;
+  const left = computers().filter(alive), many = left.length > 1;
+  const who = many ? `${left.map(q => PLAYERS[q].name).slice(0, -1).join(", ")} and ${PLAYERS[left[left.length - 1]].name} empires` : nPlayers() > 2 ? `${PLAYERS[left[0]].name} empire` : "enemy empire";
+  document.getElementById("surrenderText").textContent =
+    `The ${who} ${many ? "hold" : "holds"} only ${theirs} of ${total} cities (${Math.round(theirs / total * 100)}%) and ${many ? "offer" : "offers"} to surrender. Accept and win now, or fight on until ${many ? "they're" : "it's"} wiped out.`;
+  surrenderModal.hidden = false; document.getElementById("surrenderCard").focus();
+}
+function answerSurrender(accept) {
+  surrenderModal.hidden = true;
+  if (accept) { G.surrender = "accepted"; G.over = "win"; log(`The enemy surrendered on turn ${G.turn}.`, "good"); }
+  else { G.surrender = "declined"; log("You refused the enemy's surrender. Fight to the end!"); }
+  save(); renderAll();
+}
+document.getElementById("surrenderAccept").addEventListener("click", () => answerSurrender(true));
+document.getElementById("surrenderFight").addEventListener("click", () => answerSurrender(false));
 
 function endTurn() {
   if (G.over) return;
@@ -1934,7 +1966,7 @@ function renderAll() {
   ov.hidden = !G.over;
   if (G.over) {
     document.getElementById("overTitle").textContent = G.over === "win" ? "VICTORY" : "DEFEAT";
-    document.getElementById("overText").textContent = G.over === "win" ? `${nPlayers() > 2 ? "Every enemy empire has fallen" : "The enemy empire fell"} on turn ${G.turn}.` : `Your empire fell on turn ${G.turn}.`;
+    document.getElementById("overText").textContent = G.over === "win" ? (G.surrender === "accepted" ? `The enemy surrendered on turn ${G.turn}.` : `${nPlayers() > 2 ? "Every enemy empire has fallen" : "The enemy empire fell"} on turn ${G.turn}.`) : `Your empire fell on turn ${G.turn}.`;
     if (!G.statsShown) { G.statsShown = true; openStats(true); } // show the final war record once
   }
 }
@@ -2505,6 +2537,7 @@ const KEYDIRS = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRig
 document.addEventListener("keydown", e => {
   if (!newMenu.hidden) { if (e.key === "Escape") newMenu.hidden = true; return; }
   if (!statsModal.hidden) { if (e.key === "Escape") statsModal.hidden = true; return; }
+  if (!surrenderModal.hidden) { if (e.key === "Escape") { e.preventDefault(); answerSurrender(false); } else if (e.key === "Enter" && !e.target.closest("button")) e.preventDefault(); return; }
   if (!helpModal.hidden) { if (e.key === "Escape" || e.key === "?") { e.preventDefault(); helpModal.hidden = true; document.getElementById("helpBtn").focus(); } return; }
   if (e.key === "?" && !e.target.closest("input, textarea, select")) { e.preventDefault(); openHelp(); return; }
   if (!fuelConfirm.hidden) {
