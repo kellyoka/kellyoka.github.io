@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hexwar</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+
+    <header id="topbar">
+      <strong class="title">Hexwar</strong>
+      <label>Seed <input id="seed" type="number" inputmode="numeric" /></label>
+      <button id="apply-seed" type="button">Generate</button>
+      <button id="random-seed" type="button">New random map</button>
+      <button id="toggle-legend" type="button" title="Show or hide the legend (L)">Legend</button>
+      <span id="stats"></span>
+    </header>
+
+    <aside id="hover-info" aria-live="polite"></aside>
+
+    <aside id="legend" hidden>
+      <div><span class="sw plains"></span>Plains</div>
+      <div><span class="sw forest"></span>Forest (+1 def, 2 moves)</div>
+      <div><span class="sw mountains"></span>Mountains (impassable)</div>
+      <div><span class="sw river"></span>River (cross at bridges)</div>
+      <div><span class="sw road"></span>Road (½ move)</div>
+      <div><span class="sw city-p1"></span>Your start · <span class="sw city-p2"></span>AI start</div>
+      <div><span class="sw city-neutral"></span>Neutral city</div>
+      <div><span class="sw ruin"></span>Ruin · <span class="sw lair"></span>Lair</div>
+      <p class="hint">Drag to pan · scroll to zoom · F to fit · L legend</p>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
