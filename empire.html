@@ -112,12 +112,24 @@ aside { display: grid; gap: 12px; min-width: 0; }
 .prod .btn.on span:last-child { color: var(--accent); }
 .bar { height: 6px; background: var(--panel-2); border: 1px solid var(--line); }
 .bar i { display: block; height: 100%; background: var(--accent); }
-.unitmain { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 16px; }
-.unitmain .stats { flex: 1 1 230px; min-width: 0; }
-.movepad { display: flex; gap: 6px; flex: none; }
-.dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-auto-rows: 40px; gap: 4px; }
-.dpad .btn { padding: 0; text-align: center; font-size: 15px; }
-.repeatbtn { width: 40px; padding: 8px 0; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0.04em; white-space: nowrap; }
+/* Wide screens (as before): info, the order buttons, then the arrow pad and Repeat with its hint at the bottom. */
+.unitmain { display: contents; }
+.movepad { display: grid; gap: 10px; order: 1; }
+.dpad { display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; }
+.dpad .btn { padding: 8px 0; text-align: center; }
+.repeatrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.repeatrow .empty { font-size: 12px; }
+/* Tablets and phones (one column): the arrow pad sits to the right of the info, bottom-aligned with it,
+   with Repeat as a full-width button under the arrows. Phones wrap it under the info. */
+@media (max-width: 920px) {
+  .unitmain { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
+  .unitmain .stats { flex: 1 1 230px; min-width: 0; }
+  .movepad { flex: none; gap: 4px; order: 0; }
+  .dpad { grid-template-columns: repeat(3, 44px); grid-auto-rows: 40px; }
+  .dpad .btn { padding: 0; font-size: 15px; }
+  .repeatrow .btn { width: 100%; padding: 8px 0; }
+  .repeatrow .empty { display: none; }
+}
 .empty { color: var(--muted); }
 .log { display: grid; gap: 3px; max-height: 210px; overflow-y: auto; font-size: 12px; }
 .log div { color: var(--muted); } .log div b { color: var(--fg); font-weight: 500; }
@@ -2057,7 +2069,7 @@ function renderUnitPanel() {
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
   const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
   html += `<div class="movepad"><div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn${G.repeatArmed ? " on" : ""}" data-step="${dx},${dy}" aria-label="Move ${DIR_NAMES[dx + "," + dy]}">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>` +
-    `<button class="btn repeatbtn${G.repeatArmed ? " on" : ""}" data-act="repeat" aria-pressed="${!!G.repeatArmed}" title="${G.repeatArmed ? "Now pick a direction" : "Keep moving one way every turn (or hold Shift with an arrow key)"}">${G.repeatArmed ? "Pick a direction" : "Repeat direction"}</button></div></div>`;
+    `<div class="repeatrow"><button class="btn${G.repeatArmed ? " on" : ""}" data-act="repeat" aria-pressed="${!!G.repeatArmed}" title="${G.repeatArmed ? "Now pick a direction" : "Keep moving one way every turn (or hold Shift with an arrow key)"}">${G.repeatArmed ? "Pick a direction" : "Repeat direction"}</button><span class="empty">${G.repeatArmed ? "Now pick a direction" : "or hold Shift"}</span></div></div></div>`;
   html += `<div class="row"><button class="btn${G.gotoMode === true ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button>${t.intercepts ? `<button class="btn${G.gotoMode === "patrol" ? " on" : ""}" data-act="patrol">Patrol <kbd>P</kbd></button>` : ""}<button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${t.domain !== "land" ? '<button class="btn" data-act="explore">Explore <kbd>X</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
