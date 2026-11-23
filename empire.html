@@ -74,7 +74,15 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter
 kbd { font: inherit; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }
 
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
-@media (max-width: 920px) { .main { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 920px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  /* One column (tablets, phones): the selected unit's panel sits right under the map, above the city list,
+     so you can move a unit and watch the map in one glance. */
+  .main > .board, .main > aside { display: contents; }
+  .board > *, aside > * { order: 9; }
+  .mapwrap { order: 1; } .maprow { order: 2; margin-top: -8px; }
+  #unitPanel { order: 3; } #cityPanel { order: 4; } #cityList { order: 5; }
+}
 .board { min-width: 0; display: grid; gap: 6px; }
 .mapwrap { border: 1px solid var(--line); background: var(--fog); position: relative; }
 .mapscroll { overflow: auto; aspect-ratio: 64 / 40; overscroll-behavior: contain; scrollbar-color: var(--line) var(--fog); }
@@ -104,8 +112,12 @@ aside { display: grid; gap: 12px; min-width: 0; }
 .prod .btn.on span:last-child { color: var(--accent); }
 .bar { height: 6px; background: var(--panel-2); border: 1px solid var(--line); }
 .bar i { display: block; height: 100%; background: var(--accent); }
-.dpad { display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; }
-.dpad .btn { padding: 8px 0; text-align: center; }
+.unitmain { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 16px; }
+.unitmain .stats { flex: 1 1 230px; min-width: 0; }
+.movepad { display: flex; gap: 6px; flex: none; }
+.dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-auto-rows: 40px; gap: 4px; }
+.dpad .btn { padding: 0; text-align: center; font-size: 15px; }
+.repeatbtn { width: 40px; padding: 8px 0; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0.04em; white-space: nowrap; }
 .empty { color: var(--muted); }
 .log { display: grid; gap: 3px; max-height: 210px; overflow-y: auto; font-size: 12px; }
 .log div { color: var(--muted); } .log div b { color: var(--fg); font-weight: 500; }
@@ -2032,7 +2044,7 @@ function renderUnitPanel() {
   const home = t.fuel ? nearestRefuel(u) : null;
   const lowFuel = home && u.fuel <= cheb(u, home) + 1 && cheb(u, home) > 0;
   let html = `<h3>Unit</h3><div class="title-row"><span class="name" style="color:var(--you)">${t.name}</span><span class="chip">${u.x},${u.y}</span>${lowFuel ? '<span class="chip warn">Low fuel</span>' : ""}${isCrippled(u) && t.hp > 1 ? '<span class="chip warn">Half speed</span>' : ""}${t.stealth ? (hiddenFrom(u, 1) ? '<span class="chip">Submerged</span>' : '<span class="chip warn">Spotted</span>') : ""}</div>`;
-  html += `<dl class="stats"><dt>Strength</dt><dd>${u.hp}/${t.hp} hp · ${t.str} dmg</dd><dt>Moves</dt><dd>${u.moves}/${maxMoves(u)}${maxMoves(u) < t.moves ? ` (normally ${t.moves})` : ""}</dd>`;
+  html += `<div class="unitmain"><dl class="stats"><dt>Strength</dt><dd>${u.hp}/${t.hp} hp · ${t.str} dmg</dd><dt>Moves</dt><dd>${u.moves}/${maxMoves(u)}${maxMoves(u) < t.moves ? ` (normally ${t.moves})` : ""}</dd>`;
   if (u.hp < t.hp) { const inCity = cityAt(u.x, u.y)?.owner === 0; html += `<dt>Repair</dt><dd>${inCity ? `+${CONFIG.cityRepair} hp next turn` : `rested ${Math.min(u.idle || 0, CONFIG.fieldRestTurns)}/${CONFIG.fieldRestTurns} turns${u.acted ? " (moved this turn)" : ""}`}</dd>`; }
   html += `<dt>Sight</dt><dd>${UNIT_TYPES[u.type].sight ?? CONFIG.sight} tile${(UNIT_TYPES[u.type].sight ?? CONFIG.sight) > 1 ? "s" : ""}</dd>`;
   if (t.ranged) html += `<dt>Ranged</dt><dd>Fires at adjacent ${[].concat(t.ranged.vs).join("/")} units${t.ranged.returnFire ? ` (${[].concat(t.ranged.returnFire).join("/")} units fire back once)` : ""} · ${t.ranged.dmg ?? t.str} dmg · ${t.ranged.endsTurn ? "ends its turn" : t.ranged.perTurn ? `${t.ranged.perTurn} per turn${t.ranged.cityPerTurn != null ? ` outside cities (${shotsSpent(u) ? "used" : "ready"}), ${t.ranged.cityPerTurn} on cities (${Math.max(0, t.ranged.cityPerTurn - (u.cityShots || 0))} left)` : shotsSpent(u) ? " (used)" : ""}, each costs 1 move` : "costs 1 move"}</dd>`;
@@ -2043,6 +2055,9 @@ function renderUnitPanel() {
   if (t.fuel) html += `<dt>Fuel</dt><dd>${u.fuel}/${t.fuel}${home ? ` · home ${cheb(u, home)} away` : ""}${idleBurn(u) ? ` · <span style="color:var(--bad)">burns ${idleBurn(u)} if it ends the turn here</span>` : ""} · landing in a city ends its move</dd>`;
   if (t.carries) html += `<dt>Cargo</dt><dd>${cargoUsed(u)}/${transportCap(u)} ${t.carries === "air" ? "aircraft" : "spaces"}${transportCap(u) < t.capacity ? ` (damaged, normally ${t.capacity})` : ""}${t.carries === "land" ? " · tanks use 2" : " · fighters only · refuels them"}</dd>`;
   html += `<dt>Status</dt><dd>${status}</dd></dl>`;
+  const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
+  html += `<div class="movepad"><div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn${G.repeatArmed ? " on" : ""}" data-step="${dx},${dy}" aria-label="Move ${DIR_NAMES[dx + "," + dy]}">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>` +
+    `<button class="btn repeatbtn${G.repeatArmed ? " on" : ""}" data-act="repeat" aria-pressed="${!!G.repeatArmed}" title="${G.repeatArmed ? "Now pick a direction" : "Keep moving one way every turn (or hold Shift with an arrow key)"}">${G.repeatArmed ? "Pick a direction" : "Repeat direction"}</button></div></div>`;
   html += `<div class="row"><button class="btn${G.gotoMode === true ? " on" : ""}" data-act="goto">Go to <kbd>G</kbd></button>${t.intercepts ? `<button class="btn${G.gotoMode === "patrol" ? " on" : ""}" data-act="patrol">Patrol <kbd>P</kbd></button>` : ""}<button class="btn" data-act="sentry">Sentry <kbd>S</kbd></button><button class="btn" data-act="wait">Wait <kbd>W</kbd></button><button class="btn" data-act="skip">Skip <kbd>Space</kbd></button>${t.domain === "air" && !carrier && !inOwnCity(u) ? '<button class="btn" data-act="home">Home <kbd>H</kbd></button>' : ""}${t.domain !== "land" ? '<button class="btn" data-act="explore">Explore <kbd>X</kbd></button>' : ""}${mapScrolls() ? '<button class="btn" data-act="center">Center <kbd>F</kbd></button>' : ""}`;
   if (u.orders || u.sentry) html += `<button class="btn" data-act="clear">Clear orders</button>`;
   if (!carrier && G.units.some(o => o !== u && o.x === u.x && o.y === u.y && canCarry(o, u))) html += `<button class="btn" data-act="load">Load <kbd>L</kbd></button>`;
@@ -2053,9 +2068,6 @@ function renderUnitPanel() {
     html += `<div class="row">` + u.cargo.map(id => { const a = unitById(id); return a ? `<button class="btn" data-sel="${id}">${UNIT_TYPES[a.type].name} ${a.moves ? "·" : "✓"}</button>` : ""; }).join("") + `</div>`;
   }
   if (carrier) html += `<div class="row">${inOwnCity(u) ? `<button class="btn" data-act="unload">Unload <kbd>O</kbd></button>` : ""}<button class="btn" data-sel="${carrier.id}">Select its ${UNIT_TYPES[carrier.type].name.toLowerCase()}</button></div>`;
-  const arrows = [["↖",-1,-1],["↑",0,-1],["↗",1,-1],["←",-1,0],["·",0,0],["→",1,0],["↙",-1,1],["↓",0,1],["↘",1,1]];
-  html += `<div class="dpad">` + arrows.map(([s, dx, dy]) => dx || dy ? `<button class="btn${G.repeatArmed ? " on" : ""}" data-step="${dx},${dy}" aria-label="Move ${DIR_NAMES[dx + "," + dy]}">${s}</button>` : `<button class="btn" data-act="skip" aria-label="Skip">${s}</button>`).join("") + `</div>`;
-  html += `<div class="row"><button class="btn${G.repeatArmed ? " on" : ""}" data-act="repeat" aria-pressed="${!!G.repeatArmed}">Repeat direction</button><span class="empty" style="font-size:12px;align-self:center">${G.repeatArmed ? "Now pick a direction" : "or hold Shift"}</span></div>`;
   el.innerHTML = html;
 }
 
